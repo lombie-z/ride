@@ -74,6 +74,8 @@ export function RideButton() {
       else setMounted(false);
     };
     const key = (e: KeyboardEvent) => {
+      // (Dev: c previews the second city's chrome morph.)
+      if (process.env.NODE_ENV === 'development' && e.key === 'c') ride.chrome.want = 1 - ride.chrome.want;
       if (e.key === 'Escape') setMounted(false);
       else if (e.key === 'ArrowUp' || e.key === 'w') go();
       else if (e.key === 'ArrowDown' || e.key === 's') back();

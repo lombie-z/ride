@@ -9,6 +9,7 @@ import {
   Color,
   type Group,
   type Material,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   type MeshPhysicalMaterial,
@@ -60,12 +61,84 @@ function nightEnvMap(gl: WebGLRenderer) {
   return night;
 }
 
+let sunset: Texture | null = null;
+/** What the chrome bike reflects in the second city: a pink-violet sky, a low sun, white towers. */
+function sunsetEnvMap(gl: WebGLRenderer) {
+  if (sunset) return sunset;
+  const scene = new Scene();
+  // (Mostly dark, with bright bands: mirror chrome reads by the contrast of what it reflects.)
+  scene.add(new Mesh(new BoxGeometry(20, 20, 20), new MeshBasicMaterial({ color: new Color(0.04, 0.025, 0.06), side: BackSide })));
+  const panel = (w: number, h: number, colour: Color, x: number, y: number, z: number, ry = 0, rx = 0) => {
+    const m = new Mesh(new BoxGeometry(w, h, 0.1), new MeshBasicMaterial({ color: colour }));
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, 0);
+    scene.add(m);
+  };
+  panel(20, 20, new Color(0.3, 0.18, 0.42), 0, 9.8, 0, 0, Math.PI / 2);
+  panel(18, 2.5, new Color(1.0, 0.55, 0.6).multiplyScalar(1.6), 9, 0.6, 0, Math.PI / 2);
+  panel(18, 2.5, new Color(0.7, 0.45, 1.0).multiplyScalar(1.2), -9, 0.6, 0, Math.PI / 2);
+  panel(2.5, 18, new Color(0.9, 0.85, 1.0).multiplyScalar(1.5), 0, 0.6, 9);
+  panel(2.5, 18, new Color(0.9, 0.85, 1.0).multiplyScalar(1.1), 0, 0.6, -9);
+  panel(3, 3, new Color(1.0, 0.75, 0.6).multiplyScalar(5), 9.5, 1.2, -2, Math.PI / 2);
+  for (const z of [-7, -4, 4, 7]) panel(1.2, 12, new Color(0.95, 0.95, 1.0).multiplyScalar(1.3), -9, 2, z, Math.PI / 2);
+  panel(20, 20, new Color(0.02, 0.015, 0.03), 0, -9.8, 0, 0, Math.PI / 2);
+  const pmrem = new PMREMGenerator(gl);
+  sunset = pmrem.fromScene(scene, 0.02).texture;
+  pmrem.dispose();
+  return sunset;
+}
+
+// The chrome morph (lib/ride.ts ride.chrome): a seam of light sweeps the bike from its nose to its tail, and behind it
+// the black chitin, bone and steel turn to mirror chrome and the green ribs and eye to violet. Measured along the bike
+// (its own x, from the world through the inverse of where it's ridden), so it holds however it moves.
+const chromeUniforms = { uChromeEdge: { value: 2 }, uWorldToBike: { value: new Matrix4() }, uSeam: { value: 0 } };
+const CHROME_REACH = 1.45; // m either side of the bike's middle the seam starts and ends
+function morphable(material: Material & MeshPhysicalMaterial, glowing: boolean) {
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, chromeUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform mat4 uWorldToBike;\nvarying float vBikeX;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvBikeX = (uWorldToBike * modelMatrix * vec4(transformed, 1.0)).x;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform float uChromeEdge;
+uniform float uSeam;
+varying float vBikeX;`
+      )
+      .replace(
+        '#include <metalnessmap_fragment>',
+        `#include <metalnessmap_fragment>
+float chromed = smoothstep(uChromeEdge - 0.04, uChromeEdge + 0.04, vBikeX);
+${
+  glowing
+    ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.32, 0.12, 0.45), chromed);'
+    : `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.96, 1.0), chromed);
+metalnessFactor = mix(metalnessFactor, 1.0, chromed);
+roughnessFactor = mix(roughnessFactor, 0.04, chromed);`
+}`
+      )
+      .replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+${glowing ? 'totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.33))) * vec3(0.8, 0.42, 1.3), chromed);' : ''}
+// The seam itself: a bright band of light where the change is happening.
+totalEmissiveRadiance += vec3(0.85, 0.75, 1.0) * exp(-abs(vBikeX - uChromeEdge) * 38.0) * 4.0 * uSeam;`
+      );
+  };
+  material.customProgramCacheKey = () => (glowing ? 'bike-morph-glow' : 'bike-morph');
+}
+
 /** The biotech bike (art/build-bike.py), parked on the wet deck at the landing. */
 export function Bike() {
   const { scene } = useGLTF(URL, DRACO_PATH);
   const group = useRef<Group>(null);
   const gl = useThree((s) => s.gl);
   const env = useMemo(() => nightEnvMap(gl), [gl]);
+  const envSunset = useMemo(() => sunsetEnvMap(gl), [gl]);
+  const materials = useRef<(Material & MeshPhysicalMaterial)[]>([]);
+  const reflecting = useRef<Texture | null>(null);
   const glow = useRef<MeshStandardMaterial[]>([]);
   const buttonMaterials = useRef<MeshStandardMaterial[]>([]);
   const ridden = useRef<Group>(null);
@@ -100,6 +173,8 @@ export function Bike() {
       // The ribs' translucent shells are one merged mesh: three can't sort its rings against each other, so they
       // don't write depth.
       if (m.name === 'BikeRibGlass') m.depthWrite = false;
+      if (m.name !== 'BikeButton' && m.name !== 'BikeButtonGlyph' && m.name !== 'BikeTyre')
+        morphable(m, m.name === 'BikeGlow' || m.name === 'BikeEye' || m.name === 'BikeRibGlass');
       // The ride button and its lettering: lit by components/three/ride.tsx, dark until the streaks arrive.
       if (m.name === 'BikeButton' || m.name === 'BikeButtonGlyph') {
         m.emissiveIntensity = 0;
@@ -112,6 +187,13 @@ export function Bike() {
     });
     glow.current = glowing;
     buttonMaterials.current = button;
+    const all: (Material & MeshPhysicalMaterial)[] = [];
+    scene.traverse((c) => {
+      const m = (c as Mesh).material as Material & MeshPhysicalMaterial;
+      if ((c as Mesh).isMesh && !all.includes(m)) all.push(m);
+    });
+    materials.current = all;
+    reflecting.current = env;
     // The button's centre and the rider's eye (stand-ins on the dome and over the seat until the model has them).
     const stand = (name: string, x: number, y: number) => {
       const o = new Object3D();
@@ -149,6 +231,17 @@ export function Bike() {
       last.current = s;
       if (wheels.current.front) wheels.current.front.rotation.z -= ds / 0.315;
       if (wheels.current.rear) wheels.current.rear.rotation.z -= ds / 0.325;
+      // The chrome morph: where its seam is along the bike, and what the bike reflects once it's mostly chrome.
+      b.updateMatrixWorld();
+      chromeUniforms.uWorldToBike.value.copy(b.matrixWorld).invert();
+      const at = ride.chrome.at;
+      chromeUniforms.uChromeEdge.value = CHROME_REACH - 2 * CHROME_REACH * at;
+      chromeUniforms.uSeam.value = at > 0.001 && at < 0.999 ? 1 : 0;
+      const wanted = at > 0.5 ? envSunset : env;
+      if (reflecting.current !== wanted) {
+        reflecting.current = wanted;
+        for (const m of materials.current) m.envMap = wanted;
+      }
     }
     // Its own headlight on the road ahead once it's moving.
     if (headlight.current) headlight.current.intensity = 240 * Math.min(1, speed / 3 + (ride.drive.cruise ? 0.3 : 0));

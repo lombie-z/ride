@@ -34,7 +34,14 @@ export const ride = {
    * while it covers it, the ride is put back; seconds since it began, or -1.
    */
   wash: -1,
+  /**
+   * The bike's chrome morph for the second city (components/three/bike.tsx): wanted (0 or 1) and how far the seam has
+   * swept, nose to tail (0 black chitin, 1 chrome).
+   */
+  chrome: { want: 0, at: 0 },
 };
+/** Seconds for the chrome seam to sweep the bike. */
+export const CHROME_SECONDS = 2.6;
 
 /** The wash's timing (s): coming in, holding over the swap, draining away. */
 export const WASH = { in: 0.85, hold: 0.25, out: 1.0 } as const;

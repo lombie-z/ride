@@ -17,7 +17,7 @@ import {
   Vector3,
 } from 'three';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
-import { ACCEL, anchors, BRAKE, CRUISE, ride, SETTLED_FRAME, WASH, WASH_FROM } from '@/lib/ride';
+import { ACCEL, anchors, BRAKE, CHROME_SECONDS, CRUISE, ride, SETTLED_FRAME, WASH, WASH_FROM } from '@/lib/ride';
 
 // The ride button's entrance: once the camera has settled on the landing, streaks of light fly in from all round the
 // bike and converge between the handlebars, where the button lights (components/three/bike.tsx gives it its glow from
@@ -155,6 +155,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       } else drive.rewindFrom = -1;
     }
     drive.boost = Math.max(0, drive.boost - dt * 5);
+    // The chrome morph sweeps at a steady pace either way.
+    const c = ride.chrome;
+    c.at = c.want > c.at ? Math.min(c.want, c.at + dt / CHROME_SECONDS) : Math.max(c.want, c.at - dt / CHROME_SECONDS);
     drive.away = smoothstep(20, 260, drive.s);
   });
 
