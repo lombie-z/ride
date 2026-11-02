@@ -5,6 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { useRef, useState } from 'react';
 import type { Group } from 'three';
 import { belowVisible, devFlag, isLightDevice, journey, landingAt, smoothstep } from '@/lib/journey';
+import { ride } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { Mist } from './weather-mist';
 import { Ooze } from './weather-ooze';
@@ -33,7 +34,8 @@ export function Weather() {
     rain.current = smoothstep(0.35, 1, landing);
     ooze.current = smoothstep(0.1, 0.5, landing);
     // (Thinner from the deck's new vantage, looking down on the city: at full strength it washed the towers out.)
-    mist.current = 0.25 * landing;
+    // (Its shells are centred on the landing: gone once the ride leaves it.)
+    mist.current = 0.25 * landing * (1 - ride.drive.away);
   });
 
   return (

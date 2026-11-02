@@ -21,7 +21,7 @@ import { BEATS, belowVisible, journey, smoothstep } from '@/lib/journey';
 import { DRACO_PATH } from './biome';
 import { type DeckPlacement, WetRoad } from './wet-road';
 
-const URL = '/models/city.glb';
+export const CITY_URL = '/models/city.glb';
 // The deck's surface (art/build-city.py DECK_Z, DECK_X, DECK_Y; Blender's -y is three's z), used until the model carries
 // its City.DeckTop marker (centre, heading, length and width of the drivable surface).
 // (The wet surface floats 3 cm over the slab's top: any less and it loses to it in the depth buffer at a distance.)
@@ -29,8 +29,8 @@ const DECK_Y = -11;
 const WET_LIFT = 0.03;
 const DECK = { x: [-60, -12], z: [-14, 6.5] } as const;
 
-const WINDOW = new Color(0.8, 1.0, 0.62);
-const WINDOW_WARM = new Color(1.0, 0.92, 0.55);
+export const WINDOW = new Color(0.8, 1.0, 0.62);
+export const WINDOW_WARM = new Color(1.0, 0.92, 0.55);
 
 /**
  * The towers' facades: near-black walls with a grid of lit windows (the walls' UVs are metres along and up them, from
@@ -136,7 +136,7 @@ const ooze = () =>
   new MeshPhysicalMaterial({ color: new Color(0.004, 0.004, 0.005), roughness: 0.14, clearcoat: 1, clearcoatRoughness: 0.12, specularIntensity: 1 });
 
 export function City() {
-  const { scene } = useGLTF(URL, DRACO_PATH);
+  const { scene } = useGLTF(CITY_URL, DRACO_PATH);
   const group = useRef<Group>(null);
   const beam = useMemo(() => ({ geometry: new CylinderGeometry(1, 1, 1, 16, 1, true), material: beamMaterial() }), []);
 
@@ -197,4 +197,4 @@ export function City() {
   );
 }
 
-if (typeof window !== 'undefined') useGLTF.preload(URL, DRACO_PATH);
+if (typeof window !== 'undefined') useGLTF.preload(CITY_URL, DRACO_PATH);

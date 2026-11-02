@@ -5,7 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
 import { PerspectiveCamera as Looker, MathUtils, type PerspectiveCamera as PerspectiveCameraImpl, Quaternion, Vector3 } from 'three';
 import { BEATS, heroStageSize, journey, journeyProgress, landingAt, PRE_ROLL, TRACK_FRAMES } from '@/lib/journey';
-import { anchors, ride } from '@/lib/ride';
+import { anchors, CRUISE, ride } from '@/lib/ride';
 
 // The hero matches the blog's biome view (and the Blender preview camera): three-quarter, 3.7 units across the stage.
 // A long lens from far away stands in for the blog's orthographic camera, so the journey can widen it.
@@ -147,12 +147,17 @@ export function JourneyCamera() {
           .setY(riderEye.y - 10 * Math.tan(RIDER_PITCH))
       );
       riderQuaternion.copy(looker.quaternion);
+      // At speed: the view widens a little and the road buzzes up through the bars.
+      const pace = Math.min(1, ride.drive.speed / CRUISE);
+      const t = state.clock.elapsedTime;
+      riderEye.y += pace * 0.006 * (Math.sin(t * 41) + 0.6 * Math.sin(t * 67));
       cam.position.lerp(riderEye, e);
       cam.quaternion.slerp(riderQuaternion, e);
-      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV, e);
+      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV + 12 * pace * pace, e);
       cam.filmOffset *= 1 - e;
     }
-    cam.near = Math.max(0.03, cam.position.distanceTo(HERO_TARGET) * 0.002);
+    // (Close in on the bike, the near plane has to be too, however far the ride has gone from the planter.)
+    cam.near = ride.mount > 0 ? 0.04 : Math.max(0.03, cam.position.distanceTo(HERO_TARGET) * 0.002);
     cam.far = 2000;
     cam.updateProjectionMatrix();
     if (process.env.NODE_ENV === 'development') (window as unknown as { __journeyCamera?: unknown }).__journeyCamera = cam;

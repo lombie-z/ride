@@ -17,7 +17,7 @@ import {
   Vector3,
 } from 'three';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
-import { anchors, ride, SETTLED_FRAME } from '@/lib/ride';
+import { ACCEL, anchors, BRAKE, CRUISE, ride, SETTLED_FRAME } from '@/lib/ride';
 
 // The ride button's entrance: once the camera has settled on the landing, streaks of light fly in from all round the
 // bike and converge between the handlebars, where the button lights (components/three/bike.tsx gives it its glow from
@@ -76,7 +76,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       ride.screen.x = x;
       ride.screen.y = y;
       ride.screen.r = Math.max(r, 10);
-      ride.screen.shown = ndc.z < 1 && ride.appear > 0.6 && !ride.mounted && ride.mount < 0.05;
+      // (From the landing once it's lit; on the bike, once seated, it's the throttle.)
+      ride.screen.shown = ndc.z < 1 && ride.appear > 0.6 && ((!ride.mounted && ride.mount < 0.05) || (ride.mounted && ride.mount > 0.95));
     }
     // The whole bike's box on screen: anywhere on it gets on.
     if (anchors.bike) {
@@ -120,6 +121,25 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // Getting on: an eased glide there and back.
     const goal = ride.mounted ? 1 : 0;
     ride.mount = goal > ride.mount ? Math.min(goal, ride.mount + dt / MOUNT_SECONDS) : Math.max(goal, ride.mount - dt / MOUNT_SECONDS);
+
+    // Riding on (this runs before the bike moves and the camera follows: components/three/bike.tsx): up to cruising speed (plus any boost from scrolling) once it's told to go, braking to a stop when not.
+    const drive = ride.drive;
+    if (ride.mounted) {
+      drive.rewindFrom = -1;
+      const want = ride.mount > 0.95 && drive.cruise ? CRUISE + drive.boost : 0;
+      drive.speed = want > drive.speed ? Math.min(want, drive.speed + ACCEL * dt) : Math.max(want, drive.speed - BRAKE * dt);
+      drive.s += drive.speed * dt;
+    } else {
+      // Getting off rewinds the ride, the bike sliding back to its spot as the camera glides back to the landing.
+      drive.cruise = false;
+      drive.speed = 0;
+      if (drive.s > 0) {
+        if (drive.rewindFrom < 0) drive.rewindFrom = drive.s;
+        drive.s = drive.rewindFrom * smoothstep(0, 1, ride.mount);
+      } else drive.rewindFrom = -1;
+    }
+    drive.boost = Math.max(0, drive.boost - dt * 5);
+    drive.away = smoothstep(20, 260, drive.s);
   });
 
   return null;

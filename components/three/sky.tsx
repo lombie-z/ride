@@ -16,6 +16,7 @@ import {
   Vector3,
 } from 'three';
 import { BEATS, journey, smoothstep } from '@/lib/journey';
+import { ride } from '@/lib/ride';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -223,6 +224,10 @@ export function Sky({ sun }: { sun: Mesh | null }) {
     const lake = smoothstep(BEATS.fogOut[0] - 140, BEATS.fogOut[1], f) ** 0.6;
     fog.near = lerp(lerp(1000, lerp(5, 12, emerge), among), 120, lake);
     fog.far = lerp(lerp(2000, lerp(6, 120, emerge * emerge), among), 2200, lake);
+    // Riding away from the landing, the smog closes round the street, so its far end (recycled ahead,
+    // components/three/drive.tsx) is always in haze.
+    fog.near = lerp(fog.near, 40, ride.drive.away);
+    fog.far = lerp(fog.far, 620, ride.drive.away);
     // The haze matches the photographed sky behind it on the way down (so the cliffs emerge from the sky itself), then
     // warms to the landing's horizon.
     fog.color.copy(PLASTER).lerp(DESCENT_HAZE, bloom).lerp(SKY_HORIZON, lake);

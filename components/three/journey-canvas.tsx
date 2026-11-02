@@ -8,6 +8,7 @@ import { devFlag as flag, isLightDevice, journey, pixelSize } from '@/lib/journe
 import { Bike } from './bike';
 import { Biome } from './biome';
 import { City } from './city';
+import { DriveStreet } from './drive';
 import { Effects } from './effects';
 import { JourneyCamera } from './journey-camera';
 import { Sky } from './sky';
@@ -119,6 +120,7 @@ export default function JourneyCanvas({ onReady, onProgress }: { onReady: () => 
         {!flag('nocity') && <City />}
         {!flag('noweather') && <Weather />}
         {!flag('nobike') && <Bike />}
+        {!flag('nodrive') && <DriveStreet />}
       </Suspense>
       {flag('nofx') ? <Render /> : <Effects sun={null} pixel={pixel} />}
     </Canvas>

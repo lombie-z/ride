@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import { ride } from '@/lib/ride';
 
 // The hit area for the glowing button on the bike (drawn in the canvas, components/three/ride.tsx): a real, invisible
-// <button> kept over the whole bike each frame, so it's clickable, focusable and announced. Clicking gets on the bike: the camera
-// glides to the rider's eye and the page stops scrolling; scrolling (or swiping) back up gets off, as does Escape.
+// <button> kept over it each frame, so it's clickable, focusable and announced. From the landing it covers the whole
+// bike, and clicking gets on: the camera glides to the rider's eye and the page stops scrolling. On the bike it's the
+// throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or
+// scrolling back brakes, and scrolling back once stopped gets off (as does Escape).
 export function RideButton() {
   const button = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
@@ -29,19 +31,25 @@ export function RideButton() {
   // Keep the hit area on the button.
   useEffect(() => {
     let raf = 0;
+    let label = '';
     const tick = () => {
       const el = button.current;
       if (el) {
-        // Over the whole bike (and at least a finger's width round the button).
         const { x, y, r, shown } = ride.screen;
-        const { x0, y0, x1, y1 } = ride.bike;
         const pad = Math.max(22, r * 1.2);
+        // From the landing, the whole bike (and at least a finger's width round the button); on it, just the button.
+        const { x0, y0, x1, y1 } = ride.mounted ? { x0: x, y0: y, x1: x, y1: y } : ride.bike;
         const left = Math.min(x0, x - pad);
         const top = Math.min(y0, y - pad);
         el.style.transform = `translate(${left}px, ${top}px)`;
         el.style.width = `${Math.max(x1, x + pad) - left}px`;
         el.style.height = `${Math.max(y1, y + pad) - top}px`;
         el.style.visibility = shown ? 'visible' : 'hidden';
+        const want = !ride.mounted ? 'Get on the bike' : ride.drive.cruise ? 'Slow down' : 'Ride on';
+        if (want !== label) {
+          label = want;
+          el.setAttribute('aria-label', want);
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -49,21 +57,49 @@ export function RideButton() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // On the bike: no scrolling; scrolling or swiping back up gets off (and Escape, for the keyboard).
+  // On the bike: no page scrolling; scroll and keys drive instead.
   useEffect(() => {
     ride.mounted = mounted;
     if (!mounted) return;
     const root = document.documentElement;
     root.style.overflow = 'hidden';
-    const off = () => setMounted(false);
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && off();
-    const wheel = (e: WheelEvent) => e.deltaY < 0 && off();
+    const drive = ride.drive;
+    const go = () => {
+      // Each nudge forward adds a little boost on top of cruising.
+      if (drive.cruise) drive.boost = Math.min(16, drive.boost + 1.5);
+      drive.cruise = true;
+    };
+    const back = () => {
+      if (drive.cruise || drive.speed > 1) drive.cruise = false;
+      else setMounted(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMounted(false);
+      else if (e.key === 'ArrowUp' || e.key === 'w') go();
+      else if (e.key === 'ArrowDown' || e.key === 's') back();
+    };
+    // (Wheels and trackpads fire many events per gesture: one gesture is one nudge.)
+    let quiet = 0;
+    const wheel = (e: WheelEvent) => {
+      const now = performance.now();
+      const fresh = now - quiet > 250;
+      quiet = now;
+      if (e.deltaY > 0) go();
+      else if (e.deltaY < 0 && fresh) back();
+    };
     let touchY: number | null = null;
     const touchStart = (e: TouchEvent) => {
       touchY = e.touches[0]?.clientY ?? null;
     };
-    // (A finger dragged down the screen is scrolling up.)
-    const touchMove = (e: TouchEvent) => touchY !== null && (e.touches[0]?.clientY ?? touchY) - touchY > 40 && off();
+    // (A finger dragged up the screen is scrolling down: ride on; dragged down is scrolling up.)
+    const touchMove = (e: TouchEvent) => {
+      if (touchY === null) return;
+      const dy = (e.touches[0]?.clientY ?? touchY) - touchY;
+      if (Math.abs(dy) < 40) return;
+      touchY = null;
+      if (dy < 0) go();
+      else back();
+    };
     window.addEventListener('keydown', key);
     window.addEventListener('wheel', wheel, { passive: true });
     window.addEventListener('touchstart', touchStart, { passive: true });
@@ -83,7 +119,10 @@ export function RideButton() {
         ref={button}
         type="button"
         aria-label="Get on the bike"
-        onClick={() => setMounted(true)}
+        onClick={() => {
+          if (!mounted) setMounted(true);
+          else ride.drive.cruise = !ride.drive.cruise;
+        }}
         onFocus={() => {
           ride.focused = true;
         }}

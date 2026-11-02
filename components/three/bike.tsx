@@ -16,18 +16,19 @@ import {
   Object3D,
   PMREMGenerator,
   Scene,
+  type SpotLight,
   type Texture,
   type WebGLRenderer,
 } from 'three';
-import { belowVisible, journey } from '@/lib/journey';
-import { anchors } from '@/lib/ride';
+import { belowVisible, journey, smoothstep } from '@/lib/journey';
+import { anchors, CRUISE, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { RideControl, RideHalo, RideStreaks } from './ride';
 
 const URL = '/models/bike.glb';
 // Where it parks on the deck (art/build-city.py BIKE_AT, BIKE_YAW, fitted to the concept's framing; Blender's (x, y, z) is
 // three's (x, z, -y)).
-const AT = [-35.9138, -11, 38.0126] as const;
+export const AT = [-35.9138, -11, 38.0126] as const;
 // The lamp under the gantry (top left of the shot), warm against the green, picking out the chrome and the carapace.
 const LAMP = [-39.79, -7.2, 36.0] as const;
 const GLOW = 0.7;
@@ -67,6 +68,17 @@ export function Bike() {
   const env = useMemo(() => nightEnvMap(gl), [gl]);
   const glow = useRef<MeshStandardMaterial[]>([]);
   const buttonMaterials = useRef<MeshStandardMaterial[]>([]);
+  const ridden = useRef<Group>(null);
+  const headlight = useRef<SpotLight>(null);
+  const lamp = useRef<SpotLight>(null);
+  const headlightAim = useRef<Object3D>(null);
+  const lampAim = useRef<Object3D>(null);
+  // (A light's target only follows the scene when it's in it: aim each at an object placed in the graph.)
+  useEffect(() => {
+    if (headlight.current && headlightAim.current) headlight.current.target = headlightAim.current;
+    if (lamp.current && lampAim.current) lamp.current.target = lampAim.current;
+  }, []);
+  const wheels = useRef<{ front: Object3D | null; rear: Object3D | null }>({ front: null, rear: null });
 
   useEffect(() => {
     const glowing: MeshStandardMaterial[] = [];
@@ -111,6 +123,7 @@ export function Bike() {
     anchors.button = scene.getObjectByName('ButtonCentre') ?? stand('ButtonCentre', 0.3, 0.98);
     anchors.eye = scene.getObjectByName('RiderEye') ?? stand('RiderEye', -0.3, 1.55);
     anchors.bike = scene;
+    wheels.current = { front: scene.getObjectByName('WheelFront') ?? null, rear: scene.getObjectByName('WheelRear') ?? null };
     return () => {
       anchors.button = null;
       anchors.eye = null;
@@ -118,22 +131,41 @@ export function Bike() {
     };
   }, [scene, env]);
 
+  const last = useRef(0);
+  // (Before the camera, -1, which rides on the bike: otherwise it trails a frame behind it.)
   useFrame((state) => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
-    // The ribs breathe, slowly.
-    const breath = 0.8 + 0.2 * Math.sin(state.clock.elapsedTime * 1.3);
-    for (const m of glow.current) if (m.name === 'BikeGlow') m.emissiveIntensity = GLOW * breath;
-  });
+    const { s, speed } = ride.drive;
+    const pace = Math.min(1, speed / CRUISE);
+    // The ribs breathe, slowly; brighter and quicker as it goes.
+    const breath = 0.8 + 0.2 * Math.sin(state.clock.elapsedTime * (1.3 + 5 * pace));
+    for (const m of glow.current) if (m.name === 'BikeGlow') m.emissiveIntensity = GLOW * breath * (1 + 1.2 * pace);
+    // Riding: down the road from its spot, turning the last degree or two to run true along it, the wheels rolling.
+    const b = ridden.current;
+    if (b) {
+      b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, s);
+      b.rotation.y = YAW + (road.yaw - YAW) * smoothstep(0, 12, s);
+      const ds = s - last.current;
+      last.current = s;
+      if (wheels.current.front) wheels.current.front.rotation.z -= ds / 0.315;
+      if (wheels.current.rear) wheels.current.rear.rotation.z -= ds / 0.325;
+    }
+    // Its own headlight on the road ahead once it's moving.
+    if (headlight.current) headlight.current.intensity = 240 * Math.min(1, speed / 3 + (ride.drive.cruise ? 0.3 : 0));
+  }, -2);
 
   return (
     <group ref={group} visible={false}>
-      <group position={AT} rotation-y={YAW}>
+      <group ref={ridden} position={AT} rotation-y={YAW}>
         <primitive object={scene} />
+        <spotLight ref={headlight} position={[0.95, 0.72, 0]} angle={0.42} penumbra={0.7} distance={60} decay={1.1} intensity={0} color="#e8ffd8" />
+        <object3D ref={headlightAim} position={[24, -1.2, 0]} />
       </group>
       <RideControl buttonMaterials={buttonMaterials} />
       <RideStreaks />
       <RideHalo />
-      <spotLight position={LAMP} target-position={AT} angle={0.6} penumbra={0.8} distance={14} decay={1.2} intensity={30} color="#ffe6a8" />
+      <spotLight ref={lamp} position={LAMP} angle={0.6} penumbra={0.8} distance={14} decay={1.2} intensity={30} color="#ffe6a8" />
+      <object3D ref={lampAim} position={AT} />
     </group>
   );
 }

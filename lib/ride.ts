@@ -1,4 +1,4 @@
-import type { Object3D } from 'three';
+import { type Object3D, Vector3 } from 'three';
 
 /**
  * The ride button on the bike and getting on: shared per-frame state, written by components/three/ride.tsx (and the
@@ -22,7 +22,24 @@ export const ride = {
   /** The rider's view is wanted; how far the camera has got there (0 at the landing, 1 on the bike). */
   mounted: false,
   mount: 0,
+  /**
+   * Riding on (components/three/ride.tsx): distance down the road from the bike's spot (m), speed (m/s), whether it's
+   * cruising, a boost from scrolling (m/s), and how far it's left the landing behind (0 to 1).
+   */
+  drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1 },
 };
+
+/** Top cruising speed (m/s) and how hard it speeds up and brakes (m/s²). */
+export const CRUISE = 32;
+export const ACCEL = 7;
+export const BRAKE = 14;
+
+/**
+ * The road the bike rides along (components/three/drive.tsx works it out from the city's City.DeckTop marker): its
+ * direction ahead of the bike, the heading the bike turns to (about y), the distance from the bike to the deck's far end
+ * (where the endless street takes over), and the centre line at that end.
+ */
+export const road = { ahead: new Vector3(1, 0, 0), yaw: 0, end: 140, endCentre: new Vector3(), width: 11.8, known: false };
 
 /** The bike's anchors (bike.glb's ButtonCentre and RiderEye, or stand-ins), found by components/three/bike.tsx. */
 export const anchors = { button: null as Object3D | null, eye: null as Object3D | null, bike: null as Object3D | null };
