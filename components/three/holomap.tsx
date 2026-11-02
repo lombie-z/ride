@@ -25,66 +25,72 @@ import { DRACO_PATH } from './biome';
 // see-through hologram map opens out: the route back to the green city, the chrome city where you are, and a road on to
 // a question mark. Paced by ride.transition.map (components/three/ride.tsx).
 
-const PANEL = { w: 0.46, h: 0.33 };
+const PANEL = { w: 0.38, h: 0.27 };
 const corner = new Vector3();
 
 /**
- * The map's drawing, as an SVG (glowing lines on nothing: the hologram shader gives it its light). Two of it: at the
- * start, in the green city, just that city (here) and a dashed road off to a question mark; arrived, the route ridden
- * back to the green city (the way back), the chrome city (here) and a road on to the next question mark.
+ * The map's drawing, as an SVG (glowing light on nothing: the hologram shader adds the scan lines and flicker). Abstract:
+ * where you are is a glowing four-pointed star in that city's colours; where you've been, a smaller, dimmer one; where
+ * the road goes next, a bank of cloud with the next place's colours glowing through its gaps. At the start, in the green
+ * city, the next place is the chrome city (its pink, violet and cyan peek through); arrived there, the next is unknown
+ * (gold and coral, a hint of somewhere warmer).
  */
 function mapSvg(mode: 'start' | 'arrived') {
-  const glow = '#7ff6ff';
-  const violet = '#c69bff';
-  const green = '#7dff6a';
+  const ink = '#7ff6ff';
+  const star = (x: number, y: number, r: number, a: string, b: string, id: string, glow = 1) => `
+  <g transform="translate(${x} ${y})">
+    <circle r="${r * 1.9}" fill="url(#${id}Halo)" opacity="${0.8 * glow}"/>
+    <path d="M0 ${-r} C${r * 0.12} ${-r * 0.22} ${r * 0.22} ${-r * 0.12} ${r} 0 C${r * 0.22} ${r * 0.12} ${r * 0.12} ${r * 0.22} 0 ${r} C${-r * 0.12} ${r * 0.22} ${-r * 0.22} ${r * 0.12} ${-r} 0 C${-r * 0.22} ${-r * 0.12} ${-r * 0.12} ${-r * 0.22} 0 ${-r} Z"
+      fill="url(#${id}Fill)" filter="url(#soft)" opacity="${glow}"/>
+    <path d="M0 ${-r} C${r * 0.12} ${-r * 0.22} ${r * 0.22} ${-r * 0.12} ${r} 0 C${r * 0.22} ${r * 0.12} ${r * 0.12} ${r * 0.22} 0 ${r} C${-r * 0.12} ${r * 0.22} ${-r * 0.22} ${r * 0.12} ${-r} 0 C${-r * 0.22} ${-r * 0.12} ${-r * 0.12} ${-r * 0.22} 0 ${-r} Z"
+      fill="none" stroke="#ffffff" stroke-opacity="${0.8 * glow}" stroke-width="0.8"/>
+  </g>
+  <defs>
+    <radialGradient id="${id}Halo"><stop offset="0" stop-color="${a}" stop-opacity="0.55"/><stop offset="1" stop-color="${a}" stop-opacity="0"/></radialGradient>
+    <radialGradient id="${id}Fill"><stop offset="0" stop-color="#ffffff"/><stop offset="0.35" stop-color="${b}"/><stop offset="1" stop-color="${a}"/></radialGradient>
+  </defs>`;
+  // A bank of cloud, its gaps showing the colours behind (blobs of them under a cloud mask with holes).
+  const clouds = (x: number, y: number, colours: string[]) => `
+  <g transform="translate(${x} ${y})">
+    <g filter="url(#blur)">
+      ${colours.map((c, i) => `<circle cx="${-30 + i * 28}" cy="${(i % 2) * 10 - 2}" r="24" fill="${c}"/>`).join('')}
+    </g>
+    <g fill="#d8d2ff" fill-opacity="0.7" filter="url(#soft)">
+      <circle cx="-34" cy="6" r="15"/><circle cx="-16" cy="-6" r="18"/><circle cx="6" cy="-12" r="16"/><circle cx="26" cy="-2" r="17"/>
+      <circle cx="40" cy="10" r="12"/><circle cx="-4" cy="10" r="16"/><circle cx="18" cy="14" r="13"/><circle cx="-24" cy="16" r="11"/>
+    </g>
+    <g fill="#04050a">
+      <ellipse cx="-10" cy="3" rx="9" ry="5"/><ellipse cx="18" cy="5" rx="8" ry="4.5"/><ellipse cx="4" cy="-5" rx="6" ry="3.5"/>
+    </g>
+    <g filter="url(#soft)" opacity="0.95">
+      <ellipse cx="-10" cy="3" rx="9" ry="5" fill="${colours[0]}"/><ellipse cx="18" cy="5" rx="8" ry="4.5" fill="${colours[1]}"/><ellipse cx="4" cy="-5" rx="6" ry="3.5" fill="${colours[2]}"/>
+    </g>
+  </g>`;
   const frame = `
   <defs>
-    <pattern id="g" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="${glow}" stroke-opacity="0.18" stroke-width="0.6"/></pattern>
-    <linearGradient id="r" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${green}"/><stop offset="1" stop-color="${violet}"/></linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="0.8"/></filter>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+    <linearGradient id="trail" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#7dff6a"/><stop offset="1" stop-color="#ff8ad8"/></linearGradient>
   </defs>
-  <rect x="4" y="4" width="352" height="252" rx="14" fill="url(#g)" stroke="${glow}" stroke-opacity="0.65" stroke-width="1.4"/>
-  <path d="M10 10h22M10 10v22M350 10h-22M350 10v22M10 250h22M10 250v-22M350 250h-22M350 250v-22" stroke="${glow}" stroke-width="2.4" fill="none"/>
-  <text x="18" y="28" font-family="monospace" font-size="10" letter-spacing="3" fill="${glow}">ROUTE</text>
-  <text x="342" y="28" font-family="monospace" font-size="8" letter-spacing="2" fill="${glow}" fill-opacity="0.7" text-anchor="end">SECTOR ${mode === 'start' ? '01' : '02'}</text>`;
-  const greenCity = (here: boolean) => `
-  <g transform="translate(62 214) scale(1.35)" stroke="${green}" fill="none" stroke-width="1.2">
-    ${here ? '<circle cy="-18" r="30" stroke-opacity="0.5"/><circle cy="-18" r="35" stroke-opacity="0.25" stroke-dasharray="3 4"/>' : ''}
-    <path d="M-20 4V-18L-16-30L-12-18V4"/><path d="M-6 4V-30L0-48L6-30V4"/><path d="M11 4V-14L15-24L19-14V4"/>
-    <path d="M-3-26h6M-3-18h6M-3-10h6M-18-10h4M13-8h4" stroke-width="2"/>
-  </g>`;
-  const unknown = (x: number, y: number) => `
-  <g transform="translate(${x} ${y})">
-    <circle r="18" fill="none" stroke="${violet}" stroke-width="1.6"/><circle r="23" fill="none" stroke="${violet}" stroke-opacity="0.4" stroke-dasharray="2 5"/>
-    <text y="7" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="21" fill="${violet}">?</text>
-  </g>`;
+  <path d="M10 10h22M10 10v22M350 10h-22M350 10v22M10 250h22M10 250v-22M350 250h-22M350 250v-22" stroke="${ink}" stroke-opacity="0.8" stroke-width="2" fill="none"/>
+  ${Array.from({ length: 40 }, (_, i) => {
+    const h = Math.sin(i * 91.7) * 43758.5453;
+    const f = h - Math.floor(h);
+    const g = Math.sin(i * 47.3) * 9631.7;
+    return `<circle cx="${(20 + f * 320).toFixed(1)}" cy="${(20 + (g - Math.floor(g)) * 220).toFixed(1)}" r="${(0.5 + f * 0.9).toFixed(2)}" fill="${ink}" fill-opacity="${(0.25 + f * 0.4).toFixed(2)}"/>`;
+  }).join('')}`;
   if (mode === 'start')
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
-  <path d="M62 196 C110 170, 150 150, 200 128 S270 92, 300 70" fill="none" stroke="${violet}" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 9"/>
-  ${greenCity(true)}
-  ${unknown(300, 70)}
-  <g font-family="monospace" font-size="10" letter-spacing="1.6" fill="${glow}">
-    <text x="62" y="248" text-anchor="middle" fill="${green}">GREEN CITY</text>
-    <text x="62" y="236" text-anchor="middle" font-size="8" fill="${green}" fill-opacity="0.85">YOU ARE HERE</text>
-    <text x="300" y="106" text-anchor="middle" font-size="8" fill="${violet}">UNCHARTED</text>
-  </g>
+  <path d="M76 190 C130 176, 160 150, 205 124 S262 92, 282 84" fill="none" stroke="#c69bff" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8" opacity="0.85"/>
+  ${star(72, 194, 24, '#3dff6a', '#b8ff9a', 'here')}
+  ${clouds(290, 74, ['#ff7ad0', '#8a7bff', '#5ff0ff'])}
 </svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
-  <path d="M150 196 C200 214, 278 200, 330 166 L338 238 L144 242 Z" fill="${glow}" fill-opacity="0.1" stroke="${glow}" stroke-opacity="0.35" stroke-width="0.8"/>
-  <path d="M62 214 C96 190, 104 160, 138 150 S176 142, 190 132" fill="none" stroke="url(#r)" stroke-width="4" stroke-linecap="round"/>
-  <path d="M190 132 C214 110, 232 104, 252 84 S286 54, 304 48" fill="none" stroke="${violet}" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 9"/>
-  ${greenCity(false)}
-  <g transform="translate(190 132) scale(1.35)" stroke="${glow}" fill="none" stroke-width="1.2">
-    <circle r="22" stroke-opacity="0.5"/><circle r="27" stroke-opacity="0.25" stroke-dasharray="3 4"/>
-    <path d="M-3 4V-30h6V4"/><ellipse cy="-24" rx="13" ry="3.2"/><ellipse cy="-14" rx="11" ry="3"/><ellipse cy="-4" rx="9" ry="2.8"/><path d="M0-30v-10"/>
-  </g>
-  ${unknown(304, 48)}
-  <g font-family="monospace" font-size="10" letter-spacing="1.6" fill="${glow}">
-    <text x="62" y="248" text-anchor="middle" fill="${green}">GREEN CITY</text>
-    <text x="62" y="236" text-anchor="middle" font-size="7" fill="${green}" fill-opacity="0.8">◂ RIDE BACK</text>
-    <text x="190" y="182" text-anchor="middle">CHROME CITY</text>
-    <text x="190" y="195" text-anchor="middle" font-size="8" fill-opacity="0.75">YOU ARE HERE</text>
-    <text x="304" y="84" text-anchor="middle" font-size="8" fill="${violet}">UNCHARTED</text>
-  </g>
+  <path d="M62 212 C100 190, 120 160, 160 146 S186 140, 196 134" fill="none" stroke="url(#trail)" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+  <path d="M206 124 C232 102, 250 92, 268 80 S290 66, 296 62" fill="none" stroke="#ffc07a" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8" opacity="0.85"/>
+  ${star(60, 212, 13, '#3dff6a', '#b8ff9a', 'was', 0.55)}
+  ${star(198, 132, 24, '#ff7ad0', '#9feeff', 'here')}
+  ${clouds(300, 56, ['#ffb84d', '#ff6f61', '#ffe27a'])}
 </svg>`;
 }
 
@@ -137,7 +143,7 @@ function hologramMaterial(map: CanvasTexture) {
         // Opening out from a line: the leading edges glow.
         float sweep = smoothstep(0.0, 0.04, uOpen - abs(vUv.y - 0.5) * 2.0);
         // The green city's way back, lit up when pointed at (or focused).
-        vec2 g = (vUv - vec2(0.175, 0.2)) / vec2(0.1, 0.16);
+        vec2 g = (vUv - vec2(0.167, 0.185)) / vec2(0.08, 0.12);
         float back = (1.0 - smoothstep(0.7, 1.0, length(g))) * uBack;
         col += vec3(0.45, 1.0, 0.4) * back * (0.35 + 0.65 * c.a);
         vec3 lightOut = (col * 1.6 * scan + body) * flicker * sweep;
@@ -214,9 +220,10 @@ export function HoloMap() {
     // The hands come up from below (rotating up about a point at the chest), then the map opens out.
     const raise = smoothstep(0.35, 0.72, m);
     const open = smoothstep(0.68, 1, m);
+    // (Lowered, they turn down about a point below the chest, out of view: art/build-hands.py's pivot.)
     if (holder.current) {
-      holder.current.rotation.x = -0.75 * (1 - raise);
-      holder.current.position.set(0, -0.35 * (1 - raise) + 0.006 * Math.sin(state.clock.elapsedTime * 1.3), 0);
+      holder.current.rotation.x = -0.62 * (1 - raise);
+      holder.current.position.set(0, -0.6 + 0.004 * Math.sin(state.clock.elapsedTime * 1.3), 0);
     }
     material.uniforms.uTime.value = state.clock.elapsedTime;
     material.uniforms.uOpen.value = open;
@@ -231,7 +238,7 @@ export function HoloMap() {
         p.position.set(0, 0.17, 0);
         a.getWorldPosition(p.position);
         r.worldToLocal(p.position);
-        p.position.y += 0.15;
+        p.position.y += PANEL.h / 2 + 0.012;
       } else p.position.set(0, -0.05, -0.62);
       p.rotation.set(-0.08, 0, 0);
       p.scale.set(0.25 + 0.75 * smoothstep(0, 0.4, open), Math.max(0.02, open), 1);
@@ -245,10 +252,10 @@ export function HoloMap() {
         let x1 = Number.NEGATIVE_INFINITY;
         let y1 = Number.NEGATIVE_INFINITY;
         for (const [u, v] of [
-          [0.07, 0.02],
-          [0.28, 0.02],
-          [0.07, 0.38],
-          [0.28, 0.38],
+          [0.09, 0.07],
+          [0.25, 0.07],
+          [0.09, 0.3],
+          [0.25, 0.3],
         ]) {
           corner.set((u - 0.5) * PANEL.w, (v - 0.5) * PANEL.h, 0);
           p.localToWorld(corner).project(state.camera);
@@ -267,15 +274,17 @@ export function HoloMap() {
   return (
     <group ref={rig} visible={false}>
       <group ref={holder}>
-        {hands && (
-          <Suspense fallback={null}>
-            <Hands
-              onAnchor={(a) => {
-                anchor.current = a;
-              }}
-            />
-          </Suspense>
-        )}
+        <group position={[0, 0.6, 0]}>
+          {hands && (
+            <Suspense fallback={null}>
+              <Hands
+                onAnchor={(a) => {
+                  anchor.current = a;
+                }}
+              />
+            </Suspense>
+          )}
+        </group>
       </group>
       <mesh ref={panel} geometry={geometry} material={material} renderOrder={21} frustumCulled={false} />
     </group>
