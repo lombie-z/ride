@@ -1,0 +1,35 @@
+"""Back-project the traced concept guides through ConceptCam2 onto bike-local planes y = const (the root's 5 deg lean
+undone), to read the concept's side profile in metres: python3 backproject.py [y=0]"""
+import json, math, os, sys
+import numpy as np
+HERE = os.path.dirname(os.path.abspath(__file__))
+G = json.load(open(os.path.join(HERE, 'concept-bike2-guides.json')))
+C = json.load(open(os.path.join(HERE, 'concept-cam2.json')))
+W, H = C['size']
+eye, look = np.array(C['location']), np.array(C['look'])
+f = (look - eye) / np.linalg.norm(look - eye); r = np.cross(f, [0, 0, 1.0]); r /= np.linalg.norm(r); u = np.cross(r, f)
+tv = math.tan(math.radians(C['vfov']) / 2); th = tv * W / H
+L = math.radians(5)
+ROT = np.array([[1, 0, 0], [0, math.cos(-L), -math.sin(-L)], [0, math.sin(-L), math.cos(-L)]])  # local -> world
+
+
+def ray(px, py):
+    d = f + r * ((px / (W / 2) - 1) * th) + u * ((1 - py / (H / 2)) * tv)
+    return d / np.linalg.norm(d)
+
+
+def on_plane(px, py, y):
+    # plane in local: n=(0,1,0), point (0,y,0) -> world
+    n = ROT @ np.array([0, 1.0, 0]); p0 = ROT @ np.array([0, y, 0])
+    d = ray(px, py); t = (p0 - eye) @ n / (d @ n)
+    return ROT.T @ (eye + d * t)
+
+
+if __name__ == '__main__':
+    y = float(sys.argv[1]) if len(sys.argv) > 1 else 0.0
+    for kind in ('polygons', 'lines', 'points'):
+        for name, pts in G[kind].items():
+            if kind == 'points':
+                pts = [pts]
+            out = [tuple(np.round(on_plane(px, py, y)[[0, 2]], 3)) for px, py in pts]
+            print(kind[:-1], name, ' '.join(f'({a:+.3f},{b:.3f})' for a, b in out))

@@ -47,6 +47,9 @@ const STEEL = /* glsl */ `
 export type Weathering = 'concrete' | 'steel';
 
 export function weathered<T extends MeshStandardMaterial>(material: T, kind: Weathering): T {
+  // (Once per material: a model's materials are shared and its setup can run again, e.g. on a hot reload.)
+  if (material.userData.weathered) return material;
+  material.userData.weathered = kind;
   const previous = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     previous?.call(material, shader, renderer);

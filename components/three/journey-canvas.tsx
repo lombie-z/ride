@@ -18,8 +18,18 @@ import { Weather } from './weather';
 
 /** Download progress (0-100) of the model and decoder, for the loading overlay. */
 function Progress({ onProgress }: { onProgress: (progress: number) => void }) {
-  const progress = useProgress((s) => s.progress);
-  useEffect(() => onProgress(progress), [progress, onProgress]);
+  // (Subscribed outside React's render and passed on a tick later: the loader reports progress while the models'
+  // components are rendering, and updating another component then is an error.)
+  useEffect(() => {
+    let live = true;
+    const pass = (progress: number) => queueMicrotask(() => live && onProgress(progress));
+    pass(useProgress.getState().progress);
+    const stop = useProgress.subscribe((s) => pass(s.progress));
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [onProgress]);
   return null;
 }
 
