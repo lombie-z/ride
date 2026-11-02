@@ -45,6 +45,7 @@ const TRAIL = 0.32; // trail length, as a share of the flight
 const MOUNT_SECONDS = 2.2;
 // Through the ooze: the speed it bogs down to (m/s) and how hard it drags (m/s²).
 const MUCK_SPEED = 8;
+const CLEAR_SECONDS = 4;
 const MUCK_DRAG = 26;
 
 const target = new Vector3();
@@ -192,7 +193,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           ride.chrome.at = 0;
           drive.time = 0;
           // (And the second city's gone again: the next ride makes its way there afresh.)
-          Object.assign(ride.transition, { placed: false, at: 0, t: 0, arrived: false, arrive: 0 });
+          Object.assign(ride.transition, { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0 });
         }
         if (ride.wash > WASH.in + WASH.hold + WASH.out) ride.wash = -1;
       } else if (drive.s > 0) {
@@ -213,6 +214,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       tr.at = drive.s + TRANSITION_LEAD;
     }
     tr.t = tr.placed ? smoothstep(tr.at - TRANSITION_LEAD, tr.at + 160, drive.s) : 0;
+    // The towers by the water sink away and the train's beam rises in their place, over a few seconds.
+    tr.clear = tr.placed ? Math.min(1, tr.clear + dt / CLEAR_SECONDS) : 0;
     tr.arrive = tr.arrived && ride.mounted ? Math.min(1, tr.arrive + dt / 3.2) : Math.max(0, tr.arrive - dt / 1.2);
     const c = ride.chrome;
     // (Once the sunset is coming in, so the chrome bike arrives with its light.)

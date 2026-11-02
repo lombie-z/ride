@@ -63,6 +63,26 @@ export const RoadShader = {
       vec4 uv = vUv;
       uv.x += (grain * 0.05 * (1.0 - puddle) + rain * 0.006 * (1.0 - uMirror)) * uv.w;
       uv.y += (grain * 0.012 * (1.0 - puddle)) * uv.w;
+      // The second city's mirror road is a skin of water, alive: long swells rolling across it, a finer shiver, and
+      // drops landing here and there, their rings spreading. Together they bend the reflection.
+      vec2 ripple = vec2(0.0);
+      float rings = 0.0;
+      if (uMirror > 0.0) {
+        float e = 0.15;
+        float h0 = vnoise(p * vec2(0.45, 0.9) + uTime * vec2(0.35, 0.6)) + 0.35 * vnoise(p * 2.6 - uTime * vec2(1.1, 0.4));
+        float hx = vnoise((p + vec2(e, 0.0)) * vec2(0.45, 0.9) + uTime * vec2(0.35, 0.6)) + 0.35 * vnoise((p + vec2(e, 0.0)) * 2.6 - uTime * vec2(1.1, 0.4));
+        float hz = vnoise((p + vec2(0.0, e)) * vec2(0.45, 0.9) + uTime * vec2(0.35, 0.6)) + 0.35 * vnoise((p + vec2(0.0, e)) * 2.6 - uTime * vec2(1.1, 0.4));
+        ripple = vec2(hx - h0, hz - h0) / e;
+        // Drops: in each 3 m cell, one landing every so often, its ring growing and fading.
+        vec2 cell = floor(p / 3.0);
+        vec2 at = (cell + 0.2 + 0.6 * vec2(hash(cell), hash(cell + 7.1))) * 3.0;
+        float period = 1.6 + 2.4 * hash(cell + 3.3);
+        float age = fract(uTime / period + hash(cell + 9.9));
+        float r = distance(p, at);
+        rings = sin((r - age * 2.4) * 9.0) * exp(-abs(r - age * 2.4) * 4.0) * (1.0 - age);
+        ripple += normalize(p - at + 1e-4) * rings * 0.9;
+        uv.xy += ripple * 0.011 * uMirror * uv.w;
+      }
       vec3 sharp = texture2DProj(tDiffuse, uv).rgb;
       // The tarmac's reflection, stretched: a few taps down the view.
       vec3 smear = sharp;
@@ -73,12 +93,15 @@ export const RoadShader = {
       }
       smear /= 5.0;
       vec3 v = normalize(cameraPosition - vWorld);
-      float fresnel = mix(0.04 + 0.96 * pow(1.0 - max(v.y, 0.0), 5.0), 0.92, uMirror);
+      // (The mirror road reflects more at grazing angles, less looking down into it: water, not glass.)
+      float fresnel = mix(0.04 + 0.96 * pow(1.0 - max(v.y, 0.0), 5.0), 0.35 + 0.45 * pow(1.0 - max(v.y, 0.0), 3.0), uMirror);
       vec3 reflection = mix(smear * 0.55, sharp * 1.05, puddle);
       vec3 col = mix(uAsphalt, reflection, fresnel * mix(0.75, 1.0, puddle));
       // Grit: the dry crowns of the aggregate catch nothing.
       col *= mix(1.0, 0.75 + 0.25 * hash(floor(p * 40.0)), 1.0 - puddle);
-      col = mix(col, sharp, uMirror * 0.85);
+      col = mix(col, sharp, uMirror * 0.45);
+      // Glints where the swells and rings catch the sky.
+      col += vec3(1.0, 0.85, 0.95) * pow(max(0.0, length(ripple) * 0.35 + rings * 0.5), 3.0) * 0.6 * uMirror;
       // The headlight's pool: a cone widening down the road ahead of the bike, brightest in the puddles.
       if (uLampOn > 0.0) {
         vec2 d = vWorld.xz - uLamp.xz;

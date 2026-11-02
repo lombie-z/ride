@@ -93,11 +93,6 @@ export function Traffic({ env }: { env: Texture }) {
     const lead = new InstancedMesh(front, pearl(env), 1);
     const windows = new InstancedMesh(new BoxGeometry(13.4, 0.7, 3.3).translate(0, 0.4, 0), glow(new Color(1.2, 1.5, 1.7)), 4);
     const beam = new InstancedMesh(new BoxGeometry(1, 1, 1), pearl(env), 1);
-    const o = new Object3D();
-    o.position.set((BEAM.from + BEAM.to) / 2, BEAM.height - 2, BEAM.side);
-    o.scale.set(BEAM.to - BEAM.from, 1.2, 1.6);
-    o.updateMatrix();
-    beam.setMatrixAt(0, o.matrix);
     for (const m of [cars, lead, windows, beam]) m.frustumCulled = false;
     return { cars, lead, windows, beam };
   }, [env]);
@@ -123,12 +118,23 @@ export function Traffic({ env }: { env: Texture }) {
     });
     cars.bodies.instanceMatrix.needsUpdate = cars.lights.instanceMatrix.needsUpdate = true;
 
+    // The beam rises out of the haze below as the towers there sink (ride.transition.clear), and the train on it.
+    const clear = ride.transition.clear;
+    const rise = clear * clear * (3 - 2 * clear);
+    const lift = (1 - rise) * -70;
+    o.position.set((BEAM.from + BEAM.to) / 2, BEAM.height - 2 + lift, BEAM.side);
+    o.rotation.set(0, 0, 0);
+    o.scale.set(BEAM.to - BEAM.from, 1.2, 1.6);
+    o.updateMatrix();
+    train.beam.setMatrixAt(0, o.matrix);
+    train.beam.instanceMatrix.needsUpdate = true;
+    o.scale.set(1, 1, 1);
     // The train: abreast of the bike while it's still a way out, then pulling ahead of it, until the beam ends.
     const u = ride.drive.s - ride.transition.at;
     // (From 40 m behind the bike to 150 m ahead of it over the approach.)
     const lead = Math.min(BEAM.to - 8, Math.max(BEAM.from + 70, u - 40 + Math.max(0, Math.min(1, (u + 600) / 720)) * 190));
     for (let k = 0; k < 4; k++) {
-      o.position.set(lead - k * 15.6, BEAM.height, BEAM.side);
+      o.position.set(lead - k * 15.6, BEAM.height + lift, BEAM.side);
       o.rotation.set(0, 0, 0);
       o.updateMatrix();
       if (k === 0) train.lead.setMatrixAt(0, o.matrix);

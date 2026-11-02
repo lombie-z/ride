@@ -195,8 +195,10 @@ export function DriveStreet() {
     const first = seated ? Math.floor(-road.end / TILE) - 1 : Math.max(0, Math.floor((past - BEHIND) / TILE));
     const from = Math.max(first, Math.floor((past - BEHIND) / TILE));
     const tr = ride.transition;
+    // (Rebuilt every frame while the towers by the water are sinking away.)
+    const sinking = tr.placed && tr.clear < 1;
     const key = from * 4 + (seated ? 1 : 0) + (tr.placed ? 2 : 0);
-    if (key === last.current) return;
+    if (key === last.current && !sinking) return;
     last.current = key;
 
     side.set(-road.ahead.z, 0, road.ahead.x);
@@ -263,11 +265,14 @@ export function DriveStreet() {
           const h = 70 + r(5) ** 1.5 * 190;
           const turn = (r(6) - 0.5) * 0.2;
           const body = h * (0.62 + r(7) * 0.2);
-          // Nearing the second city, its side of the road (the right: across the water) opens up.
-          if (s > 0 && along > cityAt - 380) continue;
-          put('towers', along, across, GROUND_Y, w, body, d, turn);
-          put('towers', along, across, GROUND_Y + body, w * 0.68, h - body, d * 0.68, turn);
-          if (r(8) > 0.45) put('spikes', along, across, GROUND_Y + h, w * 0.5, 12 + r(9) * 40, d * 0.5, turn + Math.PI / 4);
+          // Nearing the second city, its side of the road (the right: across the water) opens up: the towers there
+          // sink away into the haze below (eased) as the train's beam rises.
+          const sink = s > 0 && along > cityAt - 380 ? tr.clear * tr.clear * (3 - 2 * tr.clear) : 0;
+          if (sink >= 1) continue;
+          const down = sink * (h + 60);
+          put('towers', along, across, GROUND_Y - down, w, body, d, turn);
+          put('towers', along, across, GROUND_Y + body - down, w * 0.68, h - body, d * 0.68, turn);
+          if (r(8) > 0.45) put('spikes', along, across, GROUND_Y + h - down, w * 0.5, 12 + r(9) * 40, d * 0.5, turn + Math.PI / 4);
         }
       }
     }

@@ -15,12 +15,13 @@ import {
 import { useRef } from 'react';
 import { type Mesh, ShaderChunk, type Sphere, Vector3 } from 'three';
 import { devFlag, journey, landingAt, smoothstep } from '@/lib/journey';
-import { ride, washCover } from '@/lib/ride';
+import { CRUISE, ride, washCover } from '@/lib/ride';
 import { Grade, type GradeEffect } from './grade';
 import { LiquidSweep, type LiquidSweepEffect } from './liquid-sweep';
 import { NearBlur, type NearBlurEffect } from './near-blur';
 import { PixelSweep, type PixelSweepEffect } from './pixel-sweep';
 import { bloomAt, SUN_POSITION } from './sky';
+import { SpeedBlur, type SpeedBlurEffect } from './speed-blur';
 
 const sunOnScreen = new Vector3();
 
@@ -47,6 +48,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
   const bloomFx = useRef<BloomEffect>(null);
   const sweep = useRef<PixelSweepEffect>(null);
   const liquid = useRef<LiquidSweepEffect>(null);
+  const speedBlur = useRef<SpeedBlurEffect>(null);
   const smaa = useRef<SMAAEffect>(null);
   // Effects only needed some of the time are switched out of the composite while they're idle (the shader recompiles,
   // once, as each changes) and their own off-screen work is skipped: the lens blurs belong to the still landing shot,
@@ -109,6 +111,10 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     gate(smaa.current, state.gl.getPixelRatio() >= 1);
     gate(sweep.current, !pixel || journey.sweep < 1);
     if (sweep.current) sweep.current.set(pixel ? journey.sweep : 0, pixel * state.gl.getPixelRatio());
+    // Motion blur from the bike's speed, only from the rider's seat (and off in a gate when still, costing nothing).
+    const blur = ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5;
+    if (speedBlur.current) speedBlur.current.set(blur);
+    gate(speedBlur.current, blur > 0.002);
     if (liquid.current) {
       const { cover, leaving } = washCover();
       liquid.current.set(cover, leaving);
@@ -139,6 +145,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
       <Vignette ref={vignette} offset={0.35} darkness={0} />
       <Noise ref={grain} premultiply blendFunction={BlendFunction.SOFT_LIGHT} opacity={0} />
       <SMAA ref={smaa} />
+      <SpeedBlur ref={speedBlur} />
       <PixelSweep ref={sweep} />
       <LiquidSweep ref={liquid} />
     </EffectComposer>
