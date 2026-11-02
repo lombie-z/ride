@@ -31,9 +31,9 @@ const corner = new Vector3();
 /**
  * The map's drawing, as an SVG (glowing light on nothing: the hologram shader adds the scan lines and flicker). Abstract:
  * where you are is a glowing four-pointed star in that city's colours; where you've been, a smaller, dimmer one; where
- * the road goes next, a bank of cloud with the next place's colours glowing through its gaps. At the start, in the green
- * city, the next place is the chrome city (its pink, violet and cyan peek through); arrived there, the next is unknown
- * (gold and coral, a hint of somewhere warmer).
+ * the road goes next, the path fades out into a haze of the next place's colours. At the start, in the green city, the
+ * next place is the chrome city (a pink, violet and cyan haze); arrived there, the next is unknown (gold and coral, a hint
+ * of somewhere warmer).
  */
 function mapSvg(mode: 'start' | 'arrived') {
   const ink = '#7ff6ff';
@@ -49,27 +49,19 @@ function mapSvg(mode: 'start' | 'arrived') {
     <radialGradient id="${id}Halo"><stop offset="0" stop-color="${a}" stop-opacity="0.55"/><stop offset="1" stop-color="${a}" stop-opacity="0"/></radialGradient>
     <radialGradient id="${id}Fill"><stop offset="0" stop-color="#ffffff"/><stop offset="0.35" stop-color="${b}"/><stop offset="1" stop-color="${a}"/></radialGradient>
   </defs>`;
-  // A bank of cloud, its gaps showing the colours behind (blobs of them under a cloud mask with holes).
-  const clouds = (x: number, y: number, colours: string[]) => `
-  <g transform="translate(${x} ${y})">
-    <g filter="url(#blur)">
-      ${colours.map((c, i) => `<circle cx="${-30 + i * 28}" cy="${(i % 2) * 10 - 2}" r="24" fill="${c}"/>`).join('')}
-    </g>
-    <g fill="#d8d2ff" fill-opacity="0.7" filter="url(#soft)">
-      <circle cx="-34" cy="6" r="15"/><circle cx="-16" cy="-6" r="18"/><circle cx="6" cy="-12" r="16"/><circle cx="26" cy="-2" r="17"/>
-      <circle cx="40" cy="10" r="12"/><circle cx="-4" cy="10" r="16"/><circle cx="18" cy="14" r="13"/><circle cx="-24" cy="16" r="11"/>
-    </g>
-    <g fill="#04050a">
-      <ellipse cx="-10" cy="3" rx="9" ry="5"/><ellipse cx="18" cy="5" rx="8" ry="4.5"/><ellipse cx="4" cy="-5" rx="6" ry="3.5"/>
-    </g>
-    <g filter="url(#soft)" opacity="0.95">
-      <ellipse cx="-10" cy="3" rx="9" ry="5" fill="${colours[0]}"/><ellipse cx="18" cy="5" rx="8" ry="4.5" fill="${colours[1]}"/><ellipse cx="4" cy="-5" rx="6" ry="3.5" fill="${colours[2]}"/>
-    </g>
+  // Where the road goes next: a drifting haze of the next place's colours that the path fades into.
+  const fog = (x: number, y: number, colours: string[]) => `
+  <g transform="translate(${x} ${y})" filter="url(#fog)">
+    <ellipse cx="-14" cy="6" rx="46" ry="26" fill="${colours[0]}" opacity="0.32"/>
+    <ellipse cx="18" cy="-6" rx="40" ry="24" fill="${colours[1]}" opacity="0.3"/>
+    <ellipse cx="4" cy="14" rx="34" ry="18" fill="${colours[2]}" opacity="0.26"/>
+    <ellipse cx="0" cy="0" rx="58" ry="34" fill="#cfd2ff" opacity="0.12"/>
   </g>`;
   const frame = `
   <defs>
     <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="0.8"/></filter>
-    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+    <filter id="fog" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="11"/></filter>
+    <linearGradient id="fadeOn" gradientUnits="userSpaceOnUse" x1="${mode === 'start' ? 76 : 206}" y1="0" x2="${mode === 'start' ? 300 : 316}" y2="0"><stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/><stop offset="0.55" stop-color="#ffffff" stop-opacity="0.6"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
     <linearGradient id="trail" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#7dff6a"/><stop offset="1" stop-color="#ff8ad8"/></linearGradient>
   </defs>
   <path d="M10 10h22M10 10v22M350 10h-22M350 10v22M10 250h22M10 250v-22M350 250h-22M350 250v-22" stroke="${ink}" stroke-opacity="0.8" stroke-width="2" fill="none"/>
@@ -81,16 +73,16 @@ function mapSvg(mode: 'start' | 'arrived') {
   }).join('')}`;
   if (mode === 'start')
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
-  <path d="M76 190 C130 176, 160 150, 205 124 S262 92, 282 84" fill="none" stroke="#c69bff" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8" opacity="0.85"/>
+  ${fog(282, 80, ['#ff7ad0', '#8a7bff', '#5ff0ff'])}
+  <path d="M76 190 C130 176, 160 150, 205 124 S262 92, 300 72" fill="none" stroke="url(#fadeOn)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8"/>
   ${star(72, 194, 24, '#3dff6a', '#b8ff9a', 'here')}
-  ${clouds(290, 74, ['#ff7ad0', '#8a7bff', '#5ff0ff'])}
 </svg>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
   <path d="M62 212 C100 190, 120 160, 160 146 S186 140, 196 134" fill="none" stroke="url(#trail)" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
-  <path d="M206 124 C232 102, 250 92, 268 80 S290 66, 296 62" fill="none" stroke="#ffc07a" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8" opacity="0.85"/>
+  ${fog(300, 58, ['#ffb84d', '#ff6f61', '#ffe27a'])}
+  <path d="M206 124 C232 102, 250 92, 270 78 S300 56, 316 46" fill="none" stroke="url(#fadeOn)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8"/>
   ${star(60, 212, 13, '#3dff6a', '#b8ff9a', 'was', 0.55)}
   ${star(198, 132, 24, '#ff7ad0', '#9feeff', 'here')}
-  ${clouds(300, 56, ['#ffb84d', '#ff6f61', '#ffe27a'])}
 </svg>`;
 }
 

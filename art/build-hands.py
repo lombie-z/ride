@@ -42,11 +42,11 @@ def arg(name, default, cast=str):
 DO_RENDER = '--render' in ARGS
 NO_EXPORT = '--no-export' in ARGS
 TAG = arg('--tag', '')
-VIEWS = arg('--views', 'pov,lowered', lambda s: s.split(','))
+VIEWS = arg('--views', ['pov', 'lowered'], lambda s: s.split(','))
 SAMPLES = arg('--samples', 64, int)
 VOXEL = arg('--voxel', 0.10, float)  # cm
 OUT_DIR = arg('--out', RENDER_DIR)
-RES = arg('--res', '1600x900', lambda s: tuple(int(v) for v in s.split('x')))
+RES = arg('--res', (1600, 900), lambda s: tuple(int(v) for v in s.split('x')))
 HAND_TRIS = arg('--hand-tris', 15500, int)  # per hand, the glove surface (welts and chrome come on top)
 
 VFOV = 65.0
@@ -59,7 +59,7 @@ def gl2b(x, y, z):
 
 
 # ---------------------------------------------------------------- the projector (Blender world, cm)
-DEV_GL = arg('--dev', [0.0, -0.18, -0.38], lambda s: [float(v) for v in s.split(',')])  # metres, glTF camera space
+DEV_GL = arg('--dev', [0.0, -0.16, -0.38], lambda s: [float(v) for v in s.split(',')])  # metres, glTF camera space
 DEV_C = gl2b(*DEV_GL) * 100.0
 BAR_LEN, BAR_DEP, BAR_HGT = 22.0, 3.0, 1.85
 BAR_HALF = np.array([BAR_LEN / 2, BAR_DEP / 2 + 0.05, BAR_HGT / 2])
@@ -446,21 +446,42 @@ class Hand:
         quilt = (m_quilt > 0.42) | ((d_g <= np.minimum(d_glove, d_strap) + 0.02) & (Qg[:, 1] > 0.3))
         return out, quilt
 
-    def grad(self, P, eps=0.02):
+    def grad(self, P, eps=0.02, fn=None):
+        fn = fn or self.sdf
         g = np.zeros_like(P)
         for i in range(3):
             o = np.zeros(3, F32)
             o[i] = eps
-            g[:, i] = (self.sdf(P + o) - self.sdf(P - o)) / (2 * eps)
+            g[:, i] = (fn(P + o) - fn(P - o)) / (2 * eps)
         return g
 
-    def project(self, V, iters=2, chunk=200000):
+    def part_sdf(self, name):
+        """Field of one digit alone (seams are projected onto it so they never jump to a neighbour)."""
+        if name == 'thumb':
+            J, F, R = self.tch
+            segs = [(J[1], J[2], R[1], R[2], F[1]), (J[2], J[3], R[2], R[4], F[2])]
+            zs = 0.86
+        else:
+            J, F, R = self.fch[name]
+            segs = [(J[i], J[i + 1], R[i], R[i + 1], F[i]) for i in range(3)]
+            zs = FINGER_ZS
+
+        def fn(P):
+            d = None
+            for a, b, r1, r2, Fi in segs:
+                di = sd_aniso_cone(np.asarray(P, F32), a, b, r1, r2, Fi[:, 2], 1.0, zs)
+                d = di if d is None else smin(d, di, 0.22)
+            return d
+        return fn
+
+    def project(self, V, iters=2, chunk=200000, fn=None):
+        fn = fn or self.sdf
         V = V.astype(F32).copy()
         for _ in range(iters):
             for s in range(0, len(V), chunk):
                 P = V[s:s + chunk]
-                d = self.sdf(P)
-                g = self.grad(P)
+                d = fn(P)
+                g = self.grad(P, fn=fn)
                 gg = np.maximum(np.einsum('ij,ij->i', g, g), 1e-4)
                 V[s:s + chunk] = P - (d / gg)[:, None] * g
         return V
@@ -651,10 +672,10 @@ def tube_geom(bm, pts, radius, sides=4, closed=False, mat=0):
             f.smooth = True
 
 
-def surface_curve(hand, guesses, lift=0.02):
-    """Project guess points onto the hand surface, lift along the normal."""
-    P = hand.project(np.asarray(guesses, F32), iters=4)
-    g = hand.grad(P)
+def surface_curve(hand, guesses, lift=0.02, fn=None):
+    """Project guess points onto the hand surface (or one digit's), lift along the normal."""
+    P = hand.project(np.asarray(guesses, F32), iters=4, fn=fn)
+    g = hand.grad(P, fn=fn)
     g /= np.maximum(np.linalg.norm(g, axis=1), 1e-6)[:, None]
     return P + g * lift, g
 
@@ -678,7 +699,7 @@ def seam_loops(hand):
         for a in np.linspace(-80, 80, 7):
             tip.append(J[3] + (Fx * math.sin(rad(a)) + Fy * math.cos(rad(a))) * (R[3] + 0.4) - Fz * R[3] * 0.18)
         pts = side[0] + tip + side[1][::-1]
-        loops.append(np.array(pts))
+        loops.append((name, np.array(pts)))
     # thumb: same idea, from the web round the tip and back down the outside
     J, F, R = hand.tch
     side = []
@@ -693,7 +714,7 @@ def seam_loops(hand):
     Fx, Fy, Fz = F[2][:, 0], F[2][:, 1], F[2][:, 2]
     tip = [J[3] + (Fx * math.sin(rad(a)) + Fy * math.cos(rad(a))) * (R[4] + 0.4) - Fz * R[4] * 0.1
            for a in np.linspace(-80, 80, 7)]
-    loops.append(np.array(side[0] + tip + side[1][::-1]))
+    loops.append(('thumb', np.array(side[0] + tip + side[1][::-1])))
     # wrist seam where the glove meets the strap
     return loops
 
@@ -735,6 +756,9 @@ def build_hand_mesh(hand, mats):
     co = hand.project(co.reshape(-1, 3), iters=2)
     me2.vertices.foreach_set('co', co.ravel())
     me2.update()
+    gn = hand.grad(co)
+    gn /= np.maximum(np.linalg.norm(gn, axis=1), 1e-6)[:, None]
+    me2['surf_normals'] = gn.astype(np.float64).ravel().tolist()
     cen = np.zeros(len(me2.polygons) * 3, F32)
     me2.polygons.foreach_get('center', cen)
     _, quilt = hand.sdf(cen.reshape(-1, 3), masks=True)
@@ -745,8 +769,8 @@ def build_hand_mesh(hand, mats):
     # seams, chrome ring, strap snap -> same mesh
     bm = bmesh.new()
     bm.from_mesh(me2)
-    for loop in seam_loops(hand):
-        P, _ = surface_curve(hand, loop, lift=0.025)
+    for name, loop in seam_loops(hand):
+        P, _ = surface_curve(hand, loop, lift=0.02, fn=hand.part_sdf(name))
         tube_geom(bm, P, 0.065, sides=4, mat=0)
     # wrist seam (glove edge under the strap) and the chrome ring at the gauntlet
     P, _ = ring_points(hand, 1.45, n=40, lift=0.03)
@@ -784,6 +808,17 @@ def bake_world(me, hand, mirror=False):
         bm.to_mesh(me)
         bm.free()
     me.update()
+    # exact smooth normals for the glove surface, straight from the field's gradient (the decimated mesh would
+    # otherwise shade faceted); welts, ring and snap keep their own
+    gn = np.asarray(me['surf_normals'], float).reshape(-1, 3) @ hand.R.T
+    if mirror:
+        gn[:, 0] *= -1
+    vn = np.zeros(len(me.vertices) * 3, F32)
+    me.vertex_normals.foreach_get('vector', vn)
+    vn = vn.reshape(-1, 3)
+    vn[:len(gn)] = gn
+    me.normals_split_custom_set_from_vertices([tuple(v) for v in vn])
+    del me['surf_normals']
     return W
 
 
@@ -881,7 +916,8 @@ def setup_render(scene):
     cr = ramp.color_ramp
     cr.elements[0].position, cr.elements[0].color = 0.0, (0.03, 0.015, 0.04, 1)
     cr.elements[1].position, cr.elements[1].color = 1.0, (0.10, 0.07, 0.32, 1)
-    for pos, c in ((0.46, (0.16, 0.06, 0.14, 1)), (0.50, (1.6, 0.55, 0.32, 1)), (0.53, (1.1, 0.42, 0.62, 1)),
+    cr.elements[0].color = (0.006, 0.004, 0.01, 1)
+    for pos, c in ((0.40, (0.012, 0.008, 0.02, 1)), (0.47, (0.07, 0.03, 0.07, 1)), (0.50, (1.6, 0.55, 0.32, 1)), (0.53, (1.1, 0.42, 0.62, 1)),
                    (0.62, (0.55, 0.30, 0.85, 1)), (0.80, (0.22, 0.15, 0.55, 1))):
         e = cr.elements.new(pos)
         e.color = c
@@ -977,6 +1013,9 @@ def visible_count(objs, M=None):
     return n, top
 
 
+PIVOT2 = (0, -0.6, 0.0)  # recommended lowering pivot (glTF camera space)
+
+
 def lowered_matrix(pivot_gl, deg):
     p = Vector(gl2b(*pivot_gl))
     return Matrix.Translation(p) @ Matrix.Rotation(math.radians(deg), 4, 'X') @ Matrix.Translation(-p)
@@ -990,6 +1029,7 @@ def render_views(scene, root, objs):
     views = {
         'pov': (Vector((0, 0, 0)), Vector((0, 1, 0)), VFOV, None),
         'lowered': (Vector((0, 0, 0)), Vector((0, 1, 0)), VFOV, None),
+        'lowered-pivot2': (Vector((0, 0, 0)), Vector((0, 1, 0)), VFOV, None),
         'side': (tgt + Vector((0.55, -0.05, 0.05)), tgt + Vector((0.06, 0, -0.03)), None, 50),
         'top': (tgt + Vector((0.0, -0.05, 0.55)), tgt + Vector((0.0, 0, -0.03)), None, 40),
         'front': (tgt + Vector((0.12, 0.55, 0.08)), tgt + Vector((0.0, 0, -0.04)), None, 45),
@@ -1001,7 +1041,8 @@ def render_views(scene, root, objs):
         loc, look, vfov, lens = views[name]
         cam = add_camera(col, 'Cam_' + name, loc, look, vfov=vfov, lens=lens)
         scene.camera = cam
-        root.matrix_world = lowered_matrix((0, -0.6, -0.2), -35) if name == 'lowered' else base
+        root.matrix_world = {'lowered': lowered_matrix((0, -0.6, -0.2), -35),
+                             'lowered-pivot2': lowered_matrix(PIVOT2, -35)}.get(name, base)
         bpy.context.view_layer.update()
         scene.render.filepath = os.path.join(OUT_DIR, f'hands-{name}{suffix}.png')
         bpy.ops.render.render(write_still=True)
