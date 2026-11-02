@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useState } from 'react';
+import { RideButton } from '@/components/ride-button';
 import { SmoothScroll } from '@/components/smooth-scroll';
 import { Ticket } from '@/components/ticket';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,7 @@ export function Journey() {
       <JourneyCanvas onReady={onReady} onProgress={onProgress} />
       {ready && <SmoothScroll />}
       {ready && <Ticket />}
+      {ready && <RideButton />}
       {/* Loading: the hero as a Blender still (same box as the live hero, lib/journey.ts heroStageSize), with a hairline
           of progress; it all fades away once the model is in and its shaders are ready. */}
       <div

@@ -1,0 +1,4 @@
+# Regenerable: extract_concept.py, render_masks.py --export / --render, score.py, optimise.py, recommend.py
+out/
+scene-geometry.npz
+__pycache__/

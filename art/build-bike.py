@@ -194,6 +194,9 @@ def make_materials():
         # translucent rib shells round the glowing cores: alpha-blended dark green glass
         'ribglass': principled('BikeRibGlass', srgb('#1a5c10'), rough=0.05, emit=srgb('#7dff4a'), emit_strength=0.12),
     }
+    # the 'get on' button: glassy pale green-white glow; the glyph brighter. The site drives both intensities.
+    M['button'] = principled('BikeButton', srgb('#9fd88a'), rough=0.06, coat=1.0, coat_rough=0.02, emit=srgb('#c8ffb0'), emit_strength=1.0)
+    M['glyph'] = principled('BikeButtonGlyph', srgb('#e8ffe0'), rough=0.3, emit=srgb('#f0ffe6'), emit_strength=4.0)
     g = M['ribglass']
     g.node_tree.nodes['Principled BSDF'].inputs['Alpha'].default_value = 0.45
     g.surface_render_method = 'BLENDED'
@@ -812,6 +815,8 @@ def add_drops(M, n=320, seed=5):
     while placed < n and tries < n * 20:
         tries += 1
         x, y = rnd.uniform(-1.0, 1.1), rnd.uniform(-0.3, 0.3)
+        if abs(x - BUTTON_X) < BUTTON_LEN / 2 + 0.02 and abs(y) < BUTTON_WID / 2 + 0.02:
+            continue
         best = None
         for t in trees:
             hit = t.ray_cast(Vector((x, y, 2.0)), Vector((0, 0, -1)))
@@ -832,6 +837,154 @@ def add_drops(M, n=320, seed=5):
         placed += 1
     ob = new_obj('Drops', verts, faces, M['chitin'])
     return ob
+
+
+# ---------------------------------------------------------------- the "get on" button
+BUTTON_X, BUTTON_LEN, BUTTON_WID = 0.405, 0.24, 0.11  # centre (bike-local x) and size of the pill on the dome
+FONT = os.path.join(HERE, 'fonts', 'Overpass-Bold.ttf')
+ANCHORS = {}
+
+
+def build_button(M):
+    """BikeButton: a pill with a raised lip on top of the dome between the grips, conformed to the carapace;
+    BikeButtonGlyph: RIDE lying on it, reading from the seat; ButtonCentre and RiderEye empties.
+    Returns the new objects (not part of the joined Bike mesh)."""
+    import numpy as np
+    from mathutils.bvhtree import BVHTree
+    dg = bpy.context.evaluated_depsgraph_get()
+    tops = [o for o in PARTS if o.name.split('.')[0] in ('Head', 'Tank', 'Brow', 'Cheek')]
+    trees = [BVHTree.FromObject(o, dg) for o in tops]
+
+    def hit_z(x, y):
+        best = None
+        for t in trees:
+            h = t.ray_cast(Vector((x, y, 2.0)), Vector((0, 0, -1)))
+            if h[0] is not None and (best is None or h[0].z > best):
+                best = h[0].z
+        return best
+
+    # fit a smooth quadric to the carapace under the footprint, then lift it to clear every plate edge by 3 mm
+    a, r = BUTTON_LEN / 2, BUTTON_WID / 2
+    xs = np.linspace(BUTTON_X - a - 0.01, BUTTON_X + a + 0.01, 17)
+    ys = np.linspace(-r - 0.01, r + 0.01, 9)
+    rows, zs = [], []
+    for x in xs:
+        for y in ys:
+            z = hit_z(x, y)
+            if z is not None:
+                dx = x - BUTTON_X
+                rows.append([1, dx, y, dx * dx, dx * y, y * y])
+                zs.append(z)
+    A, Z = np.array(rows), np.array(zs)
+    coef, *_ = np.linalg.lstsq(A, Z, rcond=None)
+    lift = float((Z - A @ coef).max()) + 0.003
+    print('BUTTON fit lift (m):', round(lift, 4), 'carapace z at centre:', round(coef[0], 4))
+
+    def base(x, y):  # point on the conformed base surface and its normal
+        dx = x - BUTTON_X
+        c0, c1, c2, c3, c4, c5 = coef
+        z = c0 + c1 * dx + c2 * y + c3 * dx * dx + c4 * dx * y + c5 * y * y + lift
+        n = Vector((-(c1 + 2 * c3 * dx + c4 * y), -(c2 + c4 * dx + 2 * c5 * y), 1)).normalized()
+        return Vector((x, y, z)), n
+
+    # stadium outline, inset in rings: skirt (tucked under), lip ramp, lip top, back down to a slightly recessed face
+    straight = a - r
+    n_cap, n_side = 14, 10
+
+    def outline(rr):
+        pts = []
+        for k in range(n_cap):  # front cap (+x), from +y round to -y
+            t = math.pi / 2 - math.pi * k / n_cap
+            pts.append((BUTTON_X + straight + rr * math.cos(t), rr * math.sin(t)))
+        for k in range(n_side):  # right side, front to back
+            pts.append((BUTTON_X + straight - 2 * straight * k / n_side, -rr))
+        for k in range(n_cap):  # back cap
+            t = -math.pi / 2 - math.pi * k / n_cap
+            pts.append((BUTTON_X - straight + rr * math.cos(t), rr * math.sin(t)))
+        for k in range(n_side):  # left side, back to front
+            pts.append((BUTTON_X - straight + 2 * straight * k / n_side, rr))
+        return pts
+    profile = [(-0.0015, -0.004), (0.0, 0.0), (0.0025, 0.0035), (0.0055, 0.0055), (0.009, 0.005), (0.0125, 0.0028), (0.016, 0.0022)]
+    d = 0.016
+    while r - d > 0.012:
+        d += 0.008
+        profile.append((d, 0.0022))
+    profile.append((r, 0.0022))  # the last ring collapses onto the centre line; welded below, so no long n-gon on the face
+    FACE_H = 0.0022
+    rings = []
+    for inset, h in profile:
+        ring = []
+        for x, y in outline(r - inset):
+            p, n = base(x, y)
+            ring.append(p + n * h)
+        rings.append(ring)
+    btn = rings_mesh('BikeButton', rings, M['button'])
+    PARTS.remove(btn)
+    me = btn.data
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bmesh.ops.dissolve_degenerate(bm, edges=bm.edges, dist=1e-6)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(me)
+    bm.free()
+    me.shade_smooth()
+    me.update()
+    if sum(p.normal.z for p in me.polygons) < 0:
+        me.flip_normals()
+
+    # RIDE, reading left to right from the seat (baseline along -y, letters' up toward +x)
+    cu = bpy.data.curves.new('BikeButtonGlyph', 'FONT')
+    cu.body = 'RIDE'
+    cu.font = bpy.data.fonts.load(FONT)
+    cu.align_x, cu.align_y = 'CENTER', 'CENTER'
+    cu.size = 0.05
+    cu.space_character = 1.05
+    cu.extrude = 0.0006
+    cu.resolution_u = 4
+    tob = bpy.data.objects.new('GlyphTmp', cu)
+    bpy.context.scene.collection.objects.link(tob)
+    dg = bpy.context.evaluated_depsgraph_get()
+    gme = bpy.data.meshes.new_from_object(tob.evaluated_get(dg))
+    bpy.data.objects.remove(tob)
+    xs_ = [v.co.x for v in gme.vertices]
+    ys_ = [v.co.y for v in gme.vertices]
+    w, h = max(xs_) - min(xs_), max(ys_) - min(ys_)
+    sc = min((BUTTON_WID - 0.022) / w, (BUTTON_LEN - 0.06) / h)
+    cx, cy = (max(xs_) + min(xs_)) / 2, (max(ys_) + min(ys_)) / 2
+    for v in gme.vertices:
+        tx, ty, tz = (v.co.x - cx) * sc, (v.co.y - cy) * sc, v.co.z
+        x, y = BUTTON_X + ty, -tx  # rotate -90 deg about z: text x -> -y, text up -> +x
+        p, n = base(x, y)
+        v.co = p + n * (FACE_H + 0.0015 + tz)
+    gme.materials.append(M['glyph'])
+    gme.shade_flat()
+    glyph = bpy.data.objects.new('BikeButtonGlyph', gme)
+    bpy.context.scene.collection.objects.link(glyph)
+    print('BUTTON glyph size (m): width', round(w * sc, 4), 'cap height', round(h * sc, 4))
+
+    # anchors. Blender axes: ButtonCentre +Z = surface normal (glTF/three: +Y). RiderEye +Y = view direction, +Z = up
+    # (glTF/three: -Z view, +Y up, so its world transform can be copied straight onto a camera).
+    pc, nc = base(BUTTON_X, 0.0)
+    pc = pc + nc * FACE_H
+    fx = (Vector((1, 0, 0)) - nc * nc.x).normalized()
+    centre = bpy.data.objects.new('ButtonCentre', None)
+    centre.empty_display_type, centre.empty_display_size = 'ARROWS', 0.05
+    centre.matrix_world = Matrix.Translation(pc) @ Matrix((fx, nc.cross(fx), nc)).transposed().to_4x4()
+    centre['button_size_m'] = [BUTTON_LEN, BUTTON_WID]
+    seat_top = 0.78
+    eye_p = Vector((0.08, 0.0, seat_top + 0.74))
+    pitch = math.radians(8)
+    fwd = Vector((math.cos(pitch), 0, -math.sin(pitch)))
+    up = Vector((math.sin(pitch), 0, math.cos(pitch)))
+    eye = bpy.data.objects.new('RiderEye', None)
+    eye.empty_display_type, eye.empty_display_size = 'ARROWS', 0.08
+    eye.matrix_world = Matrix.Translation(eye_p) @ Matrix((fwd.cross(up), fwd, up)).transposed().to_4x4()
+    eye['view'] = 'local +Y forward in Blender; glTF/three local -Z forward, +Y up'
+    for ob in (centre, eye):
+        bpy.context.scene.collection.objects.link(ob)
+    ANCHORS.update(centre=pc.copy(), normal=nc.copy(), eye=eye_p.copy())
+    return [btn, glyph, centre, eye]
 
 
 # ---------------------------------------------------------------- render setup (review only, not exported)
@@ -1010,6 +1163,9 @@ def render_views(scene, col):
         'front': add_camera(col, 'CamFront34', (3.4, -1.9, 1.0), (0.1, 0, 0.6), lens=40),
         # solved so the tyres and ground contacts land on the concept's traced ones (art/reference/concept-bike-guides.json)
         'concept': add_camera(col, 'ConceptCam', (1.662, -1.962, 1.027), (1.265, -0.857, 0.84), lens=24),
+        # close-up of the button from the rider's eye (RiderEye), aimed at ButtonCentre
+        'rider': add_camera(col, 'RiderCam', bpy.data.objects['RiderEye'].matrix_world.translation.copy(),
+                            bpy.data.objects['ButtonCentre'].matrix_world.translation.copy(), lens=50),
     }
     suffix = f'-{TAG}' if TAG else ''
     for key, cam in cams.items():
@@ -1030,6 +1186,7 @@ def main():
 
     build_body(M)
     add_drops(M)
+    extras = build_button(M)
     per = {}
     for o in PARTS:
         per[o.name.split('.')[0]] = per.get(o.name.split('.')[0], 0) + tri_count(o)
@@ -1044,10 +1201,15 @@ def main():
         w.matrix_parent_inverse = Matrix.Identity(4)
         w.location = axle
 
+    for ob in extras:  # built in bike-local coordinates
+        mw = ob.matrix_world.copy()
+        ob.parent = body
+        ob.matrix_parent_inverse = Matrix.Identity(4)
+        ob.matrix_basis = mw
     body.location = (0, 0, 0)
     body.rotation_euler = (-LEAN, 0, 0)  # lean toward +Y onto the kickstand
 
-    counts = {o.name: tri_count(o) for o in (body, wf, wr)}
+    counts = {o.name: tri_count(o) for o in (body, wf, wr, *[e for e in extras if e.type == 'MESH'])}
     print('TRIANGLES', counts, 'total', sum(counts.values()))
 
     col = setup_render(scene)
@@ -1055,13 +1217,13 @@ def main():
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUT)
 
     bpy.ops.object.select_all(action='DESELECT')
-    for o in (body, wf, wr):
+    for o in (body, wf, wr, *extras):
         o.select_set(True)
     os.makedirs(os.path.dirname(GLB_OUT), exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=GLB_OUT, export_format='GLB', use_selection=True, export_apply=True, export_yup=True,
                               export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6,
                               export_draco_texcoord_quantization=14, export_image_format='WEBP', export_image_quality=88,
-                              export_cameras=False, export_lights=False)
+                              export_cameras=False, export_lights=False, export_extras=True)
     print('GLB', GLB_OUT, os.path.getsize(GLB_OUT))
 
     if DO_RENDER:

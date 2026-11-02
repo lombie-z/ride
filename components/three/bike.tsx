@@ -13,13 +13,16 @@ import {
   MeshBasicMaterial,
   type MeshPhysicalMaterial,
   type MeshStandardMaterial,
+  Object3D,
   PMREMGenerator,
   Scene,
   type Texture,
   type WebGLRenderer,
 } from 'three';
 import { belowVisible, journey } from '@/lib/journey';
+import { anchors } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
+import { RideControl, RideHalo, RideStreaks } from './ride';
 
 const URL = '/models/bike.glb';
 // Where it parks on the deck (art/build-city.py BIKE_AT, BIKE_YAW, fitted to the concept's framing; Blender's (x, y, z) is
@@ -63,9 +66,11 @@ export function Bike() {
   const gl = useThree((s) => s.gl);
   const env = useMemo(() => nightEnvMap(gl), [gl]);
   const glow = useRef<MeshStandardMaterial[]>([]);
+  const buttonMaterials = useRef<MeshStandardMaterial[]>([]);
 
   useEffect(() => {
     const glowing: MeshStandardMaterial[] = [];
+    const button: MeshStandardMaterial[] = [];
     scene.traverse((child) => {
       const mesh = child as Mesh;
       if (!mesh.isMesh) return;
@@ -83,11 +88,34 @@ export function Bike() {
       // The ribs' translucent shells are one merged mesh: three can't sort its rings against each other, so they
       // don't write depth.
       if (m.name === 'BikeRibGlass') m.depthWrite = false;
+      // The ride button and its lettering: lit by components/three/ride.tsx, dark until the streaks arrive.
+      if (m.name === 'BikeButton' || m.name === 'BikeButtonGlyph') {
+        m.emissiveIntensity = 0;
+        m.toneMapped = false;
+        button.push(m);
+      }
       mesh.castShadow = m.name !== 'BikeRibGlass';
       mesh.receiveShadow = true;
       m.needsUpdate = true;
     });
     glow.current = glowing;
+    buttonMaterials.current = button;
+    // The button's centre and the rider's eye (stand-ins on the dome and over the seat until the model has them).
+    const stand = (name: string, x: number, y: number) => {
+      const o = new Object3D();
+      o.name = name;
+      o.position.set(x, y, 0);
+      (scene.getObjectByName('Bike') ?? scene).add(o);
+      return o;
+    };
+    anchors.button = scene.getObjectByName('ButtonCentre') ?? stand('ButtonCentre', 0.3, 0.98);
+    anchors.eye = scene.getObjectByName('RiderEye') ?? stand('RiderEye', -0.3, 1.55);
+    anchors.bike = scene;
+    return () => {
+      anchors.button = null;
+      anchors.eye = null;
+      anchors.bike = null;
+    };
   }, [scene, env]);
 
   useFrame((state) => {
@@ -102,6 +130,9 @@ export function Bike() {
       <group position={AT} rotation-y={YAW}>
         <primitive object={scene} />
       </group>
+      <RideControl buttonMaterials={buttonMaterials} />
+      <RideStreaks />
+      <RideHalo />
       <spotLight position={LAMP} target-position={AT} angle={0.6} penumbra={0.8} distance={14} decay={1.2} intensity={30} color="#ffe6a8" />
     </group>
   );

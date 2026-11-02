@@ -3,8 +3,9 @@
 import { PerspectiveCamera } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
-import { MathUtils, type PerspectiveCamera as PerspectiveCameraImpl, Quaternion, Vector3 } from 'three';
+import { PerspectiveCamera as Looker, MathUtils, type PerspectiveCamera as PerspectiveCameraImpl, Quaternion, Vector3 } from 'three';
 import { BEATS, heroStageSize, journey, journeyProgress, landingAt, PRE_ROLL, TRACK_FRAMES } from '@/lib/journey';
+import { anchors, ride } from '@/lib/ride';
 
 // The hero matches the blog's biome view (and the Blender preview camera): three-quarter, 3.7 units across the stage.
 // A long lens from far away stands in for the blog's orthographic camera, so the journey can widen it.
@@ -14,9 +15,13 @@ const HERO_FRAME = 3.7;
 const HERO_FOV = 6;
 // The fitted hero hands over to the authored track across its opening beat.
 const OPEN_SHARE = BEATS.open / TRACK_FRAMES;
-// The landing is composed for landscape, its FogDrog sign and buttons on the left. A tall phone sees only the middle,
-// so there the view slides left (a lens shift, so nothing changes perspective) by up to this share of its width.
-const PORTRAIT_SHIFT = 0.24;
+// The landing is composed at 16:9 (fitted to the concept, art/reference/concept-guides.json), the bike on the left. A
+// narrower screen keeps the composition's left edge and loses its right (a lens shift, so nothing changes perspective);
+// a tall phone also widens enough to keep the bike whole (this share of the composition, from its left), within reason.
+const COMPOSED_ASPECT = 16 / 9;
+const BIKE_SHARE = 0.6;
+const MAX_LANDING_FOV = 75;
+const tanHalf = (fov: number) => Math.tan(MathUtils.degToRad(fov / 2));
 
 /** public/journey.json, exported from JourneyCam by art/export-journey.py: [x, y, z, qx, qy, qz, qw, fov] per frame. */
 type Track = number[][];
@@ -29,6 +34,19 @@ const heroPosition = new Vector3();
 const heroQuaternion = new Quaternion();
 const trackPosition = new Vector3();
 const trackQuaternion = new Quaternion();
+const riderEye = new Vector3();
+const riderAhead = new Vector3();
+const riderQuaternion = new Quaternion();
+// (A camera, so lookAt points its -z, the way it views.)
+const looker = new Looker();
+const forward = new Vector3(1, 0, 0);
+// On the bike: the rider's view down the road, over the handlebars and the lit button.
+// (Sat a little back from the model's RiderEye and looking a touch further down, so the dome and the lit button fill the
+// bottom of the view, the road running away above them.)
+const RIDER_FOV = 70;
+const RIDER_PITCH = MathUtils.degToRad(15);
+const RIDER_BACK = 0.22;
+const RIDER_DOWN = 0.07;
 
 /** Sample the track at progress p (0-1) into position/quaternion, returning the vertical FOV. */
 function sample(track: Track, p: number, position: Vector3, quaternion: Quaternion) {
@@ -83,6 +101,8 @@ export function JourneyCamera() {
     journey.sweep = Math.min(1, scroll / PRE_ROLL);
     const p = Math.max(0, (scroll - PRE_ROLL) / (1 - PRE_ROLL));
     journey.frame = p * TRACK_FRAMES;
+    const landing = landingAt(journey.frame);
+    let composed = 0;
     if (frames) {
       const trackFov = sample(frames, p, trackPosition, trackQuaternion);
       // Hand over from the fitted hero to the authored path across the opening beat.
@@ -91,14 +111,47 @@ export function JourneyCamera() {
       cam.quaternion.slerpQuaternions(heroQuaternion, trackQuaternion, w);
       // The track is framed for landscape. On portrait screens widen it partway: enough to keep the shots readable,
       // not so far that the close passes turn fisheye.
-      const fitted = aspect < 1 ? MathUtils.radToDeg(2 * Math.atan(Math.tan(MathUtils.degToRad(trackFov / 2)) / Math.sqrt(aspect))) : trackFov;
+      let fitted = aspect < 1 ? MathUtils.radToDeg(2 * Math.atan(tanHalf(trackFov) / Math.sqrt(aspect))) : trackFov;
+      // At the landing, wide enough to hold the bike.
+      const bikeFov = MathUtils.radToDeg(2 * Math.atan((tanHalf(trackFov) * COMPOSED_ASPECT * BIKE_SHARE) / aspect));
+      fitted = MathUtils.lerp(fitted, Math.max(fitted, Math.min(bikeFov, MAX_LANDING_FOV)), landing);
       fov = MathUtils.lerp(HERO_FOV, fitted, w);
+      // (The composition's half-width at unit distance.)
+      composed = tanHalf(trackFov) * COMPOSED_ASPECT;
     }
 
     cam.fov = fov;
-    const shift = PORTRAIT_SHIFT * MathUtils.clamp((1 - aspect) / 0.5, 0, 1) * landingAt(journey.frame);
+    // Slide the view so its left edge sits on the composition's: by the part of the composition it can't show, as a
+    // share of its own width.
+    const visible = tanHalf(fov) * aspect;
+    const shift = (Math.max(0, composed - visible) / (2 * visible)) * landing;
     // (filmOffset moves the frustum by near * offset / film width; the view is 2 tan(fov / 2) * aspect near-units wide.)
-    cam.filmOffset = -shift * 2 * Math.tan(MathUtils.degToRad(fov / 2)) * aspect * cam.getFilmWidth();
+    cam.filmOffset = -shift * 2 * tanHalf(fov) * aspect * cam.getFilmWidth();
+
+    // Getting on the bike (components/three/ride.tsx eases ride.mount): glide from wherever the journey has the camera
+    // to the rider's eye, looking along the bike, down the road.
+    const eye = anchors.eye;
+    if (eye && ride.mount > 0) {
+      const e = ride.mount * ride.mount * ride.mount * (ride.mount * (ride.mount * 6 - 15) + 10);
+      eye.getWorldPosition(riderEye);
+      // (Forward along the bike: its own +x, from the node the eye hangs on.)
+      riderAhead.copy(eye.position).add(forward);
+      eye.parent?.localToWorld(riderAhead);
+      riderAhead.sub(riderEye).setY(0).normalize();
+      riderEye.addScaledVector(riderAhead, -RIDER_BACK).y -= RIDER_DOWN;
+      looker.position.copy(riderEye);
+      looker.lookAt(
+        riderAhead
+          .multiplyScalar(10)
+          .add(riderEye)
+          .setY(riderEye.y - 10 * Math.tan(RIDER_PITCH))
+      );
+      riderQuaternion.copy(looker.quaternion);
+      cam.position.lerp(riderEye, e);
+      cam.quaternion.slerp(riderQuaternion, e);
+      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV, e);
+      cam.filmOffset *= 1 - e;
+    }
     cam.near = Math.max(0.03, cam.position.distanceTo(HERO_TARGET) * 0.002);
     cam.far = 2000;
     cam.updateProjectionMatrix();
