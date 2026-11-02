@@ -42,6 +42,12 @@ export const ride = {
   chrome: { want: 0, at: 0 },
   /** Asked for from the map (components/three/holomap.tsx): ride back to the green city, getting off at the landing. */
   request: { back: false },
+  /**
+   * Getting on, a glance at the map in the rider's hands before setting off (0 to 1 and back: the same sequence as
+   * arriving, components/three/holomap.tsx), and how long it's been going (s).
+   */
+  preview: 0,
+  previewTime: -1,
   /** The map's green city on screen (CSS px), for the button over it; shown while the map's open. */
   mapBack: { x: 0, y: 0, w: 0, h: 0, shown: false, hover: 0 },
   /** The second city has loaded and is ready to draw without a hitch (components/three/city-two.tsx). */

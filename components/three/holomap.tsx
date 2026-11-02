@@ -28,12 +28,16 @@ import { DRACO_PATH } from './biome';
 const PANEL = { w: 0.46, h: 0.33 };
 const corner = new Vector3();
 
-/** The map's drawing, as an SVG (glowing lines on nothing: the hologram shader gives it its light). */
-function mapSvg() {
+/**
+ * The map's drawing, as an SVG (glowing lines on nothing: the hologram shader gives it its light). Two of it: at the
+ * start, in the green city, just that city (here) and a dashed road off to a question mark; arrived, the route ridden
+ * back to the green city (the way back), the chrome city (here) and a road on to the next question mark.
+ */
+function mapSvg(mode: 'start' | 'arrived') {
   const glow = '#7ff6ff';
   const violet = '#c69bff';
   const green = '#7dff6a';
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">
+  const frame = `
   <defs>
     <pattern id="g" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="${glow}" stroke-opacity="0.18" stroke-width="0.6"/></pattern>
     <linearGradient id="r" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="${green}"/><stop offset="1" stop-color="${violet}"/></linearGradient>
@@ -41,22 +45,39 @@ function mapSvg() {
   <rect x="4" y="4" width="352" height="252" rx="14" fill="url(#g)" stroke="${glow}" stroke-opacity="0.65" stroke-width="1.4"/>
   <path d="M10 10h22M10 10v22M350 10h-22M350 10v22M10 250h22M10 250v-22M350 250h-22M350 250v-22" stroke="${glow}" stroke-width="2.4" fill="none"/>
   <text x="18" y="28" font-family="monospace" font-size="10" letter-spacing="3" fill="${glow}">ROUTE</text>
-  <text x="342" y="28" font-family="monospace" font-size="8" letter-spacing="2" fill="${glow}" fill-opacity="0.7" text-anchor="end">SECTOR 02</text>
+  <text x="342" y="28" font-family="monospace" font-size="8" letter-spacing="2" fill="${glow}" fill-opacity="0.7" text-anchor="end">SECTOR ${mode === 'start' ? '01' : '02'}</text>`;
+  const greenCity = (here: boolean) => `
+  <g transform="translate(62 214) scale(1.35)" stroke="${green}" fill="none" stroke-width="1.2">
+    ${here ? '<circle cy="-18" r="30" stroke-opacity="0.5"/><circle cy="-18" r="35" stroke-opacity="0.25" stroke-dasharray="3 4"/>' : ''}
+    <path d="M-20 4V-18L-16-30L-12-18V4"/><path d="M-6 4V-30L0-48L6-30V4"/><path d="M11 4V-14L15-24L19-14V4"/>
+    <path d="M-3-26h6M-3-18h6M-3-10h6M-18-10h4M13-8h4" stroke-width="2"/>
+  </g>`;
+  const unknown = (x: number, y: number) => `
+  <g transform="translate(${x} ${y})">
+    <circle r="18" fill="none" stroke="${violet}" stroke-width="1.6"/><circle r="23" fill="none" stroke="${violet}" stroke-opacity="0.4" stroke-dasharray="2 5"/>
+    <text y="7" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="21" fill="${violet}">?</text>
+  </g>`;
+  if (mode === 'start')
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
+  <path d="M62 196 C110 170, 150 150, 200 128 S270 92, 300 70" fill="none" stroke="${violet}" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 9"/>
+  ${greenCity(true)}
+  ${unknown(300, 70)}
+  <g font-family="monospace" font-size="10" letter-spacing="1.6" fill="${glow}">
+    <text x="62" y="248" text-anchor="middle" fill="${green}">GREEN CITY</text>
+    <text x="62" y="236" text-anchor="middle" font-size="8" fill="${green}" fill-opacity="0.85">YOU ARE HERE</text>
+    <text x="300" y="106" text-anchor="middle" font-size="8" fill="${violet}">UNCHARTED</text>
+  </g>
+</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
   <path d="M150 196 C200 214, 278 200, 330 166 L338 238 L144 242 Z" fill="${glow}" fill-opacity="0.1" stroke="${glow}" stroke-opacity="0.35" stroke-width="0.8"/>
   <path d="M62 214 C96 190, 104 160, 138 150 S176 142, 190 132" fill="none" stroke="url(#r)" stroke-width="4" stroke-linecap="round"/>
   <path d="M190 132 C214 110, 232 104, 252 84 S286 54, 304 48" fill="none" stroke="${violet}" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 9"/>
-  <g transform="translate(62 214) scale(1.35)" stroke="${green}" fill="none" stroke-width="1.2">
-    <path d="M-20 4V-18L-16-30L-12-18V4"/><path d="M-6 4V-30L0-48L6-30V4"/><path d="M11 4V-14L15-24L19-14V4"/>
-    <path d="M-3-26h6M-3-18h6M-3-10h6M-18-10h4M13-8h4" stroke-width="2"/>
-  </g>
+  ${greenCity(false)}
   <g transform="translate(190 132) scale(1.35)" stroke="${glow}" fill="none" stroke-width="1.2">
     <circle r="22" stroke-opacity="0.5"/><circle r="27" stroke-opacity="0.25" stroke-dasharray="3 4"/>
     <path d="M-3 4V-30h6V4"/><ellipse cy="-24" rx="13" ry="3.2"/><ellipse cy="-14" rx="11" ry="3"/><ellipse cy="-4" rx="9" ry="2.8"/><path d="M0-30v-10"/>
   </g>
-  <g transform="translate(304 48)">
-    <circle r="18" fill="none" stroke="${violet}" stroke-width="1.6"/><circle r="23" fill="none" stroke="${violet}" stroke-opacity="0.4" stroke-dasharray="2 5"/>
-    <text y="7" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="21" fill="${violet}">?</text>
-  </g>
+  ${unknown(304, 48)}
   <g font-family="monospace" font-size="10" letter-spacing="1.6" fill="${glow}">
     <text x="62" y="248" text-anchor="middle" fill="${green}">GREEN CITY</text>
     <text x="62" y="236" text-anchor="middle" font-size="7" fill="${green}" fill-opacity="0.8">◂ RIDE BACK</text>
@@ -67,7 +88,7 @@ function mapSvg() {
 </svg>`;
 }
 
-function useMapTexture() {
+function useMapTexture(mode: 'start' | 'arrived') {
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
@@ -79,9 +100,9 @@ function useMapTexture() {
       (canvas.getContext('2d') as CanvasRenderingContext2D).drawImage(image, 0, 0, canvas.width, canvas.height);
       t.needsUpdate = true;
     };
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(mapSvg())}`;
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(mapSvg(mode))}`;
     return t;
-  }, []);
+  }, [mode]);
   useEffect(() => () => texture.dispose(), [texture]);
   return texture;
 }
@@ -156,8 +177,9 @@ export function HoloMap() {
   const rig = useRef<Group>(null);
   const holder = useRef<Group>(null);
   const panel = useRef<Mesh>(null);
-  const map = useMapTexture();
-  const material = useMemo(() => hologramMaterial(map), [map]);
+  const startMap = useMapTexture('start');
+  const arrivedMap = useMapTexture('arrived');
+  const material = useMemo(() => hologramMaterial(arrivedMap), [arrivedMap]);
   const geometry = useMemo(() => new PlaneGeometry(PANEL.w, PANEL.h), []);
   const [hands, setHands] = useState(false);
   const anchor = useRef<Object3D | null>(null);
@@ -178,7 +200,10 @@ export function HoloMap() {
   }, []);
 
   useFrame((state) => {
-    const m = ride.transition.map;
+    // Arrived in the chrome city, its map; otherwise the glance at the start, in the green city.
+    const arrived = ride.transition.arrived;
+    const m = arrived ? ride.transition.map : ride.preview;
+    material.uniforms.uMap.value = arrived ? arrivedMap : startMap;
     const r = rig.current;
     if (!r) return;
     r.visible = m > 0.3;
@@ -212,7 +237,7 @@ export function HoloMap() {
       p.scale.set(0.25 + 0.75 * smoothstep(0, 0.4, open), Math.max(0.02, open), 1);
       // Where the green city (the way back) is on screen, for the button over it.
       const mb = ride.mapBack;
-      mb.shown = open > 0.95;
+      mb.shown = arrived && open > 0.95;
       if (mb.shown) {
         p.updateWorldMatrix(true, false);
         let x0 = Number.POSITIVE_INFINITY;

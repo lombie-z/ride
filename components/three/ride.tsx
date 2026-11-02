@@ -49,6 +49,8 @@ const MUCK_SPEED = 8;
 const CLEAR_SECONDS = 4;
 // The map: how long after the arrival shot settles, and how long the camera's return, the hands and the opening take.
 const MAP_AFTER = 3.5;
+// The glance at the map getting on: up (hands, opening), held, put away (s).
+const PREVIEW = { up: 2.2, hold: 1.6, down: 1.0 };
 const MAP_SECONDS = 4.5;
 const MUCK_DRAG = 26;
 
@@ -226,6 +228,17 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // The towers by the water sink away and the train's beam rises in their place, over a few seconds.
     tr.clear = tr.placed ? Math.min(1, tr.clear + dt / CLEAR_SECONDS) : 0;
     tr.arrive = tr.arrived && ride.mounted ? Math.min(1, tr.arrive + dt / 3.2) : Math.max(0, tr.arrive - dt / 1.2);
+    // Getting on, a glance at the map: hands up, it opens, held a moment, put away; cut short by setting off.
+    if (ride.mounted && ride.mount > 0.98 && ride.previewTime < 0 && !tr.placed) ride.previewTime = 0;
+    if (!ride.mounted) ride.previewTime = -1;
+    if (ride.previewTime >= 0) {
+      ride.previewTime += dt;
+      const t = ride.previewTime;
+      const up = Math.min(1, t / PREVIEW.up);
+      const down = Math.min(1, Math.max(0, (t - PREVIEW.up - PREVIEW.hold) / PREVIEW.down));
+      ride.preview = drive.cruise ? Math.max(0, ride.preview - dt / PREVIEW.down) : up * (1 - down);
+      if (ride.preview <= 0 && t > PREVIEW.up) ride.previewTime = 99;
+    } else ride.preview = 0;
     // A few seconds on the arrival shot, then the map: back on the bike, the hands come up with it.
     tr.held = tr.arrive >= 1 ? tr.held + dt : 0;
     tr.map = tr.arrived && ride.mounted ? Math.min(1, Math.max(tr.map, (tr.held - MAP_AFTER) / MAP_SECONDS)) : Math.max(0, tr.map - dt / 0.8);
