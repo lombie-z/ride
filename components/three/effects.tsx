@@ -59,7 +59,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
       // The warm, saturated grade comes in with the real sky as the camera leaves the hero, not only at the landing.
       grade.current.weight = Math.max(bloom, landingAt(journey.frame));
       // (Brighter on the way down: the landing's exposure is set for its stronger low sun.)
-      grade.current.exposure = 0.66 + 0.24 * (1 - landingAt(journey.frame));
+      grade.current.exposure = 0.82 + 0.08 * (1 - landingAt(journey.frame));
       grade.current.glow = 0.55 * glow;
       // Where the sun is on screen, for its starburst (only at the landing, and not when it's behind the camera).
       // (From the sun disc itself, the centre of its geometry: Blender's mesh isn't centred on its origin.)
@@ -71,7 +71,8 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
       state.camera.updateMatrixWorld();
       sunOnScreen.project(state.camera);
       const facing = sunOnScreen.z < 1 ? 1 : 0;
-      grade.current.setSun(sunOnScreen.x * 0.5 + 0.5, sunOnScreen.y * 0.5 + 0.5, facing * arrived, state.size.width / state.size.height);
+      // (No sun at night: its lens starburst stays off.)
+      grade.current.setSun(sunOnScreen.x * 0.5 + 0.5, sunOnScreen.y * 0.5 + 0.5, 0 * facing * arrived, state.size.width / state.size.height);
     }
     // Gentler rays at the landing: full strength they wash the sky's clouds out round the sun.
     // The landing's lens: sharp from the frog out past the lilies (the focus is centred mid-way, its range wide, since

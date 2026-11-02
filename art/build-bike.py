@@ -26,6 +26,7 @@ RENDER_DIR = os.path.join(HERE, 'renders')
 ARGS = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 DO_RENDER = '--render' in ARGS
 TAG = ARGS[ARGS.index('--tag') + 1] if '--tag' in ARGS else ''
+VIEWS = ARGS[ARGS.index('--views') + 1].split(',') if '--views' in ARGS else None  # e.g. concept,hero
 
 TAU = math.tau
 Y = Vector((0, 1, 0))
@@ -72,15 +73,133 @@ def srgb(h):
     return tuple(lin(int(h[i:i + 2], 16)) for i in (1, 3, 5))
 
 
+def chitin_textures(size=1024):
+    """Tiling height field of overlapping, cracked, pitted carapace plates -> normal map, plus an ORM map
+    (G roughness with wet streaks, B metallic). Generated with numpy, packed into the .blend and the glb."""
+    import numpy as np
+    rng = np.random.default_rng(11)
+    yy, xx = np.mgrid[0:size, 0:size].astype(np.float32) / size
+
+    def voronoi(n, seed):
+        r = np.random.default_rng(seed)
+        jit = (r.random((n, n, 2)) * 0.8 + 0.1).astype(np.float32)
+        X, Y = xx * n, yy * n
+        cx, cy = np.floor(X).astype(np.int32), np.floor(Y).astype(np.int32)
+        F1 = np.full(X.shape, 9.0, np.float32)
+        F2 = np.full(X.shape, 9.0, np.float32)
+        cid = np.zeros(X.shape, np.int32)
+        dx1 = np.zeros(X.shape, np.float32)
+        dy1 = np.zeros(X.shape, np.float32)
+        for oy in (-1, 0, 1):
+            for ox in (-1, 0, 1):
+                nx, ny = cx + ox, cy + oy
+                wx, wy = nx % n, ny % n
+                px, py = nx + jit[wy, wx, 0], ny + jit[wy, wx, 1]
+                ddx, ddy = X - px, Y - py
+                d = np.sqrt(ddx * ddx + ddy * ddy)
+                closer = d < F1
+                F2 = np.where(closer, F1, np.minimum(F2, d))
+                cid = np.where(closer, wy * n + wx, cid)
+                dx1 = np.where(closer, ddx, dx1)
+                dy1 = np.where(closer, ddy, dy1)
+                F1 = np.where(closer, d, F1)
+        return F1, F2, cid, dx1, dy1
+
+    def noise(sx, sy, seed):  # tileable gaussian-filtered noise in [0, 1]
+        r = np.random.default_rng(seed)
+        f = np.fft.fft2(r.standard_normal((size, size)))
+        fy = np.fft.fftfreq(size)[:, None]
+        fx = np.fft.fftfreq(size)[None, :]
+        f *= np.exp(-2 * math.pi ** 2 * ((fx * sx) ** 2 + (fy * sy) ** 2))
+        out = np.real(np.fft.ifft2(f))
+        return ((out - out.min()) / (out.max() - out.min())).astype(np.float32)
+
+    def sstep(a, b, x):
+        t = np.clip((x - a) / (b - a), 0, 1)
+        return t * t * (3 - 2 * t)
+
+    # big overlapping plates: each tilts (mostly along +v) so its rear edge stands proud of the next
+    F1, F2, cid, dx, dy = voronoi(6, 1)
+    edge = F2 - F1
+    ang = (math.pi / 2 + (rng.random(36) - 0.5) * 1.2).astype(np.float32)[cid]
+    amp = (0.35 + rng.random(36) * 0.35).astype(np.float32)[cid]
+    plate = sstep(0.0, 0.22, edge)
+    h = 0.5 * plate + amp * (dx * np.cos(ang) + dy * np.sin(ang)) * plate
+    h += 0.035 * np.sin(F1 * math.tau * 4.0) * plate  # growth lines
+    crack = 1 - sstep(0.0, 0.03, edge)
+    h -= 0.30 * crack
+    # finer scales and hairline cracks
+    G1, G2, gid, _, _ = voronoi(19, 2)
+    gedge = G2 - G1
+    h += 0.06 * sstep(0.0, 0.3, gedge)
+    fine = 1 - sstep(0.0, 0.05, gedge)
+    h -= 0.05 * fine
+    # pitting
+    P1, _, pid, _, _ = voronoi(64, 3)
+    pits = (1 - sstep(0.06, 0.26, P1)) * (rng.random(64 * 64) < 0.5).astype(np.float32)[pid]
+    h -= 0.05 * pits
+    h += 0.12 * noise(30, 30, 4)
+
+    k = 5.0 * size / 1024  # slope scale
+    gx = (np.roll(h, -1, 1) - np.roll(h, 1, 1)) * 0.5 * k
+    gy = (np.roll(h, -1, 0) - np.roll(h, 1, 0)) * 0.5 * k
+    nz = 1 / np.sqrt(gx * gx + gy * gy + 1)
+    nrm = np.stack([-gx * nz * 0.5 + 0.5, -gy * nz * 0.5 + 0.5, nz * 0.5 + 0.5, np.ones_like(nz)], -1)
+
+    rough = 0.10 + 0.06 * noise(12, 12, 5) + 0.32 * crack + 0.10 * fine + 0.15 * pits
+    streak = sstep(0.56, 0.72, noise(1.5, 60, 6))  # long wet runs along v
+    rough = rough * (1 - streak) + 0.05 * streak
+    rough = np.clip(rough, 0.04, 0.75)
+    orm = np.stack([np.ones_like(rough), rough, np.full_like(rough, 0.15), np.ones_like(rough)], -1)
+
+    imgs = []
+    for name, arr in (('BikeChitinNormal', nrm), ('BikeChitinORM', orm)):
+        img = bpy.data.images.new(name, size, size, alpha=False)
+        img.colorspace_settings.name = 'Non-Color'
+        img.pixels.foreach_set(arr.astype(np.float32).ravel())
+        img.pack()
+        imgs.append(img)
+    return imgs
+
+
+def wire_chitin(m, nimg, oimg):
+    nt = m.node_tree
+    b = nt.nodes['Principled BSDF']
+    tn = nt.nodes.new('ShaderNodeTexImage')
+    tn.image = nimg
+    nm = nt.nodes.new('ShaderNodeNormalMap')
+    nm.inputs['Strength'].default_value = 1.0
+    nt.links.new(tn.outputs['Color'], nm.inputs['Color'])
+    nt.links.new(nm.outputs['Normal'], b.inputs['Normal'])
+    nmc = nt.nodes.new('ShaderNodeNormalMap')  # the wet coat follows the plates, but more gently than the shell
+    nmc.inputs['Strength'].default_value = 0.4
+    nt.links.new(tn.outputs['Color'], nmc.inputs['Color'])
+    nt.links.new(nmc.outputs['Normal'], b.inputs['Coat Normal'])
+    to = nt.nodes.new('ShaderNodeTexImage')
+    to.image = oimg
+    sep = nt.nodes.new('ShaderNodeSeparateColor')
+    nt.links.new(to.outputs['Color'], sep.inputs['Color'])
+    nt.links.new(sep.outputs['Green'], b.inputs['Roughness'])
+    nt.links.new(sep.outputs['Blue'], b.inputs['Metallic'])
+
+
 def make_materials():
-    return {
+    M = {
         'chitin': principled('BikeChitin', (0.008, 0.010, 0.009), metallic=0.25, rough=0.16, coat=1.0, coat_rough=0.02),
         'chrome': principled('BikeChrome', (0.78, 0.76, 0.70), metallic=1.0, rough=0.13),
         'glow': principled('BikeGlow', srgb('#3c8c1c'), rough=0.25, emit=srgb('#7dff4a'), emit_strength=1.8),
         'eye': principled('BikeEye', srgb('#4a5a10'), rough=0.1, emit=srgb('#dcff5a'), emit_strength=12.0),
         'tyre': principled('BikeTyre', (0.016, 0.016, 0.016), rough=0.62, spec=0.35),
         'bone': principled('BikeBone', (0.55, 0.52, 0.45), metallic=0.6, rough=0.34),
+        # translucent rib shells round the glowing cores: alpha-blended dark green glass
+        'ribglass': principled('BikeRibGlass', srgb('#1a5c10'), rough=0.05, emit=srgb('#7dff4a'), emit_strength=0.12),
     }
+    g = M['ribglass']
+    g.node_tree.nodes['Principled BSDF'].inputs['Alpha'].default_value = 0.45
+    g.surface_render_method = 'BLENDED'
+    g.use_backface_culling = True
+    wire_chitin(M['chitin'], *chitin_textures())
+    return M
 
 
 # ---------------------------------------------------------------- curve maths
@@ -168,9 +287,13 @@ def section(w, ht, hb, n, e=2.5, eb=None, ridge=0.0, keel=0.0, a0=0.0, a1=TAU, c
 PARTS = []
 
 
-def new_obj(name, verts, faces, mat, smooth=True):
+def new_obj(name, verts, faces, mat, smooth=True, uvs=None):
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(v) for v in verts], [], faces)
+    layer = me.uv_layers.new(name='UVMap')
+    if uvs:  # one (u, v) per face corner, in texture tiles
+        flat = [c for f in uvs for uv in f for c in uv]
+        layer.data.foreach_set('uv', flat)
     me.validate()
     bm = bmesh.new()
     bm.from_mesh(me)
@@ -186,28 +309,46 @@ def new_obj(name, verts, faces, mat, smooth=True):
     return ob
 
 
+TILE = 0.5  # metres of surface per repeat of the chitin texture
+
+
 def rings_mesh(name, rings, mat, closed_ring=True, closed_along=False, cap0=None, cap1=None, smooth=True):
     m = len(rings[0])
     verts = [v for r in rings for v in r]
-    faces = []
+    faces, uvs = [], []
     nr = len(rings)
+    # arc-length UVs: u around each ring, v along the sweep
+    us = []
+    for r in rings:
+        u = [0.0]
+        for j in range(m if closed_ring else m - 1):
+            u.append(u[-1] + (r[(j + 1) % m] - r[j]).length)
+        us.append([x / TILE for x in u])
+    vs = [0.0]
+    for i in range(nr if closed_along else nr - 1):
+        a, b = rings[i], rings[(i + 1) % nr]
+        vs.append(vs[-1] + sum((b[j] - a[j]).length for j in range(m)) / m)
+    vs = [x / TILE for x in vs]
     for i in range(nr if closed_along else nr - 1):
         i2 = (i + 1) % nr
         for j in range(m if closed_ring else m - 1):
             j2 = (j + 1) % m
             faces.append((i * m + j, i * m + j2, i2 * m + j2, i2 * m + j))
+            uvs.append(((us[i][j], vs[i]), (us[i][j + 1], vs[i]), (us[i2][j + 1], vs[i + 1]), (us[i2][j], vs[i + 1])))
     for cap, ri in ((cap0, 0), (cap1, nr - 1)):
         if cap is None:
             continue
         idx = list(range(ri * m, ri * m + m))
         if cap == 'ngon':
             faces.append(tuple(idx))
+            uvs.append(tuple((verts[k].x / TILE, verts[k].z / TILE) for k in idx))
         else:  # a point: Vector tip
             verts.append(cap)
             c = len(verts) - 1
             for j in range(m):
                 faces.append((idx[j], idx[(j + 1) % m], c))
-    return new_obj(name, verts, faces, mat, smooth)
+                uvs.append(((us[ri][j], vs[ri]), (us[ri][j + 1], vs[ri]), ((us[ri][j] + us[ri][j + 1]) / 2, vs[ri] + 0.02)))
+    return new_obj(name, verts, faces, mat, smooth, uvs)
 
 
 def bake(ob, solidify=0.0, subsurf=0, solid_offset=0.0):
@@ -272,7 +413,7 @@ def loft(name, keys, mat, n_along, n_around, side=Y, closed=True, cap0=None, cap
         sd = up.cross(T).normalized()
         g = lambda f, dflt=0.0: hermite(keys, t, f, dflt)
         pts = section(max(g('w'), 1e-4), max(g('ht'), 1e-4), max(g('hb'), 1e-4), n_around, e=g('e', 2.5), eb=g('eb', g('e', 2.5)),
-                      ridge=g('ridge'), keel=g('keel'), a0=g('a0', 0.0), a1=g('a1', TAU), closed=closed)
+                      ridge=g('ridge'), keel=g('keel'), a0=g('a0', -math.pi / 2), a1=g('a1', 1.5 * math.pi), closed=closed)
         rings.append([c + sd * u + up * v for u, v in pts])
         centres.append(c)
         tangents.append(T)
@@ -366,9 +507,9 @@ def build_wheel(name, radius, width, M, front):
                 pts.append(Vector((r * math.cos(a), yy * ybase, r * math.sin(a))))
             tube(name + 'Spoke', pts, (0.011, 0.007), M['chrome'], sides=6, segs=9)
     # brake discs (front: twin, rear: right side only)
-    ys = (-0.085, 0.085) if front else (-0.095,)
+    ys = (-0.108, 0.108) if front else (-0.105,)
     for y in ys:
-        disc(name + 'Disc', 0.095 if front else 0.07, 0.155 if front else 0.115, y, M['bone'], sectors=32)
+        disc(name + 'Disc', 0.095 if front else 0.07, 0.155 if front else 0.115, y, M['chrome'], sectors=40)
         for k in range(5):
             ph = TAU * k / 5 + 0.3
             tube(name + 'Carrier', [Vector((0.05 * math.cos(ph), y * 0.8, 0.05 * math.sin(ph))), Vector((0.1 * math.cos(ph + 0.15), y, 0.1 * math.sin(ph + 0.15)))],
@@ -390,72 +531,70 @@ def steer_pt(t, y=0.0):
 def build_body(M):
     ch, cr, gl, bo = M['chitin'], M['chrome'], M['glow'], M['bone']
 
-    # --- head fairing: big swept insect head, eye at the nose
-    head = [
-        dict(c=Vector((0.08, 0, 0.86)), w=0.17, ht=0.09, hb=0.10, ridge=0.0, e=2.15),
-        dict(c=Vector((0.30, 0, 0.885)), w=0.245, ht=0.155, hb=0.20, ridge=0.025, e=2.2),
-        dict(c=Vector((0.54, 0, 0.875)), w=0.255, ht=0.185, hb=0.21, ridge=0.04, e=2.25),
-        dict(c=Vector((0.76, 0, 0.85)), w=0.215, ht=0.15, hb=0.155, ridge=0.035, e=2.2),
-        dict(c=Vector((0.93, 0, 0.81)), w=0.15, ht=0.105, hb=0.12, ridge=0.02, e=2.1),
-        dict(c=Vector((1.02, 0, 0.785)), w=0.10, ht=0.08, hb=0.085, ridge=0.0, e=2.15),
-    ]
-    loft('Head', head, ch, 20, 18, cap0='ngon', cap1='ngon', subsurf=1)
-    # brow: a proud plate over the top of the head that overhangs the eye
-    brow = [
-        dict(c=Vector((0.50, 0, 0.885)), w=0.24, ht=0.19, hb=0.05),
-        dict(c=Vector((0.76, 0, 0.865)), w=0.225, ht=0.165, hb=0.05, ridge=0.04),
-        dict(c=Vector((0.96, 0, 0.83)), w=0.15, ht=0.12, hb=0.04, ridge=0.02),
-        dict(c=Vector((1.09, 0, 0.82)), w=0.06, ht=0.07, hb=0.02),
-    ]
-    for k in brow:
-        k.update(a0=0.12, a1=math.pi - 0.12)
-    loft('Brow', brow, ch, 12, 12, closed=False, solidify=0.014, subsurf=1)
-    # mandibles: chitin tusks curling from under the eye back over the fender
-    for sgn in (-1, 1):
-        tube('Mandible', [(1.00, sgn * 0.07, 0.72), (0.92, sgn * 0.17, 0.675), (0.78, sgn * 0.225, 0.68), (0.62, sgn * 0.24, 0.73)],
-             lambda s: 0.012 + 0.02 * math.sin(math.pi * min(1, s * 1.3)) ** 0.7, ch, sides=10, segs=18, cap0='point', cap1='point', squash=0.6)
-    eye_c = Vector((1.03, 0, 0.785))
-    # eye: a deep bulging lens so it still reads round from the side, chrome bezel
-    lens = [(0.085 * math.cos(a), 0.065 * math.sin(a)) for a in (math.pi / 2 * k / 8 for k in range(9))]
-    eye = lathe('Eye', lens, M['eye'], 32, closed_prof=False)
-    eye.data.transform(Matrix.Rotation(-math.pi / 2, 4, 'Z'))
-    eye.data.transform(Matrix.Translation(eye_c))
-    bez = [(0.092 + 0.018 * math.cos(a), 0.016 * math.sin(a)) for a in (TAU * k / 8 for k in range(8))]
-    bezel = lathe('Bezel', bez, cr, 40)
-    bezel.data.transform(Matrix.Rotation(-math.pi / 2, 4, 'Z'))
-    bezel.data.transform(Matrix.Translation(eye_c))
+    # --- the dome: one big bulbous carapace from behind the bars to the eye, sitting over the ribcage.
+    # Profile (x, top, bottom, half-width) back-projected from the concept's traced outline through ConceptCam.
+    dome = [(-0.20, 0.785, 0.745, 0.15), (0.02, 0.885, 0.765, 0.205), (0.25, 0.95, 0.745, 0.245), (0.47, 0.965, 0.70, 0.265),
+            (0.62, 0.93, 0.665, 0.255), (0.72, 0.86, 0.655, 0.21), (0.80, 0.775, 0.655, 0.13)]
+    x0, x1 = dome[0][0], dome[-1][0]
+    head = []
+    for x, top, bot, w in dome:
+        rid = 0.025 if 0.0 < x < 0.76 else 0.0
+        head.append(dict(t=(x - x0) / (x1 - x0), c=Vector((x, 0, (top + bot) / 2)), w=w, ht=(top - bot) / 2 - rid, hb=(top - bot) / 2, ridge=rid, e=2.05))
+    loft('Head', head, ch, 26, 22, cap0='ngon', cap1='ngon', subsurf=1)
 
-    # --- carapace over the tank: overlapping arched plates, like an insect's abdomen; ribs show beneath
-    guide = [dict(t=0.0, x=0.46, zc=0.86, w=0.24, ht=0.19), dict(t=0.35, x=0.20, zc=0.86, w=0.24, ht=0.185),
-             dict(t=0.7, x=-0.05, zc=0.81, w=0.21, ht=0.15), dict(t=1.0, x=-0.27, zc=0.74, w=0.165, ht=0.085)]
-    n_pl = 4
-    edge = (0.62, 0.30, 0.34, 0.55)  # how far each plate wraps down the sides: a curved window onto the ribs
-    for i in range(n_pl):
-        t0, t1 = i / n_pl - 0.03, (i + 1) / n_pl + 0.02
+    def dome_at(x):
+        t = min(max((x - x0) / (x1 - x0), 0), 1)
+        return {f: hermite(head, t, f, 0.0) for f in ('w', 'ht', 'hb', 'ridge')} | {'c': hermite(head, t, 'c')}
+
+    def shell(name, xa, xb, grow, a0, a1, n_along=5, n_around=14, lift=0.0):
         keys = []
-        for j, f in enumerate((0.0, 0.5, 1.0)):
-            t = t0 + (t1 - t0) * f
-            sc = 0.95 + 0.07 * f
-            g = lambda fld: hermite(guide, min(max(t, 0), 1), fld)
-            keys.append(dict(c=Vector((g('x') + (0.02 if t < 0 else 0), 0, g('zc') - 0.01 * f)), w=g('w') * sc, ht=g('ht') * sc, hb=0.07,
-                             ridge=0.02, a0=-edge[i] - 0.06 * f, a1=math.pi + edge[i] + 0.06 * f))
-        loft('Tank', keys, ch, 5, 11, closed=False, solidify=0.012, subsurf=1)
+        for f in (0.0, 0.5, 1.0):
+            d = dome_at(xa + (xb - xa) * f)
+            sc = grow[0] + (grow[1] - grow[0]) * f
+            keys.append(dict(c=d['c'] + Vector((0, 0, lift * f)), w=d['w'] * sc, ht=d['ht'] * sc, hb=d['hb'] * sc, ridge=d['ridge'] * sc,
+                             a0=a0 - 0.08 * f, a1=a1 + 0.08 * f, e=2.05))
+        return loft(name, keys, ch, n_along, n_around, closed=False, solidify=0.012, subsurf=1)
 
-    # --- seat and tail cone
+    # overlapping segment plates over the rear of the dome (abdomen-like), each rear edge standing proud of the next
+    for xa, xb, edge in ((-0.24, 0.06, 0.45), (0.02, 0.30, 0.30), (0.26, 0.52, 0.22)):
+        shell('Tank', xa, xb, (1.02, 1.08), -edge, math.pi + edge, lift=-0.005)
+    # brow over the front of the dome, overhanging the eye
+    shell('Brow', 0.44, 0.83, (1.035, 1.06), 0.10, math.pi - 0.10, n_along=12)
+    # cheek plates over the sides behind the eye
+    for sgn in (-1, 1):
+        a0, a1 = (-1.1, 0.5) if sgn > 0 else (math.pi - 0.5, math.pi + 1.1)
+        shell('Cheek', 0.50, 0.79, (1.03, 1.05), a0, a1, n_along=8, n_around=8)
+    # mandibles: chitin tusks along the dome's lower edge, outside the fender
+    for sgn in (-1, 1):
+        tube('Mandible', [(0.79, sgn * 0.08, 0.665), (0.74, sgn * 0.19, 0.65), (0.62, sgn * 0.26, 0.665), (0.48, sgn * 0.285, 0.71)],
+             lambda s: 0.010 + 0.022 * math.sin(math.pi * min(1, s * 1.3)) ** 0.7, ch, sides=10, segs=20, cap0='point', cap1='point', squash=0.6)
+    eye_c = Vector((0.815, 0, 0.713))
+    # eye: a deep bulging lens so it still reads round from the side, chrome bezel, a thick chitin lid round it
+    lens = [(0.066 * math.cos(a), 0.052 * math.sin(a)) for a in (math.pi / 2 * k / 8 for k in range(9))]
+    eye = lathe('Eye', lens, M['eye'], 32, closed_prof=False)
+    bez = [(0.072 + 0.013 * math.cos(a), 0.012 * math.sin(a)) for a in (TAU * k / 8 for k in range(8))]
+    bezel = lathe('Bezel', bez, cr, 40)
+    lid = [(0.094 + 0.02 * math.cos(a), -0.012 + 0.025 * math.sin(a)) for a in (TAU * k / 10 for k in range(10))]
+    eyelid = lathe('Eyelid', lid, ch, 40)
+    for ob in (eye, bezel, eyelid):
+        ob.data.transform(Matrix.Rotation(-math.pi / 2, 4, 'Z'))
+        ob.data.transform(Matrix.Translation(eye_c))
+
+    # --- seat pad and a short raised tail cowl over the front of the rear wheel
     seat = [
-        dict(c=Vector((-0.10, 0, 0.75)), w=0.12, ht=0.04, hb=0.04, e=3),
-        dict(c=Vector((-0.30, 0, 0.765)), w=0.155, ht=0.05, hb=0.05, e=3),
-        dict(c=Vector((-0.48, 0, 0.79)), w=0.12, ht=0.05, hb=0.05, e=3),
+        dict(c=Vector((-0.15, 0, 0.735)), w=0.12, ht=0.03, hb=0.03, e=3),
+        dict(c=Vector((-0.30, 0, 0.745)), w=0.145, ht=0.035, hb=0.035, e=3),
+        dict(c=Vector((-0.43, 0, 0.75)), w=0.11, ht=0.03, hb=0.03, e=3),
     ]
     loft('Seat', seat, ch, 10, 16, cap0='ngon', cap1='ngon', subsurf=1)
     tail = [
-        dict(c=Vector((-0.28, 0, 0.70)), w=0.18, ht=0.07, hb=0.11, ridge=0.0),
-        dict(c=Vector((-0.55, 0, 0.77)), w=0.165, ht=0.09, hb=0.15, ridge=0.03),
-        dict(c=Vector((-0.80, 0, 0.87)), w=0.095, ht=0.07, hb=0.11, ridge=0.025),
-        dict(c=Vector((-0.97, 0, 0.98)), w=0.02, ht=0.02, hb=0.02),
+        dict(c=Vector((-0.17, 0, 0.695)), w=0.175, ht=0.04, hb=0.06),
+        dict(c=Vector((-0.42, 0, 0.705)), w=0.165, ht=0.06, hb=0.07, ridge=0.02),
+        dict(c=Vector((-0.55, 0, 0.715)), w=0.095, ht=0.045, hb=0.05, ridge=0.015),
+        dict(c=Vector((-0.65, 0, 0.74)), w=0.015, ht=0.012, hb=0.012),
     ]
-    loft('Tail', tail, ch, 16, 14, cap0='ngon', cap1='point', subsurf=1)
-    tube('TailTip', [(-0.93, 0, 0.955), (-1.0, 0, 0.995), (-1.05, 0, 1.03)], lambda s: 0.02 * (1 - s) + 0.002, cr, sides=8, segs=6, cap1='point')
+    loft('Tail', tail, ch, 14, 14, cap0='ngon', cap1='point', subsurf=1)
+    tube('TailTip', [(-0.62, 0, 0.73), (-0.67, 0, 0.75), (-0.71, 0, 0.77)], lambda s: 0.016 * (1 - s) + 0.002, cr, sides=8, segs=6, cap1='point')
 
     # --- fenders: open shells hugging the tyres
     def fender(name, axle, rad, th0, th1, w, wt0, wt1):
@@ -464,69 +603,82 @@ def build_body(M):
             f = i / 5
             th = th0 + (th1 - th0) * f
             c = axle + Vector((math.cos(th), 0, math.sin(th))) * rad
-            ww = w * min(1, 0.35 + 2.2 * min(f, 1 - f)) if True else w
             ww = w * (wt0 + (1 - wt0) * min(1, f * 3)) * (wt1 + (1 - wt1) * min(1, (1 - f) * 3))
             keys.append(dict(c=c, w=ww, ht=0.02, hb=0.05, a0=math.pi - 0.25, a1=TAU + 0.25))
         loft(name, keys, ch, 14, 10, closed=False, solidify=0.01, subsurf=1)
-    fender('FenderF', F_AXLE, F_R + 0.04, math.radians(-28), math.radians(130), 0.13, 0.3, 0.6)
-    fender('FenderR', R_AXLE, R_R + 0.045, math.radians(30), math.radians(185), 0.165, 0.7, 0.35)
+    fender('FenderF', F_AXLE, F_R + 0.035, math.radians(46), math.radians(124), 0.155, 0.35, 0.7)
+    fender('FenderR', R_AXLE, R_R + 0.04, math.radians(42), math.radians(140), 0.17, 0.75, 0.45)
 
     # --- belly / engine mass
     belly = [
-        dict(c=Vector((0.36, 0, 0.36)), w=0.10, ht=0.10, hb=0.10),
-        dict(c=Vector((0.12, 0, 0.32)), w=0.15, ht=0.15, hb=0.15, keel=0.02),
-        dict(c=Vector((-0.18, 0, 0.36)), w=0.15, ht=0.15, hb=0.14),
+        dict(c=Vector((0.40, 0, 0.25)), w=0.10, ht=0.12, hb=0.13),
+        dict(c=Vector((0.12, 0, 0.30)), w=0.15, ht=0.15, hb=0.14, keel=0.02),
+        dict(c=Vector((-0.18, 0, 0.35)), w=0.15, ht=0.14, hb=0.13),
         dict(c=Vector((-0.40, 0, 0.48)), w=0.09, ht=0.10, hb=0.08),
     ]
     loft('Belly', belly, ch, 14, 16, cap0='ngon', cap1='ngon', subsurf=1)
+    # hip: the dark mass under the seat between the ribcage and the rear wheel
+    hip = [
+        dict(c=Vector((-0.24, 0, 0.53)), w=0.14, ht=0.13, hb=0.12),
+        dict(c=Vector((-0.45, 0, 0.56)), w=0.13, ht=0.11, hb=0.10, keel=0.015),
+        dict(c=Vector((-0.64, 0, 0.62)), w=0.06, ht=0.06, hb=0.05),
+    ]
+    loft('Hip', hip, ch, 10, 14, cap0='ngon', cap1='ngon', subsurf=1)
 
     # --- neck plates (side "cheeks" running from the head down to the belly)
     for sgn in (-1, 1):
         chest = [
-            dict(c=Vector((0.52, sgn * 0.16, 0.76)), w=0.035, ht=0.10, hb=0.10),
-            dict(c=Vector((0.46, sgn * 0.195, 0.56)), w=0.045, ht=0.10, hb=0.09),
-            dict(c=Vector((0.36, sgn * 0.19, 0.37)), w=0.04, ht=0.08, hb=0.07),
-            dict(c=Vector((0.22, sgn * 0.15, 0.24)), w=0.03, ht=0.05, hb=0.05),
+            dict(c=Vector((0.64, sgn * 0.17, 0.66)), w=0.035, ht=0.09, hb=0.09),
+            dict(c=Vector((0.57, sgn * 0.20, 0.50)), w=0.045, ht=0.09, hb=0.08),
+            dict(c=Vector((0.49, sgn * 0.19, 0.34)), w=0.04, ht=0.075, hb=0.065),
+            dict(c=Vector((0.41, sgn * 0.15, 0.22)), w=0.03, ht=0.05, hb=0.05),
         ]
         loft('Chest', chest, ch, 12, 12, cap0='ngon', cap1='ngon', subsurf=1)
 
     # --- ribcage: spine + glowing ribs + dark core. Ribs bow forward and sweep back at the bottom, front ribs biggest.
-    spine0, spine1 = Vector((0.36, 0, 0.86)), Vector((-0.30, 0, 0.71))
+    spine0, spine1 = Vector((0.20, 0, 0.745)), Vector((-0.30, 0, 0.58))
     n_ribs = 14
-    core = [dict(c=spine0.lerp(spine1, f) - Vector((0, 0, 0.19 - 0.04 * f)), w=0.10 + 0.02 * math.sin(math.pi * f),
-                 ht=0.14, hb=0.10) for f in (0, 0.33, 0.66, 1)]
+    rib_hh = lambda f: (0.27 - 0.16 * f) / 2
+    rib_w = lambda f: 0.19 - 0.07 * f
+    core = [dict(c=spine0.lerp(spine1, f) - Vector((0, 0, rib_hh(f) + 0.01)), w=rib_w(f) * 0.55, ht=rib_hh(f) * 0.65, hb=rib_hh(f) * 0.6)
+            for f in (0, 0.33, 0.66, 1)]
     loft('Core', core, ch, 10, 12, cap0='ngon', cap1='ngon', subsurf=1)
+    # each rib is a near-complete ring round the body (open at the spine): a glowing core inside a translucent glass shell.
+    # Spacing, size and tilt vary a little so the cage reads as grown, not machined.
     for i in range(n_ribs):
-        f = i / (n_ribs - 1)
+        jit = math.sin(i * 12.9898) * 0.5
+        jit2 = math.sin(i * 78.233 + 1.3) * 0.5
+        f = min(max(i / (n_ribs - 1) + 0.25 * jit / (n_ribs - 1), 0), 1)
         p = spine0.lerp(spine1, f)
-        jit = math.sin(i * 12.9898) * 0.5  # deterministic per-rib variation so the cage doesn't read as a comb
-        w = 0.20 - 0.05 * f ** 1.5 + 0.008 * jit
-        h = 0.38 - 0.13 * f + 0.02 * jit
-        p = p + Vector((0.006 * jit, 0, 0))
-        bow, sweep = 0.06, -0.08
-        for sgn in (-1, 1):
-            pts = [p + Vector((0, sgn * 0.03, -0.01)),
-                   p + Vector((bow * 0.5, sgn * w * 0.8, -h * 0.12)),
-                   p + Vector((bow, sgn * w, -h * 0.42)),
-                   p + Vector((bow * 0.3, sgn * w * 0.9, -h * 0.75)),
-                   p + Vector((sweep, sgn * w * 0.5, -h))]
-            tube('Rib', pts, lambda s: 0.02 * (1 - 0.4 * s), gl, sides=7, segs=14, cap1='point', squash=0.7)
+        w = rib_w(f) + 0.012 * jit2
+        hh = rib_hh(f) + 0.012 * jit
+        c = p - Vector((0, 0, hh + 0.01))
+        bow, sweep = 0.085 + 0.02 * jit2, -0.08
+        pts = []
+        for k in range(13):
+            ph = math.radians(112 + (428 - 112) * k / 12)
+            cy, sz = math.cos(ph), math.sin(ph)
+            x = bow * cy * cy + sweep * max(0.0, -sz) ** 1.5
+            pts.append(c + Vector((x, w * cy, hh * sz)))
+        th = 1 - 0.25 * f
+        tube('Rib', pts, lambda s, th=th: (0.019 + 0.005 * math.sin(math.pi * s)) * th, M['ribglass'], sides=8, segs=30, cap0='point', cap1='point', squash=0.8)
+        tube('RibCore', pts, lambda s, th=th: (0.0105 + 0.0025 * math.sin(math.pi * s)) * th, gl, sides=5, segs=24, cap0='point', cap1='point')
     vert = lambda s: 0.022 + 0.01 * abs(math.sin(math.pi * 14 * s))
     tube('Spine', [spine0 + Vector((0.08, 0, 0.03)), spine0.lerp(spine1, 0.5) + Vector((0, 0, 0.01)), spine1 + Vector((-0.1, 0, 0.0))], vert, bo, sides=10, segs=50)
 
     # --- front end: forks, clamps, bars, caliper
     for sgn in (-1, 1):
-        y = sgn * 0.115
+        y = sgn * 0.15
         tube('ForkLower', [steer_pt(-0.02, y), steer_pt(0.36, y)], 0.026, cr, sides=16, segs=6)
-        tube('ForkUpper', [steer_pt(0.32, y), steer_pt(0.74, y)], 0.031, cr, sides=16, segs=6)
+        tube('ForkUpper', [steer_pt(0.32, y), steer_pt(0.68, y)], 0.031, cr, sides=16, segs=6)
         tube('AxleClamp', [steer_pt(-0.03, y) + Vector((0.015, 0, -0.02)), steer_pt(0.08, y)], 0.034, ch, sides=12, segs=4)
-        cal = steer_pt(0.0, sgn * 0.085) + Vector((-0.07, 0, 0.11))
+        cal = steer_pt(0.0, sgn * 0.105) + Vector((-0.07, 0, 0.11))
         tube('Caliper', [cal + Vector((0.04, 0, 0.03)), cal + Vector((-0.04, 0, -0.02))], 0.024, ch, sides=10, segs=4, squash=0.6)
-        bar = [steer_pt(0.70, sgn * 0.07), steer_pt(0.72, sgn * 0.17) + Vector((-0.02, 0, 0.09)), steer_pt(0.70, sgn * 0.33) + Vector((-0.10, 0, 0.13))]
+        bar = [Vector((0.48, sgn * 0.06, 0.95)), Vector((0.44, sgn * 0.17, 0.97)), Vector((0.36, sgn * 0.29, 0.948))]
         tube('Bar', bar, 0.012, cr, sides=8, segs=12)
-        tube('Grip', [steer_pt(0.70, sgn * 0.27) + Vector((-0.075, 0, 0.12)), steer_pt(0.70, sgn * 0.38) + Vector((-0.12, 0, 0.135))], 0.018, M['tyre'], sides=10, segs=4)
-    tube('Clamp', [steer_pt(0.72, -0.14), steer_pt(0.72, 0.14)], 0.02, ch, sides=10, segs=6, squash=0.6)
-    tube('Axle', [F_AXLE + Vector((0, -0.14, 0)), F_AXLE + Vector((0, 0.14, 0))], 0.012, cr, sides=8, segs=2)
+        tube('Grip', [Vector((0.37, sgn * 0.27, 0.95)), Vector((0.32, sgn * 0.37, 0.935))], 0.018, M['tyre'], sides=10, segs=4)
+    tube('Clamp', [steer_pt(0.64, -0.17), steer_pt(0.64, 0.17)], 0.02, ch, sides=10, segs=6, squash=0.6)
+    tube('Axle', [F_AXLE + Vector((0, -0.17, 0)), F_AXLE + Vector((0, 0.17, 0))], 0.012, cr, sides=8, segs=2)
 
     # --- rear: bone swingarm, shock, axle
     for sgn in (-1, 1):
@@ -537,14 +689,72 @@ def build_body(M):
 
     # --- chrome tendons from under the head, sweeping back along the belly
     tendons = [
-        ([(0.56, -0.12, 0.74), (0.52, -0.205, 0.56), (0.43, -0.235, 0.36), (0.27, -0.225, 0.19), (-0.05, -0.20, 0.14), (-0.38, -0.185, 0.21), (-0.60, -0.16, 0.32)], 0.026),
-        ([(0.50, -0.15, 0.78), (0.45, -0.235, 0.60), (0.36, -0.255, 0.42), (0.21, -0.25, 0.27), (-0.05, -0.24, 0.25), (-0.30, -0.235, 0.30)], 0.022),
-        ([(0.60, -0.08, 0.72), (0.57, -0.16, 0.50), (0.48, -0.19, 0.28), (0.32, -0.18, 0.14), (0.02, -0.16, 0.115), (-0.25, -0.15, 0.17)], 0.022),
-        ([(0.44, -0.19, 0.74), (0.39, -0.25, 0.58), (0.30, -0.265, 0.45), (0.12, -0.26, 0.37), (-0.12, -0.25, 0.38)], 0.017),
+        ([(0.66, -0.13, 0.66), (0.60, -0.21, 0.48), (0.53, -0.235, 0.28), (0.42, -0.235, 0.17), (0.20, -0.235, 0.22), (-0.15, -0.225, 0.36), (-0.45, -0.20, 0.40), (-0.66, -0.17, 0.40)], 0.026),
+        ([(0.62, -0.16, 0.68), (0.56, -0.24, 0.52), (0.48, -0.26, 0.34), (0.36, -0.26, 0.25), (0.10, -0.255, 0.30), (-0.20, -0.245, 0.42), (-0.45, -0.235, 0.45)], 0.022),
+        ([(0.70, -0.09, 0.64), (0.65, -0.17, 0.46), (0.58, -0.20, 0.26), (0.48, -0.19, 0.13), (0.25, -0.18, 0.12), (0.0, -0.17, 0.20), (-0.28, -0.16, 0.28)], 0.022),
+        ([(0.58, -0.20, 0.66), (0.52, -0.26, 0.54), (0.43, -0.275, 0.42), (0.25, -0.27, 0.36), (0.0, -0.265, 0.40)], 0.017),
     ]
-    for ctrl, r in tendons:
+    def ringed(base, length, pitch=0.045, depth=0.13):  # radius with thin raised rings every `pitch` metres
+        n = max(1, round(length / pitch))
+        return lambda s: base(s) * (1 + depth * abs(math.sin(math.pi * n * s)) ** 10)
+
+    def path_len(ctrl):
+        d = catmull(ctrl, 16)
+        return sum((b - a).length for a, b in zip(d, d[1:]))
+
+    def helix(ctrl, r_of, r_cable, turns, phase, n=None):
+        dense = catmull(ctrl, 16)
+        L = sum((b - a).length for a, b in zip(dense, dense[1:]))
+        n = n or max(24, int(L / 0.012))
+        path, _ = resample(dense, n)
+        fr = transport_frames(path)
+        out = []
+        for i, p in enumerate(path):
+            s_ = i / (n - 1)
+            a = phase + TAU * turns * s_
+            T, N, B = fr[i]
+            out.append(p + (N * math.cos(a) + B * math.sin(a)) * (r_of(s_) + r_cable * 0.9))
+        return out
+
+    for ti, (ctrl, r) in enumerate(tendons):
+        base = lambda s, r=r: r * (1.1 - 0.35 * s)
+        L = path_len(ctrl)
         for c in (ctrl, mirror(ctrl)):
-            tube('Tendon', c, lambda s, r=r: r * (1.1 - 0.35 * s), cr, sides=8)
+            tube('Tendon', c, ringed(base, L), cr, sides=9, segs=int(L / 0.013))
+            if ti in (0, 2):  # a fine cable spiralling round the big tendons
+                tube('Cable', helix(c, base, 0.005, L / 0.3, ti), 0.005, cr, sides=5)
+
+    # --- the tangle round the engine: vertebral bone tubes, gut-like coils, a finned drum
+    bones = [
+        [(0.55, -0.13, 0.46), (0.45, -0.175, 0.28), (0.20, -0.19, 0.20), (-0.15, -0.19, 0.30), (-0.50, -0.16, 0.38)],
+        [(0.50, -0.10, 0.50), (0.40, -0.15, 0.38), (0.18, -0.16, 0.33), (-0.12, -0.155, 0.37), (-0.40, -0.13, 0.44)],
+        [(0.38, -0.20, 0.13), (0.12, -0.215, 0.15), (-0.22, -0.205, 0.25), (-0.55, -0.18, 0.34)],
+    ]
+    for ctrl in bones:
+        L = path_len(ctrl)
+        nv = max(4, round(L / 0.035))
+        for c in (ctrl, mirror(ctrl)):
+            tube('BoneTube', c, lambda s, nv=nv: 0.013 + 0.007 * abs(math.sin(math.pi * nv * s)) ** 0.5, bo, sides=8, segs=int(L / 0.009))
+    for sgn in (-1, 1):
+        for ph, (z0, amp) in enumerate(((0.33, 0.05), (0.27, 0.035))):
+            pts = []
+            for k in range(26):
+                t = k / 25
+                a = TAU * 3.2 * t + ph * 2.0
+                pts.append(Vector((0.34 - 0.62 * t, sgn * (0.185 + 0.03 * math.cos(a)), z0 + amp * math.sin(a) + 0.09 * t - 0.03)))
+            tube('Gut', pts, lambda s: 0.013 + 0.003 * math.sin(s * 40), cr if ph == 0 else bo, sides=8, segs=90)
+        # finned drum (clutch/generator cover, but organic): ridged lathe on the side of the engine
+        prof = [(0.0, 0.0), (0.06, 0.0)]
+        for k in range(7):
+            r = 0.06 + 0.035 * k / 6
+            prof += [(r * 0.8, -0.002 - 0.0025 * k), (r * 0.8 + 0.006, -0.003 - 0.0025 * k)]
+        prof += [(0.08, -0.02), (0.0, -0.02)]
+        drum = lathe('Drum', [(r, y) for r, y in prof], cr, 28, closed_prof=False)
+        if sgn > 0:
+            drum.data.transform(Matrix.Scale(-1, 4, Vector((0, 1, 0))))
+            drum.data.flip_normals()
+        drum.data.transform(Matrix.Translation(Vector((-0.04, sgn * 0.235, 0.33))))
+        tube('DrumHub', [Vector((-0.04, sgn * 0.21, 0.33)), Vector((-0.04, sgn * 0.262, 0.33))], 0.022, bo, sides=12, segs=2)
 
     # --- segmented exhaust pipes, abdomen-like, ending past the rear wheel
     def exhaust_r(s, r0, r1):
@@ -556,8 +766,8 @@ def build_body(M):
             r *= 1 + 6 * (s - 0.94)
         return r
     pipes = [
-        ([(0.30, -0.12, 0.30), (0.14, -0.20, 0.18), (-0.22, -0.225, 0.19), (-0.55, -0.235, 0.31), (-0.82, -0.225, 0.47), (-1.02, -0.20, 0.58)], 0.032, 0.044),
-        ([(0.33, -0.13, 0.44), (0.18, -0.215, 0.32), (-0.18, -0.26, 0.31), (-0.50, -0.265, 0.42), (-0.76, -0.245, 0.55), (-0.94, -0.21, 0.66)], 0.028, 0.038),
+        ([(0.46, -0.16, 0.20), (0.30, -0.215, 0.21), (0.0, -0.245, 0.30), (-0.32, -0.255, 0.37), (-0.55, -0.245, 0.39), (-0.76, -0.22, 0.41)], 0.032, 0.046),
+        ([(0.40, -0.15, 0.32), (0.22, -0.22, 0.33), (-0.05, -0.26, 0.42), (-0.35, -0.27, 0.45), (-0.55, -0.255, 0.47), (-0.72, -0.23, 0.50)], 0.028, 0.040),
     ]
     for ctrl, r0, r1 in pipes:
         for c in (ctrl, mirror(ctrl)):
@@ -565,7 +775,7 @@ def build_body(M):
 
     # --- glow accent lines along the carapace edge and head cheek
     for sgn in (-1, 1):
-        tube('Accent', [(0.62, sgn * 0.215, 0.80), (0.40, sgn * 0.205, 0.82), (0.16, sgn * 0.205, 0.80), (-0.06, sgn * 0.18, 0.76)], 0.0045, gl, sides=6)
+        tube('Accent', [dome_at(x)['c'] + Vector((0, sgn * dome_at(x)['w'] * 1.0, -dome_at(x)['hb'] * 0.3)) for x in (0.74, 0.55, 0.32, 0.10)], 0.0045, gl, sides=6)
 
     # --- kickstand on the left (+Y); the foot touches the ground once the bike leans
     foot_y = 0.30
@@ -574,12 +784,54 @@ def build_body(M):
     tube('StandFoot', [Vector((-0.23, foot_y, foot_z)), Vector((-0.17, foot_y, foot_z))], 0.015, cr, sides=8, segs=2, squash=0.6)
 
     # --- drips of black ooze hanging off low edges
-    drips = [(0.62, -0.17, 0.72, 0.06), (0.74, -0.12, 0.71, 0.04), (0.50, -0.19, 0.74, 0.05), (0.15, -0.12, 0.18, 0.07),
-             (-0.10, -0.13, 0.22, 0.05), (0.30, -0.10, 0.25, 0.06), (-0.45, -0.10, 0.62, 0.05), (-0.70, -0.06, 0.74, 0.06),
-             (0.62, 0.17, 0.72, 0.05), (0.15, 0.12, 0.18, 0.06), (-0.70, 0.06, 0.74, 0.04)]
+    drips = [(0.62, -0.17, 0.685, 0.05), (0.50, -0.19, 0.70, 0.05), (0.38, -0.08, 0.13, 0.07), (0.05, -0.12, 0.17, 0.06),
+             (-0.20, -0.13, 0.22, 0.05), (-0.40, -0.10, 0.64, 0.05), (-0.58, -0.06, 0.67, 0.06),
+             (0.62, 0.17, 0.685, 0.05), (0.15, 0.12, 0.16, 0.06), (-0.58, 0.06, 0.67, 0.04)]
     for x, y, z, l in drips:
         tube('Drip', [Vector((x, y, z + 0.01)), Vector((x - 0.004, y, z - l * 0.75)), Vector((x - 0.006, y, z - l * 1.5))],
              lambda s: 0.011 * (1 - s) + 0.004 + 0.007 * math.exp(-((s - 0.86) / 0.09) ** 2), ch, sides=6, segs=8, cap1='point')
+
+
+def add_drops(M, n=320, seed=5):
+    """Beads of water on the upward-facing chitin: low hemispheres raycast onto the top surfaces, some drawn out into runs."""
+    import random
+    from mathutils.bvhtree import BVHTree
+    rnd = random.Random(seed)
+    dg = bpy.context.evaluated_depsgraph_get()
+    tops = [o for o in PARTS if o.name.split('.')[0] in ('Head', 'HeadPlate', 'Brow', 'Tank', 'Tail', 'Seat', 'FenderF', 'FenderR', 'Cheek')]
+    trees = [BVHTree.FromObject(o, dg) for o in tops]
+    # unit low dome: rings at elevations 0, 30, 60 degrees + apex
+    seg = 8
+    dome_v = [Vector((math.cos(TAU * j / seg) * math.cos(e), math.sin(TAU * j / seg) * math.cos(e), math.sin(e) - 0.15))
+              for e in (0.0, math.radians(32), math.radians(62)) for j in range(seg)] + [Vector((0, 0, 0.85))]
+    dome_f = [(r * seg + j, r * seg + (j + 1) % seg, (r + 1) * seg + (j + 1) % seg, (r + 1) * seg + j) for r in range(2) for j in range(seg)]
+    dome_f += [(2 * seg + j, 2 * seg + (j + 1) % seg, 3 * seg) for j in range(seg)]
+    verts, faces = [], []
+    placed = 0
+    tries = 0
+    while placed < n and tries < n * 20:
+        tries += 1
+        x, y = rnd.uniform(-1.0, 1.1), rnd.uniform(-0.3, 0.3)
+        best = None
+        for t in trees:
+            hit = t.ray_cast(Vector((x, y, 2.0)), Vector((0, 0, -1)))
+            if hit[0] is not None and (best is None or hit[0].z > best[0].z):
+                best = hit
+        if best is None or best[1].z < 0.3:
+            continue
+        loc, nrm = best[0], best[1].normalized()
+        r = 0.0025 + 0.0065 * rnd.random() ** 2.0
+        down = (Vector((0, 0, -1)) - nrm * (-nrm.z)).normalized() if abs(nrm.z) < 0.999 else Vector((1, 0, 0))
+        side = nrm.cross(down).normalized()
+        run = 1.0 + (2.2 * rnd.random() if rnd.random() < 0.3 and abs(nrm.z) < 0.95 else 0.0)
+        basis = Matrix((side, down, nrm)).transposed()  # columns: x=side, y=down slope, z=normal
+        mat = Matrix.Translation(loc) @ basis.to_4x4() @ Matrix.Diagonal((r, r * run, r * 0.55, 1))
+        o = len(verts)
+        verts += [mat @ v for v in dome_v]
+        faces += [tuple(o + i for i in f) for f in dome_f]
+        placed += 1
+    ob = new_obj('Drops', verts, faces, M['chitin'])
+    return ob
 
 
 # ---------------------------------------------------------------- render setup (review only, not exported)
@@ -756,10 +1008,15 @@ def render_views(scene, col):
         'side': add_camera(col, 'CamSide', (0, -8, 0.62), rot=(math.pi / 2, 0, 0), ortho=2.9),
         'top': add_camera(col, 'CamTop', (0, 0, 8), rot=(0, 0, 0), ortho=2.9),
         'front': add_camera(col, 'CamFront34', (3.4, -1.9, 1.0), (0.1, 0, 0.6), lens=40),
+        # solved so the tyres and ground contacts land on the concept's traced ones (art/reference/concept-bike-guides.json)
+        'concept': add_camera(col, 'ConceptCam', (1.662, -1.962, 1.027), (1.265, -0.857, 0.84), lens=24),
     }
     suffix = f'-{TAG}' if TAG else ''
     for key, cam in cams.items():
+        if VIEWS and key not in VIEWS:
+            continue
         scene.camera = cam
+        scene.render.resolution_x, scene.render.resolution_y = (1280, 720) if key == 'concept' else (1920, 1080)
         scene.render.filepath = os.path.join(RENDER_DIR, f'bike-{key}{suffix}.png')
         bpy.ops.render.render(write_still=True)
         print('rendered', scene.render.filepath)
@@ -772,6 +1029,7 @@ def main():
     M = make_materials()
 
     build_body(M)
+    add_drops(M)
     per = {}
     for o in PARTS:
         per[o.name.split('.')[0]] = per.get(o.name.split('.')[0], 0) + tri_count(o)
@@ -779,8 +1037,8 @@ def main():
     body = join('Bike', PARTS)
     PARTS.clear()
 
-    wf = build_wheel('WheelFront', F_R, 0.17, M, front=True)
-    wr = build_wheel('WheelRear', R_R, 0.235, M, front=False)
+    wf = build_wheel('WheelFront', F_R, 0.22, M, front=True)
+    wr = build_wheel('WheelRear', R_R, 0.25, M, front=False)
     for w, axle in ((wf, F_AXLE), (wr, R_AXLE)):
         w.parent = body
         w.matrix_parent_inverse = Matrix.Identity(4)
@@ -802,6 +1060,7 @@ def main():
     os.makedirs(os.path.dirname(GLB_OUT), exist_ok=True)
     bpy.ops.export_scene.gltf(filepath=GLB_OUT, export_format='GLB', use_selection=True, export_apply=True, export_yup=True,
                               export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6,
+                              export_draco_texcoord_quantization=14, export_image_format='WEBP', export_image_quality=88,
                               export_cameras=False, export_lights=False)
     print('GLB', GLB_OUT, os.path.getsize(GLB_OUT))
 

@@ -28,6 +28,10 @@ export const waterTime = { value: 0 };
 export const waterLanding = { value: 0 };
 /** How far the planter's streams have faded, with the planter itself (lib/journey.ts toyPresence). */
 export const waterFromSky = { value: 0 };
+/** How far the oil ropes (components/three/fall-streaks.tsx) have taken over the streams below their join (0 to 1). */
+export const waterJoin = { value: 0 };
+// Where they take over (fall-streaks.tsx JOIN_Y; kept here as a literal so this module doesn't import that one).
+const JOIN_Y = -1.7;
 /** 1 once the world below is drawn (lib/journey.ts belowVisible): the streams then end on the rock ledge under the planter. */
 export const waterLedge = { value: 0 };
 // The ledge's top (art/build-landing.py LEDGE_TOP; three's y).
@@ -54,6 +58,7 @@ export function waterMaterial(kind: WaterKind): Material {
     shader.uniforms.uLanding = waterLanding;
     shader.uniforms.uFromSky = waterFromSky;
     shader.uniforms.uLedge = waterLedge;
+    shader.uniforms.uJoin = waterJoin;
     shader.uniforms.uDeep = { value: DEEP };
     shader.uniforms.uMid = { value: MID };
     shader.uniforms.uPale = { value: PALE };
@@ -91,6 +96,7 @@ uniform float uTime;
 uniform float uLanding;
 uniform float uFromSky;
 uniform float uLedge;
+uniform float uJoin;
 uniform vec3 uDeep;
 uniform vec3 uMid;
 uniform vec3 uPale;
@@ -142,6 +148,8 @@ ${NOISE}`
   // oil ropes (components/three/fall-streaks.tsx) have reached up out of the sky in their place by then.
   if (uLedge > 0.5 && vWorld.y < ${LEDGE_TOP.toFixed(2)}) discard;
   diffuseColor.a *= 1.0 - smoothstep(0.4, 1.0, uFromSky);
+  // Below the join the ropes carry on instead (the streams' modelled flare into a bell isn't drawn below the hero).
+  diffuseColor.a *= 1.0 - uJoin * (1.0 - smoothstep(${(JOIN_Y - 0.25).toFixed(2)}, ${(JOIN_Y + 0.15).toFixed(2)}, vWorld.y));
   // Ragged, broken edges where the curtain is seen edge-on: it frays into separate streams rather than ending in a
   // clean silhouette.
   float rim = 1.0 - clamp(abs(dot(normal, normalize(vViewPosition))), 0.0, 1.0);

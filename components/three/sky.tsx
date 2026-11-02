@@ -22,20 +22,21 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 // Above the clouds everything sits on the blog's plaster; below them it's night over the green city: a low overcast
 // lit from beneath by the city's glow.
 export const PLASTER = new Color('#f5f2ed');
-const SKY_TOP = new Color('#050a07');
-const SKY_HORIZON = new Color('#26302a');
+const SKY_TOP = new Color('#141b17');
+const SKY_HORIZON = new Color('#3e4c44');
 // The haze on the way down and over the city: green-grey smog.
-const DESCENT_HAZE = new Color('#1b211d');
-// No sun: night.
-const SUN_GLOW = new Color('#000000');
-const CLOUD_LIT = new Color('#3d4a42');
-const CLOUD_SHADE = new Color('#0e1310');
+const DESCENT_HAZE = new Color('#2a3530');
+// No sun: a moon behind the overcast, up to the right of the city, silvering the cloud round it.
+const SUN_GLOW = new Color('#3c4a42');
+const MOON = new Vector3(1, 0.5, 0.75).normalize();
+const CLOUD_LIT = new Color('#7a8c81');
+const CLOUD_SHADE = new Color('#1c2520');
 // The night's key: cold light from high on the left, behind the camera, so the bike's chrome and carapace catch it and
 // its glare off the wet road falls away from the camera rather than whiting the road out.
 const WARM_LIGHT = new Color('#cfe8d4');
 /** Where the sun sits (art/build-sky.py), in three.js space (y up). */
 export const SUN_POSITION = new Vector3(47.6, 7.4, -47.4);
-const LANDING_LIGHT = new Vector3(-40, 14, -22);
+const LANDING_LIGHT = new Vector3(-1.7, 14, -16.8);
 
 /** 0 above the clouds, 1 once the sun is fully out. */
 export const bloomAt = (frame: number) => smoothstep(BEATS.sunIn, BEATS.sunFull, frame);
@@ -89,18 +90,8 @@ void main() {
   vec3 d = normalize(vDirection);
   vec3 sky = mix(uHorizon, uTop, smoothstep(-0.02, 0.32, d.y));
   float toward = max(dot(d, uSun), 0.0);
-  // A soft wide glow and a small hot core (the disc itself is a mesh, so the light rays have a source).
-  sky += uGlow * (pow(toward, 6.0) * 0.45 + pow(toward, 60.0) * 0.9 + pow(toward, 900.0) * 4.0);
-  // A starburst round the sun, as a camera sees it: thin rays of uneven length.
-  {
-    vec3 t1 = normalize(cross(uSun, vec3(0.0, 1.0, 0.0)));
-    vec3 t2 = cross(t1, uSun);
-    vec3 v = d - uSun * dot(d, uSun);
-    float ang = atan(dot(v, t2), dot(v, t1));
-    float rays = pow(abs(cos(ang * 7.0)), 60.0) * (0.5 + 0.5 * hash3(vec3(floor(ang * 7.0 / 3.14159 + 0.5))));
-    rays += pow(abs(cos(ang * 11.0 + 0.4)), 120.0) * 0.6;
-    sky += uGlow * rays * pow(toward, 140.0) * 2.5;
-  }
+  // The moon behind the overcast: only a soft, wide glow (no disc, no starburst).
+  sky += uGlow * (pow(toward, 6.0) * 0.45 + pow(toward, 40.0) * 0.6);
   // Heaped clouds over half the sky: mauve-rose cores, gold where they face the low sun (the layer's density a step
   // toward the sun is lower there), bright silver linings near it; thinning into the horizon haze.
   vec2 q = cloudPlane(d);
@@ -188,7 +179,7 @@ export function Sky({ sun }: { sun: Mesh | null }) {
           uTime: { value: 0 },
           // Dev: ?skydebug shows the cloud mask (red), raw noise (green) and height (blue).
           uDebug: { value: process.env.NODE_ENV === 'development' && window.location.search.includes('skydebug') ? 1 : 0 },
-          uSun: { value: SUN_POSITION.clone().normalize() },
+          uSun: { value: MOON },
           uOpacity: { value: 0 },
           uPhotoSky: { value: photoSky() },
           uPhoto: { value: 0 },
@@ -230,8 +221,8 @@ export function Sky({ sun }: { sun: Mesh | null }) {
     const emerge = smoothstep(BEATS.fogIn, 280, f);
     // (Easing out slowly, so the cliffs and lake emerge through it rather than appearing.)
     const lake = smoothstep(BEATS.fogOut[0] - 140, BEATS.fogOut[1], f) ** 0.6;
-    fog.near = lerp(lerp(1000, lerp(5, 12, emerge), among), 60, lake);
-    fog.far = lerp(lerp(2000, lerp(6, 120, emerge * emerge), among), 1500, lake);
+    fog.near = lerp(lerp(1000, lerp(5, 12, emerge), among), 120, lake);
+    fog.far = lerp(lerp(2000, lerp(6, 120, emerge * emerge), among), 2200, lake);
     // The haze matches the photographed sky behind it on the way down (so the cliffs emerge from the sky itself), then
     // warms to the landing's horizon.
     fog.color.copy(PLASTER).lerp(DESCENT_HAZE, bloom).lerp(SKY_HORIZON, lake);
@@ -276,7 +267,7 @@ export function Sky({ sun }: { sun: Mesh | null }) {
         shadow-camera-near={1}
         shadow-camera-far={160}
       >
-        <object3D attach="target" position={[-23.8, -11, 1.6]} />
+        <object3D attach="target" position={[14.46, -11, 6.85]} />
       </directionalLight>
     </>
   );

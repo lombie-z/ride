@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import { useMemo } from 'react';
 import { BufferAttribute, BufferGeometry, Color, type Mesh, type Object3D, ShaderMaterial, Vector3 } from 'three';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
-import { OIL_FLOOR, streamEnds } from './fall-streaks';
+import { JOIN_Y, OIL_FLOOR, streamEnds } from './fall-streaks';
 import { waterFromSky } from './water';
 
 // Spray and mist as GPU particles. Each particle loops through its own short life: it starts at aStart, moves with
@@ -126,6 +126,8 @@ function fallSurface(scene: Object3D) {
       // Only where the water is falling and fully there (not the still channel, nor where the streams fade out).
       if ((flow && flow.getX(i) < 0.5) || (fade && fade.getX(i) < 0.95)) continue;
       const p = new Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      // (Only above where the ropes take over: components/three/fall-streaks.tsx.)
+      if (p.y < JOIN_Y) continue;
       const n = new Vector3().fromBufferAttribute(nor, i).transformDirection(mesh.matrixWorld);
       points.push({ p, n });
     }
@@ -142,7 +144,7 @@ export function Spray({ scene }: { scene: Object3D }) {
     const pick = () => surface[Math.floor(Math.random() * surface.length)];
     // The oil ropes carry on from the streams' ends (components/three/fall-streaks.tsx).
     const ends = streamEnds(scene);
-    const end = () => ends[Math.floor(Math.random() * ends.length)].p;
+    const end = () => ends[Math.floor(Math.random() * ends.length)].centre;
     const streams = particles({
       count: Math.round(2600 * share),
       gravity: -3,

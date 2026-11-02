@@ -22,18 +22,18 @@ import { belowVisible, journey } from '@/lib/journey';
 import { DRACO_PATH } from './biome';
 
 const URL = '/models/bike.glb';
-// Where it parks on the deck (near art/build-city.py BIKE_AT, BIKE_YAW, nudged to the concept's framing; Blender's (x, y, z) is
+// Where it parks on the deck (art/build-city.py BIKE_AT, BIKE_YAW, fitted to the concept's framing; Blender's (x, y, z) is
 // three's (x, z, -y)).
-const AT = [-24.0, -11, 2.3] as const;
+const AT = [14.46, -11, 6.85] as const;
 // The lamp under the gantry (top left of the shot), warm against the green, picking out the chrome and the carapace.
-const LAMP = [-25.5, -7.2, -1.8] as const;
-const GLOW = 1.3;
-const YAW = (-110 * Math.PI) / 180;
+const LAMP = [12.96, -7.2, 2.75] as const;
+const GLOW = 0.7;
+const YAW = (-115.33 * Math.PI) / 180;
 
 let night: Texture | null = null;
 /**
  * What the bike's chrome and carapace reflect: a dark room with the city's glow in it, a broad green band low down
- * ahead (the skyline), a cold wash overhead (the cloud) and a few hard green strips (the light shafts and lit floors).
+ * ahead (the skyline), a cold wash overhead (the cloud) and a few hard pale strips (lamps and lit floors) for the highlights.
  */
 function nightEnvMap(gl: WebGLRenderer) {
   if (night) return night;
@@ -46,10 +46,10 @@ function nightEnvMap(gl: WebGLRenderer) {
     m.rotation.set(rx, ry, 0);
     scene.add(m);
   };
-  panel(18, 3, new Color(0.25, 0.9, 0.3).multiplyScalar(1.6), 9, 0.5, 0, Math.PI / 2);
+  panel(18, 3, new Color(0.6, 0.8, 0.55).multiplyScalar(1.2), 9, 0.5, 0, Math.PI / 2);
   panel(18, 2, new Color(0.15, 0.5, 0.2), -9.5, 0, 0, Math.PI / 2);
   panel(20, 20, new Color(0.04, 0.09, 0.06), 0, 9.8, 0, 0, Math.PI / 2);
-  for (const z of [-6, -2, 3, 7]) panel(0.25, 14, new Color(0.5, 1.4, 0.45).multiplyScalar(2), 9, 3, z, Math.PI / 2);
+  for (const z of [-6, -2, 3, 7]) panel(0.25, 14, new Color(1.0, 1.05, 0.8).multiplyScalar(1.6), 9, 3, z, Math.PI / 2);
   const pmrem = new PMREMGenerator(gl);
   night = pmrem.fromScene(scene, 0.02).texture;
   pmrem.dispose();
@@ -71,7 +71,7 @@ export function Bike() {
       if (!mesh.isMesh) return;
       const m = mesh.material as Material & MeshPhysicalMaterial;
       m.envMap = env;
-      m.envMapIntensity = 2;
+      m.envMapIntensity = 1.4;
       // (Floors on gloss: a near-mirror glint overflows the effects' half-float buffer, components/three/effects.tsx.)
       m.roughness = Math.max(m.roughness, 0.1);
       if (m.name === 'BikeGlow' || m.name === 'BikeEye') {
@@ -80,7 +80,10 @@ export function Bike() {
         m.toneMapped = false;
         glowing.push(m);
       }
-      mesh.castShadow = true;
+      // The ribs' translucent shells are one merged mesh: three can't sort its rings against each other, so they
+      // don't write depth.
+      if (m.name === 'BikeRibGlass') m.depthWrite = false;
+      mesh.castShadow = m.name !== 'BikeRibGlass';
       mesh.receiveShadow = true;
       m.needsUpdate = true;
     });

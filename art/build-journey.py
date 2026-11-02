@@ -7,8 +7,8 @@ through the look-at points), so the camera never lurches. One crane move:
   0-80     Open up: from the blog's near-orthographic hero, a dolly zoom (lens widens as the camera closes in, so the
            biome holds its size).
   80-300   Drop just below the planter's lip beside the falls and tilt up: the water pours down from the floating toy.
-  300-760  Pull straight back and down out of the night onto the freeway, levelling out at eye level by the bike (the
-           planter recedes into the haze above).
+  300-760  Swing out round the falls and down out of the night onto the freeway, landing at handlebar height beside the
+           bike (the planter recedes into the haze above).
   760-920  Hold on the landing (the shot matched to art/reference/concept-green-city).
 """
 import math
@@ -32,15 +32,16 @@ SHOTS = [
     # toy, against the sky.
     (200, Vector((-2.5, -1.4, -1.5)), Vector((0.0, 0.0, 0.4)), 46.0),
     (300, Vector((-3.2, -1.2, -2.6)), Vector((0.0, 0.2, 0.0)), 46.0),
-    # Then pull straight back and down out of the night sky onto the freeway deck (art/build-city.py), passing over the
-    # bike, the planter receding into the haze above.
-    (460, Vector((-9.0, -1.6, -6.4)), Vector((0.0, 0.6, -3.0)), 42.0),
-    (620, Vector((-18.5, -2.3, -8.0)), Vector((10.0, -2.0, -4.0)), 44.0),
-    # The landing (art/build-city.py EYE, LOOK): eye level on the deck, the bike close, the city beyond.
-    (760, Vector((-27.0, -2.5, -10.55)), Vector((40.0, -6.0, 1.0)), 46.0),
+    # Then swing out round the south of the falls and down out of the night sky onto the freeway deck
+    # (art/build-city.py), turning east to the city as it lands beside the bike, the planter receding into the haze above.
+    (460, Vector((-7.0, -7.5, -5.5)), Vector((0.0, 0.0, -3.5)), 42.0),
+    (620, Vector((4.0, -12.5, -8.6)), Vector((40.0, -6.0, -9.0)), 42.0),
+    # The landing (art/build-city.py EYE, LOOK, FOV: fitted to art/reference/concept-guides.json): handlebar height
+    # beside the bike, looking across the road to the city.
+    (760, Vector((11.5, -7.71, -10.02)), Vector((71.18, -10.84, -15.33)), 42.0),
     # Then hold on it (a barely-there drift, so it stays alive).
-    (840, Vector((-27.1, -2.55, -10.55)), Vector((40.0, -6.0, 1.0)), 45.6),
-    (920, Vector((-27.2, -2.6, -10.55)), Vector((40.0, -6.0, 1.0)), 45.2),
+    (840, Vector((11.42, -7.76, -10.02)), Vector((71.18, -10.84, -15.33)), 41.7),
+    (920, Vector((11.35, -7.8, -10.02)), Vector((71.18, -10.84, -15.33)), 41.4),
 ]
 # Sun, warm light and rainbow come in below the clouds.
 F_SUN_IN, F_SUN_FULL = 275, 380

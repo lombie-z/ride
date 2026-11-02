@@ -77,11 +77,12 @@ if ((vWall.x > -0.5 || vWall.y > -0.5) && vUpright > 0.97) {
   float lit = step(0.62, h) * floorLit + step(0.93, h);
   float pane = step(0.22, f.x) * step(f.x, 0.78) * step(0.28, f.y) * step(f.y, 0.8);
   vec3 tint = mix(uWindow, uWarm, step(0.9, cityHash(vec3(cell, building + 5.0))));
-  totalEmissiveRadiance += tint * pane * lit * (0.5 + 1.6 * cityHash(vec3(cell, 9.0)));
+  // (The spire's windows sparse: it reads as a dark mass with its glowing ribs, as in the concept.)
+  totalEmissiveRadiance += tint * pane * lit * (0.5 + 1.6 * cityHash(vec3(cell, 9.0))) * ${spire ? '0.25' : '1.0'};
 ${
   spire
     ? `  // Glowing ribs up the spire's faces, brightest high up.
-  float rib = 1.0 - smoothstep(0.0, 0.08, abs(fract(vWall.x / 9.0) - 0.5) * 2.0 - 0.9);
+  float rib = smoothstep(0.9, 0.98, abs(fract(vWall.x / 9.0) - 0.5) * 2.0);
   totalEmissiveRadiance += vec3(0.35, 1.0, 0.3) * rib * (0.6 + 2.5 * smoothstep(150.0, 450.0, vWall.y));`
     : ''
 }

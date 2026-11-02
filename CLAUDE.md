@@ -30,4 +30,4 @@ art/reference/                        # Concept art (concept-green-city is the l
 
 ## World
 
-Blender z up, metres; three's (x, y, z) is Blender's (x, z, -y). The planter floats over the origin. The freeway deck's surface is at Blender z -11; the landing camera stands on it near x -27 looking east (+x) over the city, whose ground is at z -80. Blender runs headless from scripts only.
+Blender z up, metres; three's (x, y, z) is Blender's (x, z, -y). The planter floats over the origin and its black falls drop past it to the city floor (z -80). The landing is east of the falls: a straight freeway deck (surface z -11, its wet top placed from the glb's `City.DeckTop` marker), the camera at handlebar height beside the bike looking east across the road at the city. Its framing is fitted to the concept: `art/reference/concept-guides.json` (the shot) and `concept-bike-guides.json` (the bike's parts) trace it, and `python3 art/guides.py render.png out.png [--guides ...]` draws them over a render to check. Blender runs headless from scripts only.

@@ -16,11 +16,12 @@ import {
   Vector3,
 } from 'three';
 import { belowVisible, devFlag, journey, smoothstep } from '@/lib/journey';
-import { waterFromSky } from './water';
+import { waterFromSky, waterJoin } from './water';
 
 // The planter's oil carried on down: the streams modelled in Blender (the Fall.* meshes, components/three/water.ts)
-// braid down to about y -4 and fade out there; these ropes take over where they end and pour on past the freeway deck
-// into the abyss among the towers, to the city's floor. Viscous oil doesn't break up into spray as water does: it
+// leave the rim as narrow ropes and then flare out into a wide bell as they braid (down to y -4.7); below the hero,
+// these ropes take over from them just under the rim, before the flare (water.ts cuts the streams off there, JOIN_Y),
+// and pour on past the freeway into the abyss among the towers, to the city's floor. Viscous oil doesn't break up into spray as water does: it
 // falls in long, unbroken, glossy ropes, black, catching the city's green light along their edges. Each rope is a strip
 // turned to face the camera about its own (vertical) axis and shaded as a wet cylinder; bulges travel down it with the
 // oil, stretching as it speeds up. Once the planter has gone into the haze above (lib/journey.ts toyPresence), the
@@ -32,28 +33,28 @@ export const OIL_FLOOR = -80;
 const SKY_TOP = 46;
 const HAZE = [16, 42];
 const GRAVITY = 9.8;
-// How the ropes join the streams: they start where the streams' own fade begins ('_fade', down to about y -4.7).
-const JOIN_FADE = [0.55, 0.97];
+/** Where the ropes take over from the streams (three y), still narrow under the rim, above their flare. */
+export const JOIN_Y = -1.7;
 
-/** Points across the ends of the planter's streams (where they fade out), each with that stream's index. */
+/** Each of the planter's streams where the ropes take over (JOIN_Y): its middle, its width, and points across it. */
 export function streamEnds(scene: Object3D) {
-  const ends: { p: Vector3; stream: number }[] = [];
+  const ends: { centre: Vector3; width: number; points: Vector3[] }[] = [];
   scene.updateMatrixWorld(true);
-  let stream = 0;
   scene.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh || !mesh.name.startsWith('Fall') || mesh.name.startsWith('FallMain')) return;
-    const g = mesh.geometry;
-    const pos = g.getAttribute('position');
-    const flow = g.getAttribute('_flow');
-    const fade = g.getAttribute('_fade');
-    const found = ends.length;
+    const pos = mesh.geometry.getAttribute('position');
+    const points: Vector3[] = [];
     for (let i = 0; i < pos.count; i++) {
-      const f = fade ? fade.getX(i) : 1;
-      if ((flow && flow.getX(i) < 0.5) || f < JOIN_FADE[0] || f > JOIN_FADE[1]) continue;
-      ends.push({ p: new Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld), stream });
+      const p = new Vector3().fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
+      if (Math.abs(p.y - JOIN_Y) < 0.12) points.push(p);
     }
-    if (ends.length > found) stream++;
+    if (!points.length) return;
+    const centre = points.reduce((sum, p) => sum.add(p), new Vector3()).divideScalar(points.length);
+    const extent = (axis: 'x' | 'z') => Math.max(...points.map((p) => p[axis])) - Math.min(...points.map((p) => p[axis]));
+    // (About as wide as the stream there, seen from any side.)
+    const width = Math.min(0.3, Math.max(0.1, 0.8 * ((extent('x') + extent('z')) / 2)));
+    ends.push({ centre: centre.setY(JOIN_Y), width, points });
   });
   return ends;
 }
@@ -85,15 +86,17 @@ void main() {
   // rope are carried with the oil, so they race down and stretch out as it speeds up.
   float launch = uTime - (fallen > 0.0 ? (v - aV0) / ${GRAVITY.toFixed(1)} : fallen / aV0);
   float bulge = sin(launch * 5.3 + aSeed * 40.0) * 0.6 + sin(launch * 11.7 + aSeed * 13.0) * 0.4;
-  // The ropes wander apart a little as they fall, in the updraft from the city (none where they leave the streams),
-  // and lean away from the road that runs past them on the landing's right (+z; art/build-city.py), never toward it.
+  // The ropes spread apart as they fall, out from under the planter and wandering in the updraft from the city (none
+  // where they leave the streams), leaning away from the road that runs past them on the landing's right (+z;
+  // art/build-city.py), never toward it.
   float drift = d / (d + 22.0);
   vec3 c = vec3(aRoot.x, y, aRoot.z);
+  c.xz += normalize(aRoot.xz + vec2(1e-4)) * vec2(1.4, 0.5) * drift;
   c.x += (sin(y * 0.05 + aSeed * 6.28 + uTime * 0.22) * 0.8 + sin(y * 0.17 + aSeed * 17.0) * 0.2) * drift;
   c.z += (cos(y * 0.04 + aSeed * 4.1 + uTime * 0.18) * 0.6 - 0.4) * drift;
-  // Necking as it speeds up (a falling column thins), with the bulges riding down it.
-  // (Fuller just below the streams' ends, where it takes over from their ribbons.)
-  float w = aWidth * mix(1.0, 0.55, d / (d + 18.0)) * (1.0 + 0.22 * bulge) * (1.0 + 0.7 * exp(-d / 2.5));
+  // Necking as it speeds up (a falling column thins), with the bulges riding down it (none at the join, where it
+  // matches the stream it carries on).
+  float w = aWidth * mix(1.0, 0.45, d / (d + 12.0)) * (1.0 + 0.18 * bulge * smoothstep(0.5, 4.0, d));
   // Turned to face the camera about the vertical; never thinner than about a pixel, or far off it would flicker
   // in and out (thinner ropes are drawn at the minimum width and fainter instead).
   vec3 toCam = cameraPosition - c;
@@ -161,7 +164,7 @@ void main() {
   float a = (1.0 - smoothstep(0.6, 1.0, abs(vU))) * mix(vCover, 1.0, 0.25) * uIn;
   // Joining the streams: nothing above their ends while the planter's there; once it's gone, the ropes reach on up
   // into the haze in its place.
-  float above = smoothstep(vRootY - 0.55, vRootY + 0.25, vWorld.y);
+  float above = smoothstep(vRootY - 0.35, vRootY + 0.15, vWorld.y);
   a *= mix(1.0, uFromSky, above);
   a *= 1.0 - smoothstep(${HAZE[0].toFixed(1)}, ${HAZE[1].toFixed(1)}, vWorld.y);
   a *= smoothstep(${OIL_FLOOR.toFixed(1)}, ${(OIL_FLOOR + 3).toFixed(1)}, vWorld.y);
@@ -176,32 +179,21 @@ const SEGMENTS = 200;
 
 export function FallStreaks({ scene }: { scene: Object3D }) {
   const { geometry, material } = useMemo(() => {
-    const ends = streamEnds(scene);
-    const streams = Math.max(1, ...ends.map((e) => e.stream + 1));
-    // Each stream carries on as one heavy rope from the middle of its end (the streams there are ribbons about 0.6 m
-    // across), with a couple of lighter ones and a thread or two peeling off beside it.
-    const WIDTHS = [
-      [0.24, 0.34],
-      [0.08, 0.14],
-      [0.08, 0.14],
-      [0.025, 0.045],
-      [0.025, 0.045],
-    ];
+    // Each stream carries on as one rope as wide as it is there, with a thread peeling off beside it.
     const roots: number[] = [];
     const widths: number[] = [];
     const seeds: number[] = [];
     const speeds: number[] = [];
-    for (let s = 0; s < streams && ends.length; s++) {
-      const own = ends.filter((e) => e.stream === s);
-      if (!own.length) continue;
-      const middle = own.reduce((sum, e) => sum.add(e.p), new Vector3()).divideScalar(own.length);
-      WIDTHS.forEach(([min, max], k) => {
-        const p = k === 0 ? middle : own[Math.floor(Math.random() * own.length)].p;
-        roots.push(p.x, p.y, p.z);
-        widths.push(min + Math.random() * (max - min));
-        seeds.push(Math.random());
-        speeds.push(3.5 + Math.random() * 1.5);
-      });
+    const rope = (p: Vector3, width: number) => {
+      roots.push(p.x, p.y, p.z);
+      widths.push(width);
+      seeds.push(Math.random());
+      speeds.push(2.5 + Math.random());
+    };
+    for (const { centre, width, points } of streamEnds(scene)) {
+      rope(centre, width);
+      const edge = points[Math.floor(Math.random() * points.length)];
+      rope(centre.clone().lerp(edge, 0.7).setY(JOIN_Y), 0.025 + Math.random() * 0.02);
     }
     const geometry = new InstancedBufferGeometry();
     const position: number[] = [];
@@ -256,6 +248,8 @@ export function FallStreaks({ scene }: { scene: Object3D }) {
     // hero is the blog's: the streams end there).
     material.visible = belowVisible(journey.frame) && !devFlag('nofalls');
     u.uIn.value = smoothstep(100, 200, journey.frame);
+    // The streams give way to the ropes below the join as they come in (components/three/water.ts).
+    waterJoin.value = material.visible ? u.uIn.value : 0;
     // Reaching up into the sky once the planter's mostly gone (they'd pour straight through it), while the streams
     // are still fading (components/three/water.ts), so the two overlap.
     u.uFromSky.value = smoothstep(0.6, 1, waterFromSky.value);

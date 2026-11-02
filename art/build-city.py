@@ -5,16 +5,17 @@ Builds art/city.blend from scratch and exports public/models/city.glb.
 Run: blender --background --factory-startup --python art/build-city.py
 
 World layout (Blender, z up, metres; the same space as art/micro-biome.blend, so the planter floats over the origin): the
-deck's surface is at z -11, where FogDrog's lake was. The landing camera stands at eye level near its west end looking
-east (+x); screen right is -y. The deck ends at an overlook rail before the drop, and the planter's black streams pour
-down past it into the city. The towers stand on the ground far below (z -80).
+deck's surface is at z -11. The landing shot (EYE, LOOK, LANDING_FOV, BIKE_AT, BIKE_YAW, fitted to the concept) looks
+east across a straight freeway running north-east, with the bike parked at its far kerb and the planter's falls behind
+the camera, well clear of every deck. The towers stand on the ground far below (z -80).
 
 The skyline is composed in the landing camera's screen space (screen_point): the hero towers, the spire and the viaduct are
 placed where the concept has them, then filler towers cluster round them, leaving sky between the clusters.
 
-Renders: art/renders/city-landing.png (Workbench, shapes), city-landing-eevee.png (a moody EEVEE stand-in for the site's
-look: fog, lit windows), city-landing-eevee-nobike.png (the same without the bike stand-in) and city-montage.png (the
-concept above the EEVEE render). CITY_NO_EEVEE=1 skips the EEVEE renders.
+Renders (with the real bike, public/models/bike.glb): art/renders/city-landing.png (Workbench, shapes),
+city-landing-eevee.png (a moody EEVEE stand-in for the site's look: fog, lit windows), city-landing-eevee-nobike.png,
+city-montage.png (the concept above the EEVEE render), and *-guides.png (the concept's traced features from
+art/reference/concept-guides.json over the concept and over the render, via art/guides.py). CITY_NO_EEVEE=1 skips EEVEE.
 """
 import math
 import os
@@ -32,18 +33,35 @@ RENDER = os.path.join(ROOT_DIR, 'art', 'renders', 'city-landing.png')
 RENDER_EEVEE = os.path.join(ROOT_DIR, 'art', 'renders', 'city-landing-eevee.png')
 MONTAGE = os.path.join(ROOT_DIR, 'art', 'renders', 'city-montage.png')
 CONCEPT = os.path.join(ROOT_DIR, 'art', 'reference', 'concept-green-city.webp')
+GUIDES = os.path.join(ROOT_DIR, 'art', 'guides.py')
+BIKE_GLB = os.path.join(ROOT_DIR, 'public', 'models', 'bike.glb')
 
 DECK_Z = -11.0
 GROUND_Z = -80.0
-# The landing camera (art/build-journey.py's landing shot) and where the bike stands in front of it.
-EYE = Vector((-27.0, -2.5, -10.55))
-LOOK = Vector((40.0, -6.0, 1.0))
-LANDING_FOV = 46.0
-BIKE_AT = Vector((-23.8, -1.6, DECK_Z))
-BIKE_YAW = -110.0
-# Where the site actually parks the bike (the BikeMark is informational); the renders' stand-in goes here.
-SITE_BIKE = Vector((-24.0, -2.3, DECK_Z))
 RES = (1280, 720)
+# The landing shot, fitted to the concept's traced features (art/reference/concept-guides.json: the bike's wheels,
+# headlight, bars and outline, the barrier rail and road edge) with the real bike's geometry (art/build-bike.py: axles
+# at x +-0.78, headlight at x 1.03 z 0.785). The camera stands on the bike's right side at about handlebar height,
+# looking across the road at the bike three-quarter from the front and on over the city, a touch down. The road runs
+# along the bike, away to the left (its vanishing point far off the left of the frame); the bike is parked at its far
+# kerb, the city falling away beyond. The world is placed so the camera looks east over the city with the planter's
+# falls (the origin) behind it, FALLS_CLEAR metres off the bike's right.
+LANDING_FOV = 42.0  # vertical, degrees
+VIEW_YAW = -3.0  # degrees about z: the camera looks east
+CAM_IN_BIKE = Vector((2.041, -2.307, 0.975))  # the camera in the bike's frame (x forward, y left, z up off the deck)
+CAM_YAW_IN_BIKE = 112.33  # the camera's heading relative to the bike's
+CAM_PITCH = -5.08
+FALLS_CLEAR = 16.0
+BIKE_YAW = round(VIEW_YAW - CAM_YAW_IN_BIKE, 2)
+_bf = Vector((math.cos(math.radians(BIKE_YAW)), math.sin(math.radians(BIKE_YAW)), 0))
+_bl = Vector((-_bf.y, _bf.x, 0))
+BIKE_AT = Vector((round(_bl.x * FALLS_CLEAR, 2), round(_bl.y * FALLS_CLEAR, 2), DECK_Z))
+_e = BIKE_AT + _bf * CAM_IN_BIKE.x + _bl * CAM_IN_BIKE.y
+EYE = Vector((round(_e.x, 2), round(_e.y, 2), round(DECK_Z + CAM_IN_BIKE.z, 2)))
+_v = Vector((math.cos(math.radians(CAM_PITCH)) * math.cos(math.radians(VIEW_YAW)),
+             math.cos(math.radians(CAM_PITCH)) * math.sin(math.radians(VIEW_YAW)), math.sin(math.radians(CAM_PITCH))))
+LOOK = Vector(tuple(round(c, 2) for c in EYE + _v * 60))
+print('LANDING', 'EYE', tuple(EYE), 'LOOK', tuple(LOOK), 'FOV', LANDING_FOV, 'BIKE_AT', tuple(BIKE_AT), 'BIKE_YAW', BIKE_YAW)
 
 rnd = random.Random(11)
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -70,6 +88,12 @@ def to_screen(p):
     v = p - EYE
     d = v.dot(FWD)
     return (RES[0] / 2 * (1 + v.dot(RIGHT) / (d * TAN_H)), RES[1] / 2 * (1 - v.dot(UP) / (d * TAN_V)))
+
+
+def ray_at_z(sx, sy, z):
+    """Where the ray through pixel (sx, sy) of the landing frame meets the height z."""
+    d = screen_point(sx, sy, 1.0) - EYE
+    return EYE + d * ((z - EYE.z) / d.z)
 
 
 def material(name, colour, roughness=0.8, metallic=0.0, emission=None, strength=0.0):
@@ -218,147 +242,173 @@ def offset(x, y, dx, dy, rot):
 
 
 # --- The freeway deck -----------------------------------------------------------------------------------------------
-# A long straight elevated freeway running away from the camera, angled ROAD_HEADING to the right of +x (toward -y), on
-# piers down to the ground, fading into the city. Jersey barriers with steel guard rails along both edges; the right one
-# recedes toward the vanishing point right of centre, as in the concept. The camera and the bike stand on it with room
-# to spare; its left edge passes well to the right of the planter's falls (which drop at the origin).
-ROAD_HEADING = math.radians(-22.0)
-RD = Vector((math.cos(ROAD_HEADING), math.sin(ROAD_HEADING), 0))  # along the road
-RL = Vector((-RD.y, RD.x, 0))  # to its left
-ROAD_LEFT, ROAD_RIGHT = 6.8, 5.0  # the deck's edges, left and right of the camera
-ROAD_W = ROAD_LEFT + ROAD_RIGHT
-ROAD_BACK, ROAD_AHEAD = 45.0, 560.0  # how far it runs behind and ahead of the camera
-ROAD_C = Vector((EYE.x, EYE.y, DECK_Z)) + RL * (ROAD_LEFT - ROAD_RIGHT) / 2  # on the centre line, abreast of the camera
-ROAD_LEN = ROAD_BACK + ROAD_AHEAD
-ROAD_MID = ROAD_C + RD * (ROAD_AHEAD - ROAD_BACK) / 2
+# A long straight elevated freeway on piers, running along the bike: away to the left of the shot (ROAD_AHEAD, toward
+# its vanishing point) and back past the camera's right. The bike is parked at its far kerb, a low concrete upstand
+# where the deck ends over the drop; the camera stands in the lane beside it. A jersey barrier and rail line the near
+# edge, behind the camera. Built in the road's frame: s along it from abreast the bike, lateral to its left (toward
+# the camera; negative is the kerb, the city side).
+ROAD_HEADING = math.radians(BIKE_YAW + 180.0)
+RD = Vector((math.cos(ROAD_HEADING), math.sin(ROAD_HEADING), 0))  # along the road, away to the left of the shot
+RL = Vector((-RD.y, RD.x, 0))  # to its left: the bike's right, the camera's side
+KERB = -0.85  # the kerb's inner face, from the bike's centre line
+KERB_W = 0.4
+ROAD_NEAR = 9.0  # the near edge (behind the camera)
 BARRIER = 0.6  # a jersey barrier's footprint
+ROAD_BACK, ROAD_AHEAD = 140.0, 520.0
+ROAD_LEN = ROAD_BACK + ROAD_AHEAD
+ROAD_W = ROAD_NEAR - (KERB - KERB_W)
+ROAD_MID_S = (ROAD_AHEAD - ROAD_BACK) / 2
+ROAD_MID_L = (ROAD_NEAR + KERB - KERB_W) / 2
 
 
 def road(s, lateral=0.0, z=0.0):
-    """A point s metres along the deck from abreast the camera, `lateral` metres left of its centre line."""
-    return ROAD_C + RD * s + RL * lateral + Vector((0, 0, z))
+    """A point s metres along the deck from abreast the bike, `lateral` metres left of the bike's line."""
+    return Vector((BIKE_AT.x, BIKE_AT.y, DECK_Z)) + RD * s + RL * lateral + Vector((0, 0, z))
 
 
 bm = bmesh.new()
-box(bm, ROAD_MID - Vector((0, 0, 0.6)), Vector((ROAD_LEN, ROAD_W, 1.2)), ROAD_HEADING)
+box(bm, road(ROAD_MID_S, ROAD_MID_L, -0.6), Vector((ROAD_LEN, ROAD_W, 1.2)), ROAD_HEADING)
 deck = mesh_object('City.Deck', bm, MATS['deck'])
 
-# The drivable surface between the barriers, for the site's wet reflector.
+# The drivable surface between the kerb and the near barrier, for the site's wet reflector.
+DRIVE_L = ((ROAD_NEAR - BARRIER) + KERB) / 2
+DRIVE_W = (ROAD_NEAR - BARRIER) - KERB
 deck_top = bpy.data.objects.new('City.DeckTop', None)
 scene.collection.objects.link(deck_top)
 deck_top.parent = root
-deck_top.location = ROAD_MID
+deck_top.location = road(ROAD_MID_S, DRIVE_L)
 deck_top.rotation_euler = (0, 0, ROAD_HEADING)
-deck_top['length'] = ROAD_LEN
-deck_top['width'] = round(ROAD_W - 2 * BARRIER, 3)
-print('DeckTop', tuple(round(c, 3) for c in ROAD_MID), 'heading', math.degrees(ROAD_HEADING), 'length', ROAD_LEN, 'width', ROAD_W - 2 * BARRIER)
+deck_top['length'] = round(ROAD_LEN, 3)
+deck_top['width'] = round(DRIVE_W, 3)
+print('DeckTop', tuple(round(c, 3) for c in deck_top.location), 'heading', round(math.degrees(ROAD_HEADING), 2),
+      'length', deck_top['length'], 'width', deck_top['width'])
 
 # A jersey barrier's cross-section (a across, to the right of travel; up): outer face at a = 0, safety slope toward -a.
 JERSEY = [(0.0, -0.02), (0.0, 0.9), (-0.2, 0.9), (-0.32, 0.36), (-0.55, 0.1), (-0.6, -0.02)]
 bm = bmesh.new()
-sweep(bm, [road(-ROAD_BACK, -ROAD_W / 2), road(ROAD_AHEAD, -ROAD_W / 2)], JERSEY)
-sweep(bm, [road(-ROAD_BACK, ROAD_W / 2), road(ROAD_AHEAD, ROAD_W / 2)], [(-a, u) for a, u in JERSEY])
+# The kerb on the far edge (its outer face is the deck's edge) and the barrier on the near edge.
+sweep(bm, [road(-ROAD_BACK, KERB - KERB_W), road(ROAD_AHEAD, KERB - KERB_W)],
+      [(0.0, -0.02), (0.0, 0.22), (-0.3, 0.22), (-KERB_W, 0.12), (-KERB_W, -0.02)])
+sweep(bm, [road(-ROAD_BACK, ROAD_NEAR), road(ROAD_AHEAD, ROAD_NEAR)], [(-a, u) for a, u in JERSEY])
 # The box girder under the slab, and piers on cross-heads down into the dark.
-box(bm, ROAD_MID - Vector((0, 0, 2.4)), Vector((ROAD_LEN - 2, ROAD_W - 4, 2.4)), ROAD_HEADING)
+box(bm, road(ROAD_MID_S, ROAD_MID_L, -2.4), Vector((ROAD_LEN - 2, ROAD_W - 4, 2.4)), ROAD_HEADING)
 s = -ROAD_BACK + 12
 while s < ROAD_AHEAD - 4:
-    for lat in (-ROAD_W / 2 + 2.5, ROAD_W / 2 - 2.5):
+    for lat in (KERB - KERB_W + 2.5, ROAD_NEAR - 2.5):
         p = road(s, lat)
         box(bm, Vector((p.x, p.y, (DECK_Z - 3.6 + GROUND_Z) / 2)), Vector((2.4, 2.4, DECK_Z - 3.6 - GROUND_Z)), ROAD_HEADING)
-    p = road(s)
-    box(bm, Vector((p.x, p.y, DECK_Z - 4.2)), Vector((2.8, ROAD_W - 1.0, 1.6)), ROAD_HEADING)
+    box(bm, road(s, ROAD_MID_L, -4.2), Vector((2.8, ROAD_W - 1.0, 1.6)), ROAD_HEADING)
     s += 32.0
 mesh_object('City.DeckBeams', bm, MATS['concrete'])
 
-# Steel guard rails on posts along both barriers.
+# Steel guard rail on posts along the near barrier, and a low W-beam rail on stubby posts along the kerb (the
+# concept's rail, in its proportions: it sits low).
 bm = bmesh.new()
-for lat in (-ROAD_W / 2 + 0.1, ROAD_W / 2 - 0.1):
-    for zr in (1.12, 1.42):
-        sweep(bm, [road(-ROAD_BACK, lat, zr), road(ROAD_AHEAD, lat, zr)], [(-0.05, -0.07), (0.05, -0.07), (0.05, 0.07), (-0.05, 0.07)])
-    s = -ROAD_BACK + 0.5
-    while s < ROAD_AHEAD:
-        box(bm, road(s, lat, 1.1), Vector((0.12, 0.12, 0.5)), ROAD_HEADING)
-        s += 2.5
+lat = KERB - KERB_W + 0.12
+sweep(bm, [road(-ROAD_BACK, lat, 0.36), road(ROAD_AHEAD, lat, 0.36)], [(-0.05, -0.08), (0.04, -0.1), (0.04, 0.1), (-0.05, 0.08)])
+s = -ROAD_BACK + 0.5
+while s < ROAD_AHEAD:
+    box(bm, road(s, lat, 0.3), Vector((0.1, 0.1, 0.18)), ROAD_HEADING)
+    s += 2.0
+lat = ROAD_NEAR - 0.1
+for zr in (1.12, 1.42):
+    sweep(bm, [road(-ROAD_BACK, lat, zr), road(ROAD_AHEAD, lat, zr)], [(-0.05, -0.07), (0.05, -0.07), (0.05, 0.07), (-0.05, 0.07)])
+s = -ROAD_BACK + 0.5
+while s < ROAD_AHEAD:
+    box(bm, road(s, lat, 1.1), Vector((0.12, 0.12, 0.5)), ROAD_HEADING)
+    s += 2.5
 mesh_object('City.Rails', bm, MATS['rail'])
 
-# --- A second freeway, lower, off to the right: it runs alongside, then curves away right and climbs ------------------
+# --- The second freeway, lower, beyond the kerb -------------------------------------------------------------------------
+# A carriageway alongside ours and FW_DROP lower: its near jersey barrier and rail are the barrier the concept shows
+# running across behind the bike and down to the right edge (fitted: rail and base lines of concept-guides.json). A
+# branch leaves it and curves away into the city on the right, climbing a little.
+FW_W = 13.0
+half = FW_W / 2
+FW_NEAR = -4.9  # its near barrier's outer face, from the bike's line
+FW_LAT = FW_NEAR - half
+FW_DROP = 4.65
+FW_Z = DECK_Z - FW_DROP
+FW_PROFILE = [(-half, -1.2), (half, -1.2), (half, 0.9), (half - 0.2, 0.9), (half - 0.32, 0.36), (half - 0.55, 0.1),
+              (half - 0.6, 0.0), (-half + 0.6, 0.0), (-half + 0.55, 0.1), (-half + 0.32, 0.36), (-half + 0.2, 0.9),
+              (-half, 0.9)]
 
 
-def fw_path(step=6.0):
-    """Centre line of the second freeway, in the deck's frame (s along, lateral) then placed in the world."""
+def branch_path(step=6.0):
+    """The branch: from beside the lower carriageway, back toward the camera's right, curving away into the city."""
     pts = []
-    s0, lat0 = -80.0, -24.0
-    straight, radius, turn, tail = 210.0, 170.0, math.radians(72), 170.0
-    total = straight + radius * turn + tail
+    straight = 200.0
+    s, lat, a = 180.0, FW_LAT - FW_W - 1.0, 0.0
+    radius, turn, tail = 140.0, math.radians(78), 200.0
     t = 0.0
-    while t <= total + 0.01:
-        if t <= straight:
-            s, lat = s0 + t, lat0
-        elif t <= straight + radius * turn:
-            a = (t - straight) / radius
-            s, lat = s0 + straight + radius * math.sin(a), lat0 - radius * (1 - math.cos(a))
-        else:
-            es, el = s0 + straight + radius * math.sin(turn), lat0 - radius * (1 - math.cos(turn))
-            s, lat = es + math.cos(turn) * (t - straight - radius * turn), el - math.sin(turn) * (t - straight - radius * turn)
-        k = min(1.0, max(0.0, (t - 150) / (total - 150)))
+    total = straight + radius * turn + tail
+    while t <= total:
         p = road(s, lat)
-        p.z = DECK_Z + 1.5 + 24.0 * k * k * (3 - 2 * k)
+        p.z = FW_Z + 3.0 * min(1.0, t / total)
         pts.append(p)
+        if t >= straight:
+            a = min(turn, (t - straight) / radius)
+        s -= math.cos(a) * step
+        lat -= math.sin(a) * step
         t += step
     return pts
 
 
-FW = fw_path()
-FW_W = 13.0
-half = FW_W / 2
-FW_PROFILE = [(-half, -1.2), (half, -1.2), (half, 0.9), (half - 0.2, 0.9), (half - 0.32, 0.36), (half - 0.55, 0.1),
-              (half - 0.6, 0.0), (-half + 0.6, 0.0), (-half + 0.55, 0.1), (-half + 0.32, 0.36), (-half + 0.2, 0.9),
-              (-half, 0.9)]
+FW = [road(s, FW_LAT, -FW_DROP) for s in range(int(-ROAD_BACK), int(ROAD_AHEAD) + 1, 10)]
+BRANCH = branch_path()
 bm = bmesh.new()
-sweep(bm, FW, FW_PROFILE)
-sweep(bm, [p + Vector((0, 0, -1.2)) for p in FW], [(-4.5, 0), (4.5, 0), (3.5, -2.4), (-3.5, -2.4)])
-for i, p in enumerate(FW):
-    if i % 6 == 3:
-        t = FW[min(i + 1, len(FW) - 1)] - FW[i - 1]
-        box(bm, Vector((p.x, p.y, (p.z - 3.6 + GROUND_Z) / 2)), Vector((3.0, 3.0, p.z - 3.6 - GROUND_Z)))
-        box(bm, Vector((p.x, p.y, p.z - 4.0)), Vector((3.6, 10.0, 1.6)), math.atan2(t.y, t.x))
+for path in (FW, BRANCH):
+    sweep(bm, path, FW_PROFILE)
+    sweep(bm, [p + Vector((0, 0, -1.2)) for p in path], [(-4.5, 0), (4.5, 0), (3.5, -2.4), (-3.5, -2.4)])
+    for i, p in enumerate(path):
+        if i % 4 == 2:
+            t = path[min(i + 1, len(path) - 1)] - path[i - 1]
+            box(bm, Vector((p.x, p.y, (p.z - 3.6 + GROUND_Z) / 2)), Vector((3.0, 3.0, p.z - 3.6 - GROUND_Z)))
+            box(bm, Vector((p.x, p.y, p.z - 4.0)), Vector((3.6, 10.0, 1.6)), math.atan2(t.y, t.x))
 mesh_object('City.Freeway2', bm, MATS['concrete'])
 
 bm = bmesh.new()
-for a in (-half + 0.1, half - 0.1):
-    rail_path = []
-    for i, p in enumerate(FW):
-        t = FW[min(i + 1, len(FW) - 1)] - FW[max(i - 1, 0)]
-        t.z = 0
-        t.normalize()
-        rail_path.append(p + Vector((t.y, -t.x, 0)) * a)
-    for zr in (1.12, 1.42):
-        sweep(bm, [q + Vector((0, 0, zr)) for q in rail_path], [(-0.05, -0.07), (0.05, -0.07), (0.05, 0.07), (-0.05, 0.07)])
-    for i in range(len(rail_path) - 1):
-        for f in (0.0, 0.5):
-            box(bm, rail_path[i].lerp(rail_path[i + 1], f) + Vector((0, 0, 1.1)), Vector((0.12, 0.12, 0.5)))
+for path in (FW, BRANCH):
+    for a in (-half + 0.1, half - 0.1):
+        rail_path = []
+        for i, p in enumerate(path):
+            t = path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]
+            t.z = 0
+            t.normalize()
+            rail_path.append(p + Vector((t.y, -t.x, 0)) * a)
+        for zr in (1.12, 1.42):
+            sweep(bm, [q + Vector((0, 0, zr)) for q in rail_path], [(-0.05, -0.07), (0.05, -0.07), (0.05, 0.07), (-0.05, 0.07)])
+        for i in range(len(rail_path) - 1):
+            n_posts = max(1, int((rail_path[i + 1] - rail_path[i]).length / 2.5))
+            for k in range(n_posts):
+                box(bm, rail_path[i].lerp(rail_path[i + 1], k / n_posts) + Vector((0, 0, 1.1)), Vector((0.12, 0.12, 0.5)))
 mesh_object('City.Freeway2Rails', bm, MATS['rail'])
 
-
 # --- The gantry overhead (top left of the landing shot), dripping black -----------------------------------------------
-# A heavy steel deck on concrete legs beside the road's left edge, overhanging the top left of the shot: its front edge
-# runs diagonally away from the camera (as the concept's does, so its fascia of arch-topped rusted plates faces us),
-# with girders and a lit doorway beneath and a lattice mast on top. Black ooze pours over the fascia and hangs from it
-# in long strands. Built in its own frame: t along the front edge (0 at the far end, negative toward the camera), l
-# back into the deck (left). Placed from the concept: the fascia's far bottom corner sits at screen (398, 168), its edge
-# leaving the frame top left. Clear of the journey camera's descent (art/build-journey.py: x -9 -> -27 at y -1.6 ->
-# -2.5, z -6.4 -> -10.55) and of the planter's falls at the origin.
-GANTRY_HEADING = math.radians(-34.7)
-GE = Vector((math.cos(GANTRY_HEADING), math.sin(GANTRY_HEADING), 0))  # along the front edge, away from the camera
-GL = Vector((-GE.y, GE.x, 0))  # back into the deck
-GANTRY_F = Vector((-12.6, 1.03, 0))  # the front edge's far end
-GANTRY_T = (-24.0, 0.0)  # t extent
-GANTRY_D = 15.0  # l depth
-GANTRY_U = -4.3  # underside of the slab
+# A heavy steel deck over the lower carriageway beyond the kerb, looming in the top left: its front edge faces the
+# camera (a fascia of arch-topped rusted plates over a heavy bottom flange), girders and strip lights beneath, a truss
+# and a lattice mast on top, a massive concrete pier under its left. Black ooze pours over the fascia and hangs from it
+# in long strands. Placed from the concept's traces: the fascia's underside runs from (0, 165) to (400, 140) on screen,
+# the pier stands at x 110, the ooze tips run (150, 300) -> (380, 260), a strip light at (40, 178). Built in its own
+# frame: t along the front edge (0 at its right end, negative off to the left), l back into the deck, away from us.
+FASCIA_LOW = DECK_Z + 3.5  # the fascia's underside
+_gl, _gr = ray_at_z(0, 165, FASCIA_LOW), ray_at_z(400, 140, FASCIA_LOW)
+GE = _gr - _gl
+GE.z = 0
+_edge = GE.length
+GE.normalize()
+GANTRY_HEADING = math.atan2(GE.y, GE.x)
+GL = Vector((-GE.y, GE.x, 0))
+if GL.dot(_gr - EYE) < 0:
+    GL = -GL
+GANTRY_F = Vector((_gr.x, _gr.y, 0)) + GE * 0.6
+GANTRY_T = (-(_edge + 18.0), 0.0)  # t extent (on out of frame to the left)
+GANTRY_D = 6.0  # l depth
+GANTRY_U = FASCIA_LOW + 0.35  # underside of the slab
 GANTRY_TOP = GANTRY_U + 0.6
 FASCIA_L = -0.15  # the fascia plates' plane, a little proud of the slab's edge
-FASCIA_LOW = GANTRY_U - 0.35
 FASCIA_HIGH = GANTRY_TOP + 1.0
+print('gantry: edge', tuple(round(c, 2) for c in _gl), '->', tuple(round(c, 2) for c in _gr), 'heading', round(math.degrees(GANTRY_HEADING), 1))
 
 
 def g(t, l, z):
@@ -379,7 +429,7 @@ while t < GANTRY_T[1]:
     gbox(bm, t, GANTRY_D / 2, GANTRY_U - 0.4, Vector((0.3, GANTRY_D - 0.4, 0.8)))
     gbox(bm, t, GANTRY_D / 2, GANTRY_U - 0.78, Vector((0.7, GANTRY_D - 0.4, 0.08)))
     t += 3.0
-for l in (0.5, 4.5, 9.0, 13.5):
+for l in (0.5, 3.0, 5.5):
     gbox(bm, gt_mid, l, GANTRY_U - 0.55, Vector((gt_len, 0.4, 1.1)))
     gbox(bm, gt_mid, l, GANTRY_U - 1.1, Vector((gt_len, 0.9, 0.1)))
 # The fascia's frame: a heavy bottom flange, a cap rail, stiffener posts between the plates.
@@ -422,30 +472,40 @@ while t < GANTRY_T[1]:
     t += PANEL
 mesh_object('City.GantryPanels', bm, MATS['rust'])
 
-# The legs stand on a platform of their own beside the road (lower than the deck), down to the ground; a wall between
-# the front legs has a lit doorway in it (the light under the gantry).
-PLAT_Z = DECK_Z - 0.3
+# The legs: a massive pier under the left of the edge (where the concept has it), and lighter ones behind, all the way
+# down to the ground.
+
+
+def t_at_screen_x(sx, l=0.0, z=FASCIA_LOW):
+    lo, hi = GANTRY_T[0], GANTRY_T[1]
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if to_screen(g(mid, l, z))[0] < sx:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+PIER_T = t_at_screen_x(110, 1.4)
 bm = bmesh.new()
-gbox(bm, gt_mid + 0.5, GANTRY_D / 2 - 0.5, PLAT_Z - 0.6, Vector((gt_len + 1.0, GANTRY_D + 1.0, 1.2)))
-for t in (GANTRY_T[0] + 3, GANTRY_T[1] - 3):
-    gbox(bm, t, GANTRY_D / 2, (PLAT_Z - 1.2 + GROUND_Z) / 2, Vector((2.4, 2.4, PLAT_Z - 1.2 - GROUND_Z)))
-LEGS_T = (-2.0, -9.0, -16.0, -23.0)
-for t in LEGS_T:
-    for l in (2.2, 12.0):
-        gbox(bm, t, l, (PLAT_Z + GANTRY_U - 1.1) / 2, Vector((1.5, 1.5, GANTRY_U - 1.1 - PLAT_Z)))
-        gbox(bm, t, l, GANTRY_U - 1.6, Vector((2.1, 2.1, 0.9)))
-gbox(bm, -5.5, 2.2, PLAT_Z + 1.2, Vector((5.5, 0.6, 2.4)))
-gbox(bm, -5.5, 2.2, GANTRY_U - 2.6, Vector((5.5, 0.6, 1.4)))
-for t in (-7.6, -3.4):
-    gbox(bm, t, 2.2, (PLAT_Z + GANTRY_U - 1.9) / 2, Vector((1.0, 0.6, GANTRY_U - 1.9 - PLAT_Z)))
+gbox(bm, PIER_T, 1.4, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((2.6, 2.6, GANTRY_U - 1.1 - GROUND_Z)))
+gbox(bm, PIER_T, 1.4, GANTRY_U - 1.7, Vector((3.4, 3.4, 1.2)))
+for z in range(int(GROUND_Z) + 6, int(GANTRY_U) - 3, 7):
+    gbox(bm, PIER_T, 1.4, z, Vector((2.9, 2.9, 0.5)), bare=True)
+for t in (PIER_T - 10.0, PIER_T - 20.0):
+    for l in (1.4, GANTRY_D - 1.5):
+        gbox(bm, t, l, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((1.6, 1.6, GANTRY_U - 1.1 - GROUND_Z)))
+gbox(bm, PIER_T, GANTRY_D - 1.5, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((1.6, 1.6, GANTRY_U - 1.1 - GROUND_Z)))
 mesh_object('City.GantryPiers', bm, MATS['concrete'])
 
 bm = bmesh.new()
-# Strip lights under the slab, between the beams, and the doorway's glow.
-for t in (-2.5, -8.5, -14.5):
-    gbox(bm, t, 6.0, GANTRY_U - 0.12, Vector((0.25, 3.0, 0.12)))
-gbox(bm, -5.5, 2.6, PLAT_Z + 1.25, Vector((3.2, 0.1, 2.3)))
-gbox(bm, -5.5, 1.85, PLAT_Z + 2.55, Vector((3.0, 0.15, 0.2)))
+# Strip lights under the slab, between the beams; the first where the concept's warm light is.
+_sl = ray_at_z(40, 178, GANTRY_U - 0.15)
+_sl_t = (Vector((_sl.x, _sl.y, 0)) - GANTRY_F).dot(GE)
+_sl_l = (Vector((_sl.x, _sl.y, 0)) - GANTRY_F).dot(GL)
+for dt in (0.0, -6.0, -12.0):
+    gbox(bm, _sl_t + dt, max(0.8, _sl_l), GANTRY_U - 0.12, Vector((3.0, 0.3, 0.12)))
 mesh_object('City.GantryLamps', bm, MATS['lamp'])
 
 
@@ -472,30 +532,47 @@ def strand(bm, top, length, r0, sides=7, sway=Vector()):
     bmesh.ops.recalc_face_normals(bm, faces=faces)
 
 
+
+
+def tip_z(top, target_y):
+    """The height below `top` that the landing camera sees at screen y `target_y`."""
+    lo, hi = GROUND_Z, top.z
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if to_screen(Vector((top.x, top.y, mid)))[1] > target_y:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def ooze_tip_y(sx):
+    f = min(1.0, max(0.0, (sx - 150) / 230))
+    return 300 + (260 - 300) * f
+
+
 bm = bmesh.new()
-# Down the fascia's face and off its lip, thickest and longest near the camera (the concept's foreground strands).
-for i in range(72):
-    t = rnd.uniform(GANTRY_T[0] + 4, GANTRY_T[1] - 0.3)
-    near = max(0.0, min(1.0, -t / 14.0))
-    length = (FASCIA_HIGH - FASCIA_LOW) + 0.3 + rnd.random() ** 1.4 * (1.8 + 3.5 * near)
-    r = 0.06 + rnd.random() * 0.07 + 0.06 * near
-    top = g(t, FASCIA_L - 0.14 - rnd.random() * 0.05, FASCIA_HIGH - 0.1 - rnd.random() * 0.6)
-    strand(bm, top, length, r, sway=-GL * 0.12 * rnd.random())
-# Long ropes from the lip nearest the camera, some all the way down.
-for t, length in ((-14.0, 6.4), (-12.6, 4.6), (-11.0, 6.1), (-9.4, 3.6), (-7.9, 5.2), (-6.2, 2.8), (-4.4, 4.2), (-17.0, 6.0)):
-    strand(bm, g(t, FASCIA_L - 0.3, FASCIA_LOW - 0.3), length, 0.1, sway=-GL * 0.25)
+# Down the fascia's face and off its lip, the tips along the concept's ooze line, a few ropes hanging much lower.
+T_LEFT = t_at_screen_x(-40)
+for i in range(30):
+    t = T_LEFT + (GANTRY_T[1] - 0.3 - T_LEFT) * (i + rnd.uniform(0.1, 0.9)) / 30
+    over = rnd.random() < 0.4  # some pour over the cap and down the plates; most hang from the lip
+    top = g(t, FASCIA_L - 0.16 - rnd.random() * 0.05, FASCIA_HIGH - 0.1 if over else FASCIA_LOW - 0.15)
+    target = ooze_tip_y(to_screen(top)[0]) + rnd.uniform(-30, 25) + (rnd.random() < 0.15) * rnd.uniform(50, 140)
+    length = max(0.5, top.z - tip_z(top, target))
+    strand(bm, top, length, 0.08 + rnd.random() ** 2 * 0.2, sway=-GL * 0.15 * rnd.random())
 # Strands from the girders under the slab.
-for i in range(18):
-    strand(bm, g(rnd.uniform(-20.0, -1.0), rnd.choice((0.5, 4.5, 9.0)), GANTRY_U - 1.1), 0.6 + rnd.random() ** 2 * 3.0,
+for i in range(6):
+    strand(bm, g(rnd.uniform(T_LEFT, -1.0), rnd.choice((0.5, 3.0)), GANTRY_U - 1.1), 0.6 + rnd.random() ** 2 * 3.0,
            0.04 + rnd.random() * 0.04)
 # A thick roll of ooze along the fascia's cap, where it spills over.
 lip = [g(GANTRY_T[0] + i * 1.0, FASCIA_L - 0.05, FASCIA_HIGH + 0.05 * math.sin(i * 1.7)) for i in range(int(gt_len) + 1)]
 sweep(bm, lip, [(math.cos(2 * math.pi * k / 7) * 0.22, math.sin(2 * math.pi * k / 7) * 0.16) for k in range(7)])
 drips = mesh_object('City.Drips', bm, MATS['ooze'], smooth=True)
 
-# A black pool spreading over the road's left lanes, between the camera and the bike, and one under the ropes.
+# Black pools on the deck by the bike, as the concept's slick.
 bm = bmesh.new()
-for centre, rx, ry, seg in ((Vector((-20.0, -0.4, DECK_Z + 0.01)), 4.0, 1.2, 48), (g(-9.0, 1.2, PLAT_Z + 0.01), 4.5, 1.2, 40)):
+for centre, rx, ry, seg in ((road(-1.4, 1.5, 0.01), 2.6, 0.9, 40), (road(3.5, 0.6, 0.01), 1.8, 0.5, 32)):
     res = bmesh.ops.create_circle(bm, cap_ends=True, segments=seg, radius=1.0)
     for v in res['verts']:
         a = math.atan2(v.co.y, v.co.x)
@@ -633,14 +710,15 @@ def free_spot(x, y, radius, slack=0.75):
 
 
 # The arched viaduct: level, from left of centre in the far middle distance to off the right edge, nearer there.
-VIADUCT_Z = 84.0
-VIADUCT_SX, VIADUCT_DEPTH = (560, 1360), (480, 360)
-va = screen_point(VIADUCT_SX[0], 360, VIADUCT_DEPTH[0])
-vb = screen_point(VIADUCT_SX[1], 360, VIADUCT_DEPTH[1])
-VA, VB = Vector((va.x, va.y, VIADUCT_Z)), Vector((vb.x, vb.y, VIADUCT_Z))
-VIADUCT_SY = (to_screen(VA)[1], to_screen(VB)[1])
-print('viaduct deck on screen', [tuple(round(c) for c in to_screen(p)) for p in (VA, VB)])
-KEEP_CLEAR = [[road(-ROAD_BACK), road(ROAD_AHEAD)], FW, [VA - (VB - VA).normalized() * 40, VB + (VB - VA).normalized() * 60]]
+# The arched viaduct, fitted to the concept's viaduct deck line (640, 300) -> (1280, 265): it crosses the middle
+# distance on the right, nearer and higher toward the right edge (climbing gently), below the camera's eye.
+VIADUCT_SX, VIADUCT_SY, VIADUCT_DEPTH = (640, 1280), (300, 265), (420, 250)
+VA = screen_point(VIADUCT_SX[0], VIADUCT_SY[0], VIADUCT_DEPTH[0])
+VB = screen_point(VIADUCT_SX[1], VIADUCT_SY[1], VIADUCT_DEPTH[1])
+_vd = (VB - VA).normalized()
+VA, VB = VA - _vd * 70, VB + _vd * 90
+print('viaduct deck', tuple(round(c, 1) for c in VA), '->', tuple(round(c, 1) for c in VB))
+KEEP_CLEAR = [[road(-ROAD_BACK), road(ROAD_AHEAD)], FW, BRANCH, [VA - _vd * 20, VB + _vd * 20]]
 
 bands = {'Near': (0, 380), 'Mid': (380, 650), 'Far': (650, 1000), 'Back': (1000, 2000)}
 band_bm = {b: bmesh.new() for b in bands}
@@ -668,7 +746,7 @@ def tower_at(sx, top_sy, depth, width, crown=None, aspect=None, force=False):
     radius = max(width, d) / 2
     if not force and (not clear_of_view(p.x, p.y, radius) or not free_spot(p.x, p.y, radius)):
         return False
-    height = (p.z - GROUND_Z) * 0.86  # the crown makes up the rest
+    height = (p.z - GROUND_Z) * (0.86 if crown in (None, 'needle', 'cluster', 'antenna') else 0.97)  # the crown makes up the rest
     band = band_of(r)
     tower(band_bm[band], p.x, p.y, width, d, height, rnd.uniform(-0.3, 0.3), DETAIL[band], r, crown)
     placed.append((p.x, p.y, radius))
@@ -677,34 +755,42 @@ def tower_at(sx, top_sy, depth, width, crown=None, aspect=None, force=False):
 
 # Heroes, where the concept has them: (screen x, top y, depth along the view, width m, crown).
 HEROES = [
-    (1262, 50, 330, 64, 'crenel'),  # the giant on the right edge
-    (470, 120, 410, 58, 'crenel'),  # the dark lit block left of centre
-    (560, 150, 440, 50, 'cluster'),
-    (650, 40, 600, 52, 'crenel'),  # the tall slender one left of the spire
-    (727, 185, 640, 22, 'needle'),
-    (1012, 120, 560, 50, 'crenel'),
-    (1062, 185, 660, 26, 'cluster'),
-    (1102, 170, 780, 22, 'needle'),
-    (1142, 215, 840, 26, 'antenna'),
-    (1185, 185, 800, 22, 'needle'),
-    (1168, 250, 640, 32, 'crenel'),
-    (395, 165, 760, 34, 'cluster'),
+    (1250, 70, 330, 30, 'crenel'),  # the right tower, off the right edge
+    (450, 140, 420, 50, 'crenel'),  # the dark lit blocks left of centre
+    (522, 140, 440, 44, 'crenel'),
+    (598, 150, 470, 40, 'cluster'),
+    (650, 40, 600, 50, 'crenel'),  # the tall one left of the spire
+    (692, 20, 660, 28, 'needle'),
+    (742, 170, 640, 22, 'needle'),
+    (990, 130, 560, 44, 'crenel'),
+    (1022, 120, 600, 34, 'cluster'),
+    (1085, 170, 700, 30, 'needle'),
+    (1150, 210, 760, 28, 'antenna'),
+    (1180, 190, 700, 26, 'needle'),
+    (395, 190, 760, 34, 'cluster'),  # behind the gantry
     (300, 225, 680, 30, 'antenna'),
-    (232, 185, 720, 30, 'needle'),
+    (232, 200, 720, 30, 'needle'),
     (160, 240, 620, 28, 'crenel'),
-    (60, 150, 520, 40, 'crenel'),
+    (60, 190, 520, 40, 'crenel'),
     # The spire's attendant needles.
-    (935, 60, 930, 24, 'needle'),
-    (905, 110, 905, 20, 'needle'),
-    (782, 95, 940, 22, 'needle'),
-    (757, 140, 900, 20, 'cluster'),
+    (930, 70, 930, 24, 'needle'),
+    (905, 50, 960, 22, 'needle'),
+    (775, 80, 940, 22, 'needle'),
+    (757, 130, 900, 20, 'cluster'),
 ]
-for h in HEROES:
-    tower_at(*h, force=True)
+for sx, top, depth, width, crown in HEROES:
+    # Forced past the spacing check, but kept off the roads and the viaduct: nudged sideways until clear.
+    for dsx in (0, -30, 30, -60, 60, -90, 90):
+        p = screen_point(sx + dsx, top, depth)
+        if clear_of_view(p.x, p.y, width / 2):
+            tower_at(sx + dsx, top, depth, width, crown, force=True)
+            break
+    else:
+        print('hero skipped', sx, top, depth)
 
 # The great spire: right of centre, far off, rising out of frame. A cathedral: a stepped core ringed with pinnacles on
 # every setback, corner towers and flanking spires climbing its shoulders, a needle out of the top. Lit ribs (site).
-spire_at = screen_point(850, 320, 960)
+spire_at = screen_point(840, 360, 920)
 SPIRE = Vector((spire_at.x, spire_at.y))
 placed.append((SPIRE.x, SPIRE.y, 150))
 bm = bmesh.new()
@@ -754,7 +840,7 @@ wall_uvs(bm)
 mesh_object('City.Spire', bm, MATS['spire'])
 
 # Filler: clustered round the heroes (peaks) with a lower mass between, so sky shows between the clusters.
-CLUSTERS = [60, 232, 395, 520, 650, 850, 1012, 1140, 1262]
+CLUSTERS = [60, 232, 395, 450, 522, 650, 840, 990, 1085, 1150, 1250]
 FILL = {'Near': (50, 230, 380, 240, 420), 'Mid': (100, 380, 650, 200, 380), 'Far': (150, 650, 1000, 180, 330),
         'Back': (170, 1000, 1700, 170, 290)}
 for band, (count, d0, d1, sy0, sy1) in FILL.items():
@@ -782,43 +868,57 @@ for band, bm in band_bm.items():
 # Big round arches on tall piers (a tie beam closes each opening's foot), a solid spandrel wall over the arches, a
 # cornice and parapets, and lamp posts along it.
 bm = bmesh.new()
-along = (VB - VA)
+along = VB - VA
+along.z = 0
 span_len = along.length
 u = along.normalized()
 n = Vector((-u.y, u.x, 0))
 rot_v = math.atan2(u.y, u.x)
+
+
+def vz(s):
+    """The viaduct deck's height s metres along it from VA."""
+    return VA.z + (VB.z - VA.z) * s / span_len
+
+
+def vp(s, side=0.0):
+    p = VA + u * s + n * side
+    return Vector((p.x, p.y, vz(s)))
+
+
 BAY, PIER, ARCH_R, VW = 40.0, 8.0, 16.0, 13.0
 CROWN_GAP = 5.0
-spring = VIADUCT_Z - 1.2 - CROWN_GAP - ARCH_R
-bays = int(span_len / BAY) + 1
-start = -((bays * BAY - span_len) / 2)
+bays = int(span_len / BAY)
+start = (span_len - bays * BAY) / 2
 for i in range(bays + 1):
-    s = start + i * BAY
-    c = VA + u * s
-    box(bm, Vector((c.x, c.y, (spring + GROUND_Z) / 2)), Vector((PIER, VW, spring - GROUND_Z)), rot_v)
-    # A pilaster on the face and a buttress at the foot.
-    box(bm, Vector((c.x, c.y, (VIADUCT_Z + GROUND_Z) / 2)), Vector((PIER * 0.5, VW + 2.0, VIADUCT_Z - GROUND_Z)), rot_v)
+    s0 = start + i * BAY
+    c = vp(s0)
+    box(bm, Vector((c.x, c.y, (c.z - 1.2 + GROUND_Z) / 2)), Vector((PIER, VW, c.z - 1.2 - GROUND_Z)), rot_v)
+    # A pilaster on the face, proud of the wall.
+    box(bm, Vector((c.x, c.y, (c.z + GROUND_Z) / 2)), Vector((PIER * 0.5, VW + 2.0, c.z - GROUND_Z)), rot_v)
     if i < bays:
-        # The spandrel over this arch: the wall from pier to pier with a semicircular opening under it.
-        top_z = VIADUCT_Z - 1.2 - spring
-        outline = [(BAY / 2 + ARCH_R, 0.0), (BAY - PIER / 2, 0.0), (BAY - PIER / 2, top_z), (PIER / 2, top_z), (PIER / 2, 0.0),
+        # The spandrel over this arch: the wall from pier to pier (its top following the deck) over a round opening.
+        spring = vz(s0 + BAY / 2) - 1.2 - CROWN_GAP - ARCH_R
+        top_l, top_r = vz(s0 + PIER / 2) - 1.2 - spring, vz(s0 + BAY - PIER / 2) - 1.2 - spring
+        outline = [(BAY / 2 + ARCH_R, 0.0), (BAY - PIER / 2, 0.0), (BAY - PIER / 2, top_r), (PIER / 2, top_l), (PIER / 2, 0.0),
                    (BAY / 2 - ARCH_R, 0.0)]
         outline += [(BAY / 2 - math.cos(math.pi * k / 12) * ARCH_R, math.sin(math.pi * k / 12) * ARCH_R) for k in range(1, 12)]
         prism(bm, outline, Vector((c.x, c.y, spring)), u, n, VW)
-        # The tie beam closing the opening's foot, far below.
-        m = c + u * (BAY / 2)
-        box(bm, Vector((m.x, m.y, spring - 30)), Vector((BAY - PIER, VW * 0.8, 4.0)), rot_v)
-        # A lower arcade: a smaller arch springing from the tie beam (the concept's arches stack).
-        lo = [(BAY / 2 + ARCH_R * 0.8, 0.0), (BAY - PIER / 2, 0.0), (BAY - PIER / 2, ARCH_R * 0.8 + 3), (PIER / 2, ARCH_R * 0.8 + 3),
-              (PIER / 2, 0.0), (BAY / 2 - ARCH_R * 0.8, 0.0)]
-        lo += [(BAY / 2 - math.cos(math.pi * k / 10) * ARCH_R * 0.8, math.sin(math.pi * k / 10) * ARCH_R * 0.8) for k in range(1, 10)]
-        prism(bm, lo, Vector((c.x, c.y, spring - 30 - 2.0 - ARCH_R * 0.8 - 3)), u, n, VW * 0.8)
-mid = (VA + VB) / 2
-box(bm, Vector((mid.x, mid.y, VIADUCT_Z - 0.6)), Vector((bays * BAY + 4, VW + 1.0, 1.2)), rot_v)
-box(bm, Vector((mid.x, mid.y, VIADUCT_Z - 2.2)), Vector((bays * BAY + 4, VW + 2.4, 1.6)), rot_v)
+        # The tie beam closing the tall opening's foot, and a lower arcade under it where there's room.
+        m = vp(s0 + BAY / 2)
+        tie = max(spring - 34, GROUND_Z + 6)
+        box(bm, Vector((m.x, m.y, tie)), Vector((BAY - PIER, VW * 0.8, 4.0)), rot_v)
+        lo_spring = tie - 2.0 - ARCH_R * 0.8 - 3
+        if lo_spring - 6 > GROUND_Z:
+            lo = [(BAY / 2 + ARCH_R * 0.8, 0.0), (BAY - PIER / 2, 0.0), (BAY - PIER / 2, ARCH_R * 0.8 + 3), (PIER / 2, ARCH_R * 0.8 + 3),
+                  (PIER / 2, 0.0), (BAY / 2 - ARCH_R * 0.8, 0.0)]
+            lo += [(BAY / 2 - math.cos(math.pi * k / 10) * ARCH_R * 0.8, math.sin(math.pi * k / 10) * ARCH_R * 0.8) for k in range(1, 10)]
+            prism(bm, lo, Vector((c.x, c.y, lo_spring)), u, n, VW * 0.8)
+ends = [vp(start - 2), vp(start + bays * BAY + 2)]
+sweep(bm, ends, [(-VW / 2 - 0.5, -1.2), (VW / 2 + 0.5, -1.2), (VW / 2 + 0.5, 0.0), (-VW / 2 - 0.5, 0.0)])
+sweep(bm, ends, [(-VW / 2 - 1.2, -3.0), (VW / 2 + 1.2, -3.0), (VW / 2 + 1.2, -1.4), (-VW / 2 - 1.2, -1.4)])
 for side in (-1, 1):
-    p = mid + n * side * (VW / 2)
-    box(bm, Vector((p.x, p.y, VIADUCT_Z + 0.6)), Vector((bays * BAY + 4, 0.6, 1.2)), rot_v)
+    sweep(bm, ends, [(side * VW / 2 - 0.3, 0.0), (side * VW / 2 + 0.3, 0.0), (side * VW / 2 + 0.3, 1.2), (side * VW / 2 - 0.3, 1.2)])
 wall_uvs(bm)
 mesh_object('City.Viaduct', bm, MATS['concrete'])
 
@@ -826,16 +926,16 @@ mesh_object('City.Viaduct', bm, MATS['concrete'])
 bm = bmesh.new()
 lamps_steel = bmesh.new()
 for i in range(bays * 2 + 1):
-    p = VA + u * (start + i * BAY / 2) - n * (VW / 2 - 0.5)
-    box(lamps_steel, Vector((p.x, p.y, VIADUCT_Z + 4)), Vector((0.5, 0.5, 8)))
-    box(bm, Vector((p.x, p.y, VIADUCT_Z + 8.2)), Vector((1.4, 1.4, 0.7)))
+    p = vp(start + i * BAY / 2, -(VW / 2 - 0.5))
+    box(lamps_steel, p + Vector((0, 0, 4)), Vector((0.5, 0.5, 8)))
+    box(bm, p + Vector((0, 0, 8.2)), Vector((1.4, 1.4, 0.7)))
 for i, p in enumerate(FW):
-    if i % 6 == 0 and p.x > 0:
-        t = FW[min(i + 1, len(FW) - 1)] - FW[i - 1]
+    if i % 6 == 0 and 0 < i < len(FW) - 1:
+        t = FW[i + 1] - FW[i - 1]
         t.z = 0
         t.normalize()
         side = Vector((t.y, -t.x, 0))
-        base = p + side * (-half + 0.5) + Vector((0, 0, 0.9))
+        base = p + side * (half - 0.5) + Vector((0, 0, 0.9))
         box(lamps_steel, base + Vector((0, 0, 4.5)), Vector((0.3, 0.3, 9.0)))
         for sgn in (-1, 1):
             arm = base + side * sgn * 1.4 + Vector((0, 0, 9.0))
@@ -870,34 +970,12 @@ cam.data.clip_end = 3000
 scene.camera = cam
 
 
-def add_stand_in():
-    """A stand-in for the bike: a low dark capsule of its size where the site parks it."""
-    bm = bmesh.new()
-    box(bm, Vector((0, 0, 0.75)), Vector((2.2, 0.55, 0.7)))
-    for x in (-0.8, 0.8):
-        r = bmesh.ops.create_cone(bm, cap_ends=True, segments=16, radius1=0.36, radius2=0.36, depth=0.22)
-        bmesh.ops.rotate(bm, cent=Vector(), matrix=Matrix.Rotation(math.pi / 2, 3, 'X'), verts=r['verts'])
-        bmesh.ops.translate(bm, vec=Vector((x, 0, 0.36)), verts=r['verts'])
-    o = mesh_object('BikeStandIn', bm, MATS['rail'], parent=None)
-    o.location = SITE_BIKE
-    o.rotation_euler = (0, 0, math.radians(BIKE_YAW))
-    return o
-
-
-stand_in = add_stand_in()
 world = bpy.data.worlds.new('Night')
 world.use_nodes = True
 world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.03, 0.06, 0.04, 1)
 scene.world = world
-scene.render.engine = 'BLENDER_WORKBENCH'
-scene.display.shading.light = 'STUDIO'
-scene.display.shading.color_type = 'MATERIAL'
-scene.display.shading.show_cavity = True
 scene.render.resolution_x, scene.render.resolution_y = RES
-scene.render.filepath = RENDER
 os.makedirs(os.path.dirname(RENDER), exist_ok=True)
-bpy.ops.render.render(write_still=True)
-bpy.data.objects.remove(stand_in)
 
 bpy.ops.wm.save_as_mainfile(filepath=BLEND)
 for o in bpy.context.view_layer.objects:
@@ -909,11 +987,46 @@ bpy.ops.export_scene.gltf(filepath=GLB, export_format='GLB', use_selection=True,
                           export_yup=True, export_cameras=False, export_lights=False, export_extras=True)
 print('exported', GLB, os.path.getsize(GLB))
 
+
+def add_bike():
+    """The real bike (public/models/bike.glb: origin on the ground between the wheels, front +x) at its landing pose."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=BIKE_GLB)
+    imported = set(bpy.data.objects) - before
+    rig = bpy.data.objects.new('BikeRig', None)
+    scene.collection.objects.link(rig)
+    rig.location = BIKE_AT
+    rig.rotation_euler = (0, 0, math.radians(BIKE_YAW))
+    for o in imported:
+        if o.parent is None:
+            o.parent = rig
+    return rig
+
+
+def guides(src, out):
+    """The concept's traced features over a render (art/guides.py), and that over the concept's own."""
+    try:
+        subprocess.run(['python3', GUIDES, src, out], check=True)
+        subprocess.run(['python3', GUIDES, CONCEPT, out + '.concept.png'], check=True)
+        subprocess.run(['magick', out + '.concept.png', out, '-append', out], check=True)
+        os.remove(out + '.concept.png')
+    except Exception as exc:
+        print('guides skipped:', exc)
+
+
+bike = add_bike()
+scene.render.engine = 'BLENDER_WORKBENCH'
+scene.display.shading.light = 'STUDIO'
+scene.display.shading.color_type = 'MATERIAL'
+scene.display.shading.show_cavity = True
+scene.render.filepath = RENDER
+bpy.ops.render.render(write_still=True)
+guides(RENDER, RENDER.replace('.png', '-guides.png'))
+
 # --- A moody EEVEE look, for judging against the concept (not saved: the .blend and glb are already written) ----------
 # Approximates the site: a dark green sky lighter at the horizon, depth fog that thickens low down, lit windows from the
 # wall UVs (the same grid and hashing idea as components/three/city.tsx), glowing spire ribs, a wet deck.
 if os.environ.get('CITY_NO_EEVEE') != '1':
-    stand_in = add_stand_in()
     scene.render.engine = 'BLENDER_EEVEE'
     ee = scene.eevee
     ee.taa_render_samples = 32
@@ -1051,12 +1164,15 @@ if os.environ.get('CITY_NO_EEVEE') != '1':
         return lo
 
     light('Moon', 'SUN', (0, 0, 0), 0.6, (0.55, 1.0, 0.6), rot=(math.radians(70), 0, math.radians(-95)))
-    light('UnderGantry', 'POINT', g(-6.0, 5.0, GANTRY_U - 0.6), 350, (1.0, 0.85, 0.55), size=1.0)
-    light('Door', 'POINT', g(-5.5, 1.0, PLAT_Z + 2.0), 150, (1.0, 0.8, 0.5), size=0.5)
-    light('DeckFill', 'POINT', (-18.0, -4.0, DECK_Z + 6), 400, (0.5, 1.0, 0.55), size=3.0)
+    light('UnderGantry', 'POINT', g(_sl_t + 3.0, max(0.8, _sl_l), GANTRY_U - 0.8), 1500, (1.0, 0.85, 0.55), size=1.0)
+    light('DeckFill', 'POINT', BIKE_AT + Vector((0, 0, 6)), 300, (0.5, 1.0, 0.55), size=3.0)
+    light('BikeKey', 'AREA', EYE + Vector((0, 0, 2.5)) - _bf * 1.0, 120, (0.7, 1.0, 0.75), size=3.0)
+    light('KerbGlow', 'POINT', road(-7.0, -4.0, 3.0), 250, (0.6, 1.0, 0.65), size=2.0)
     bpy.ops.render.render(write_still=True)
     # And once without the stand-in, to judge the city behind it.
-    stand_in.hide_render = True
+    guides(RENDER_EEVEE, RENDER_EEVEE.replace('.png', '-guides.png'))
+    for o in [bike, *bike.children_recursive]:
+        o.hide_render = True
     scene.render.filepath = RENDER_EEVEE.replace('.png', '-nobike.png')
     bpy.ops.render.render(write_still=True)
     try:

@@ -32,7 +32,8 @@ export function Weather() {
     // The rain starts as the camera comes down to the deck; the drips and the smog are there from the approach.
     rain.current = smoothstep(0.35, 1, landing);
     ooze.current = smoothstep(0.1, 0.5, landing);
-    mist.current = landing;
+    // (Thinner from the deck's new vantage, looking down on the city: at full strength it washed the towers out.)
+    mist.current = 0.25 * landing;
   });
 
   return (
