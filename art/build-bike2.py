@@ -57,6 +57,8 @@ RIDER_EYE = Matrix(((-1.6292067073209182e-07, 0.9902679920196533, 0.139173150062
                     (-7.450580596923828e-09, -0.13917316496372223, 0.9902679920196533, 1.5200001001358032),
                     (0.0, 0.0, 0.0, 1.0)))
 BUTTON_X, BUTTON_LEN, BUTTON_WID = 0.405, 0.24, 0.11
+HEART_C = Vector((0.175, 0.0, 0.575))  # Bike2Heart / Bike2Arteries origin: the site pulses them by scaling about it
+HEART_BITS = []  # meshes that throb with the heart -> joined into Bike2Arteries
 
 
 # ---------------------------------------------------------------- scene / materials
@@ -103,11 +105,11 @@ def make_materials():
         'chrome': principled('Bike2Chrome', (0.96, 0.96, 0.98), metallic=1.0, rough=0.05),
         'black': principled('Bike2Black', (0.008, 0.008, 0.010), rough=0.12, coat=1.0, coat_rough=0.03),
         # clear glass for the wheel hubs: alpha-blended, a hint of cool tint
-        'glass': principled('Bike2Glass', (0.85, 0.88, 1.0), rough=0.02, coat=1.0, coat_rough=0.01, alpha=0.25),
+        'glass': principled('Bike2Glass', (0.92, 0.94, 1.0), rough=0.02, transmission=1.0, alpha=0.25),
         # smoked canopy: dark tinted glass
         'smoke': principled('Bike2Smoke', (0.018, 0.016, 0.026), rough=0.03, coat=1.0, coat_rough=0.01, alpha=0.55),
-        'heart': principled('Bike2Heart', srgb('#3b0f22'), rough=0.3, coat=0.6, coat_rough=0.12, sheen=0.5, sheen_tint=srgb('#d9a0c8')),
-        'vein': principled('Bike2Vein', srgb('#a46bff'), rough=0.3, emit=srgb('#a46bff'), emit_strength=6.0),
+        'heart': principled('Bike2Heart', srgb('#3a0d24'), rough=0.3, coat=1.0, coat_rough=0.06, sheen=0.5, sheen_tint=srgb('#d9a0c8')),
+        'vein': principled('Bike2Vein', srgb('#a46bff'), rough=0.3, emit=srgb('#a46bff'), emit_strength=2.0),
         'led': principled('Bike2Led', (0.9, 0.92, 1.0), rough=0.2, emit=(1.0, 1.0, 1.0), emit_strength=25.0),
         'tail': principled('Bike2Tail', srgb('#8a0a10'), rough=0.2, emit=srgb('#ff1a24'), emit_strength=12.0),
         'tyre': principled('Bike2Tyre', (0.018, 0.018, 0.02), rough=0.62, spec=0.35),
@@ -479,7 +481,7 @@ def build_wheel(name, radius, width, M, front):
     for k in range(n_bl):
         ph0 = TAU * k / n_bl
         verts, faces = [], []
-        ns, nv = 14, 6
+        ns, nv = 16, 4
         for i in range(ns + 1):
             s = i / ns
             r = 0.045 + (rim_r - 0.055) * s
@@ -493,20 +495,20 @@ def build_wheel(name, radius, width, M, front):
                 a = i * (nv + 1) + j
                 faces.append((a, a + 1, a + nv + 2, a + nv + 1))
         bl = new_obj(name + 'Blade', verts, faces, M['chrome'])
-        bake(bl, solidify=0.008, subsurf=1)
+        bake(bl, solidify=0.008, subsurf=0)
     # violet light inside: a glowing ring round the hub and fine filaments curling between the blades
     for sgn in (-1, 1):
         ring = [(0.062 + 0.004 * math.cos(a), sgn * yl * 0.55 + 0.004 * math.sin(a)) for a in (TAU * k / 6 for k in range(6))]
         lathe(name + 'Glow', ring, M['vein'], 40)
-    for k in range(5):
-        ph0 = TAU * k / 5 + 0.4
+    for k in range(3):
+        ph0 = TAU * k / 3 + 0.4
         pts = []
         for i in range(9):
             s = i / 8
             r = 0.07 + (rim_r - 0.09) * s
             ph = ph0 + 1.4 * s + 0.15 * math.sin(s * 9 + k)
             pts.append(Vector((r * math.cos(ph), (0.5 * math.sin(s * 5 + k * 1.7)) * yl * 0.6, r * math.sin(ph))))
-        tube(name + 'Filament', pts, lambda s: 0.0028 + 0.0015 * math.sin(math.pi * s), M['vein'], sides=6, segs=30)
+        tube(name + 'Filament', pts, lambda s: 0.0016 + 0.001 * math.sin(math.pi * s), M['vein'], sides=6, segs=30)
     wheel = join(name, PARTS)
     PARTS = saved
     return wheel
@@ -521,18 +523,19 @@ def key(x, z, w, ht, hb, y=0.0, **kw):
 # Profile back-projected from the concept's silhouette through ConceptCam2 (art/align-bike2/backproject.py).
 HULL = [
     key(0.885, 0.678, 0.006, 0.006, 0.006, e=2.2),
-    key(0.84, 0.684, 0.045, 0.022, 0.03, e=2.2),
-    key(0.76, 0.703, 0.10, 0.045, 0.055, e=2.2),
-    key(0.66, 0.745, 0.150, 0.080, 0.085, e=2.3),
-    key(0.54, 0.810, 0.180, 0.112, 0.105, e=2.3),
-    key(0.40, 0.858, 0.190, 0.110, 0.095, e=2.3),
-    key(0.22, 0.850, 0.180, 0.098, 0.085, e=2.3),
-    key(0.02, 0.808, 0.160, 0.082, 0.075, e=2.3),
-    key(-0.18, 0.745, 0.140, 0.055, 0.070, e=2.4),
-    key(-0.36, 0.685, 0.125, 0.040, 0.075, e=2.6),
-    key(-0.54, 0.680, 0.120, 0.050, 0.080, e=2.6),
-    key(-0.70, 0.715, 0.095, 0.060, 0.060, e=2.4),
-    key(-0.84, 0.722, 0.055, 0.042, 0.038, e=2.2),
+    key(0.84, 0.688, 0.05, 0.025, 0.035, e=2.2),
+    key(0.76, 0.705, 0.11, 0.05, 0.065, e=2.2),
+    key(0.66, 0.745, 0.16, 0.085, 0.095, e=2.3),
+    key(0.54, 0.805, 0.195, 0.115, 0.115, e=2.3),
+    key(0.465, 0.845, 0.205, 0.125, 0.115, e=2.3),
+    key(0.36, 0.856, 0.21, 0.113, 0.112, e=2.3),
+    key(0.22, 0.862, 0.205, 0.115, 0.105, e=2.3),
+    key(0.02, 0.850, 0.19, 0.125, 0.10, e=2.3),
+    key(-0.18, 0.790, 0.16, 0.100, 0.10, e=2.4),
+    key(-0.36, 0.700, 0.13, 0.048, 0.110, e=2.6),
+    key(-0.54, 0.680, 0.125, 0.060, 0.125, e=2.6),
+    key(-0.70, 0.715, 0.10, 0.065, 0.095, e=2.4),
+    key(-0.84, 0.725, 0.055, 0.045, 0.045, e=2.2),
     key(-0.935, 0.712, 0.010, 0.010, 0.010, e=2.2),
 ]
 
@@ -561,43 +564,43 @@ def build_body(M):
     # and back into the exhaust pods; and a second S from the tank down behind the heart
     for sgn in (-1, 1):
         sw = [
-            key(0.80, 0.672, 0.02, 0.020, 0.020, y=sgn * 0.035),
-            key(0.68, 0.700, 0.034, 0.045, 0.045, y=sgn * 0.125),
-            key(0.53, 0.705, 0.045, 0.085, 0.085, y=sgn * 0.185),
-            key(0.43, 0.610, 0.048, 0.090, 0.090, y=sgn * 0.205),
-            key(0.395, 0.470, 0.046, 0.080, 0.080, y=sgn * 0.21),
-            key(0.375, 0.330, 0.044, 0.072, 0.072, y=sgn * 0.205),
-            key(0.32, 0.215, 0.042, 0.066, 0.066, y=sgn * 0.195),
-            key(0.20, 0.150, 0.040, 0.060, 0.060, y=sgn * 0.18),
-            key(0.04, 0.160, 0.040, 0.055, 0.055, y=sgn * 0.175),
-            key(-0.10, 0.215, 0.036, 0.045, 0.045, y=sgn * 0.17),
+            key(0.80, 0.668, 0.02, 0.020, 0.020, y=sgn * 0.04),
+            key(0.68, 0.690, 0.036, 0.045, 0.045, y=sgn * 0.135),
+            key(0.55, 0.700, 0.042, 0.075, 0.075, y=sgn * 0.19),
+            key(0.45, 0.630, 0.044, 0.110, 0.110, y=sgn * 0.21),
+            key(0.415, 0.490, 0.044, 0.120, 0.120, y=sgn * 0.215),
+            key(0.395, 0.350, 0.042, 0.115, 0.115, y=sgn * 0.212),
+            key(0.33, 0.230, 0.042, 0.095, 0.095, y=sgn * 0.205),
+            key(0.21, 0.165, 0.040, 0.075, 0.075, y=sgn * 0.195),
+            key(0.05, 0.170, 0.038, 0.065, 0.065, y=sgn * 0.19),
+            key(-0.10, 0.225, 0.034, 0.050, 0.050, y=sgn * 0.185),
         ]
         chrome_parts.append(loft('Swoop', sw, ch, 60, 16, cap0='point', cap1='point', subsurf=0, track=False))
         sw2 = [
-            key(0.16, 0.835, 0.03, 0.040, 0.040, y=sgn * 0.13),
-            key(0.02, 0.775, 0.036, 0.060, 0.060, y=sgn * 0.165),
-            key(-0.11, 0.660, 0.040, 0.065, 0.065, y=sgn * 0.18),
-            key(-0.17, 0.520, 0.040, 0.060, 0.060, y=sgn * 0.185),
-            key(-0.16, 0.390, 0.040, 0.055, 0.055, y=sgn * 0.19),
-            key(-0.10, 0.300, 0.036, 0.045, 0.045, y=sgn * 0.195),
+            key(0.18, 0.830, 0.03, 0.045, 0.045, y=sgn * 0.15),
+            key(0.04, 0.770, 0.038, 0.070, 0.070, y=sgn * 0.18),
+            key(-0.09, 0.650, 0.040, 0.080, 0.080, y=sgn * 0.195),
+            key(-0.15, 0.510, 0.040, 0.075, 0.075, y=sgn * 0.20),
+            key(-0.14, 0.390, 0.040, 0.065, 0.065, y=sgn * 0.205),
+            key(-0.08, 0.300, 0.036, 0.050, 0.050, y=sgn * 0.21),
         ]
         chrome_parts.append(loft('SwoopRear', sw2, ch, 40, 16, cap0='point', cap1='point', subsurf=0, track=False))
         # exhaust pod: a fat teardrop, nose low at the front, its round end under the engine
         pod = [
-            key(0.36, 0.170, 0.02, 0.02, 0.02, y=sgn * 0.175),
-            key(0.26, 0.215, 0.050, 0.048, 0.050, y=sgn * 0.205),
-            key(0.10, 0.275, 0.068, 0.062, 0.062, y=sgn * 0.22),
-            key(-0.08, 0.315, 0.066, 0.058, 0.058, y=sgn * 0.215),
-            key(-0.19, 0.325, 0.042, 0.040, 0.040, y=sgn * 0.20),
-            key(-0.225, 0.325, 0.006, 0.006, 0.006, y=sgn * 0.19),
+            key(0.36, 0.175, 0.02, 0.02, 0.02, y=sgn * 0.18),
+            key(0.26, 0.225, 0.060, 0.060, 0.060, y=sgn * 0.21),
+            key(0.10, 0.285, 0.078, 0.085, 0.080, y=sgn * 0.225),
+            key(-0.08, 0.320, 0.074, 0.075, 0.070, y=sgn * 0.22),
+            key(-0.19, 0.330, 0.048, 0.048, 0.045, y=sgn * 0.205),
+            key(-0.23, 0.330, 0.006, 0.006, 0.006, y=sgn * 0.195),
         ]
         chrome_parts.append(loft('Pod', pod, ch, 40, 20, cap0='point', cap1='point', subsurf=0, track=False))
         # swingarm: a flattened chrome S from under the seat to the rear hub, outside the glass
         ry = R_W / 2 * 0.86 + 0.062 + 0.012 + 0.02
         arm = [
-            key(-0.18, 0.40, 0.045, 0.06, 0.06, y=sgn * 0.17),
-            key(-0.36, 0.45, 0.032, 0.058, 0.058, y=sgn * 0.20),
-            key(-0.55, 0.43, 0.024, 0.048, 0.048, y=sgn * (ry - 0.005)),
+            key(-0.18, 0.42, 0.045, 0.08, 0.08, y=sgn * 0.17),
+            key(-0.36, 0.47, 0.034, 0.075, 0.075, y=sgn * 0.20),
+            key(-0.55, 0.44, 0.026, 0.058, 0.058, y=sgn * (ry - 0.005)),
             key(-0.70, 0.365, 0.022, 0.040, 0.040, y=sgn * ry),
             key(-0.785, 0.325, 0.022, 0.036, 0.036, y=sgn * ry),
             key(-0.82, 0.318, 0.004, 0.006, 0.006, y=sgn * ry),
@@ -629,12 +632,13 @@ def build_body(M):
     chrome_parts.append(loft('DashCowl', [key(0.67, 0.84, 0.03, 0.03, 0.03), key(0.63, 0.90, 0.11, 0.05, 0.06),
                                           key(0.585, 0.945, 0.15, 0.045, 0.06), key(0.555, 0.96, 0.12, 0.03, 0.05)],
                              ch, 20, 24, cap0='point', cap1='ngon', subsurf=0, track=False))
-    body = fuse('ChromeBody', chrome_parts, voxel=0.0042, smooth_iter=14, smooth_lambda=0.9, target_tris=62000, mat=ch)
+    body = fuse('ChromeBody', chrome_parts, voxel=0.0042, smooth_iter=14, smooth_lambda=0.9, target_tris=52000, mat=ch)
     PARTS.append(body)
 
     # --- the dark interior: a black core filling the frame between the swoops so the recesses read deep
-    core = [key(0.50, 0.62, 0.07, 0.08, 0.08), key(0.38, 0.55, 0.12, 0.18, 0.22), key(0.16, 0.55, 0.115, 0.20, 0.24),
-            key(-0.08, 0.52, 0.11, 0.17, 0.20), key(-0.30, 0.50, 0.09, 0.10, 0.12), key(-0.45, 0.55, 0.05, 0.05, 0.05)]
+    core = [key(0.60, 0.60, 0.05, 0.06, 0.06), key(0.50, 0.52, 0.12, 0.16, 0.22), key(0.38, 0.52, 0.14, 0.20, 0.25), key(0.18, 0.55, 0.06, 0.20, 0.24),
+            key(-0.04, 0.52, 0.12, 0.17, 0.20), key(-0.28, 0.52, 0.12, 0.14, 0.14), key(-0.50, 0.58, 0.08, 0.07, 0.07),
+            key(-0.62, 0.62, 0.03, 0.03, 0.03)]
     core_ob = loft('Core', core, bk, 24, 20, cap0='point', cap1='point', subsurf=1)
     # --- engine-like ribbed chrome forms behind the heart: two finned barrels and a ribbed side drum each side
     for i, (x, z, tilt) in enumerate(((-0.06, 0.47, -0.35), (-0.17, 0.43, -0.6))):
@@ -644,7 +648,7 @@ def build_body(M):
             y0 = -0.10 + 0.20 * k / (n - 1)
             prof += [(0.052, y0 - 0.006), (0.066, y0 - 0.0035), (0.066, y0 + 0.0035), (0.052, y0 + 0.006)]
         prof += [(0.0, 0.11)]
-        ob = lathe('Barrel', prof, ch, 32, closed_prof=False)
+        ob = lathe('Barrel', prof, ch, 20, closed_prof=False)
         ob.data.transform(Matrix.Translation(Vector((x, 0, z))) @ Matrix.Rotation(tilt, 4, 'Y') @ Matrix.Rotation(math.pi / 2, 4, 'X'))
         ob.data.transform(Matrix.Translation(Vector((0, 0, 0))))
     for sgn in (-1, 1):
@@ -670,10 +674,18 @@ def build_body(M):
         ([(0.14, 0.13, 0.42), (0.10, 0.17, 0.33), (-0.02, 0.18, 0.30), (-0.20, 0.17, 0.42), (-0.30, 0.15, 0.55)], 0.018, bk),
         ([(0.33, 0.06, 0.70), (0.40, 0.12, 0.70), (0.42, 0.17, 0.60), (0.40, 0.19, 0.45)], 0.016, ch),
         ([(-0.02, 0.08, 0.66), (-0.12, 0.14, 0.64), (-0.24, 0.15, 0.60), (-0.36, 0.14, 0.62), (-0.48, 0.12, 0.64)], 0.020, ch),
+        # the tangle ahead of the swoops, between them and the front wheel
+        ([(0.62, 0.08, 0.70), (0.58, 0.14, 0.58), (0.52, 0.15, 0.42), (0.47, 0.15, 0.28), (0.40, 0.14, 0.19)], 0.024, bk),
+        ([(0.56, 0.12, 0.72), (0.50, 0.17, 0.62), (0.47, 0.17, 0.50), (0.48, 0.15, 0.36)], 0.017, bk),
+        ([(-0.30, 0.10, 0.62), (-0.36, 0.15, 0.52), (-0.32, 0.17, 0.44), (-0.22, 0.17, 0.40)], 0.022, bk),
     ]
-    for ctrl, r, mat in arteries:
+    for i, (ctrl, r, mat) in enumerate(arteries):
+        attached = i < 6  # the first six leave the heart's surface: they throb with it (Bike2Arteries)
         for c in (ctrl, mirror(ctrl)):
-            tube('Artery', c, lambda s, r=r: r * (1.0 - 0.25 * s) * (1 + 0.12 * abs(math.sin(math.pi * 9 * s)) ** 8), mat, sides=12)
+            t = tube('Artery', c, lambda s, r=r: r * (1.0 - 0.25 * s) * (1 + 0.12 * abs(math.sin(math.pi * 9 * s)) ** 8), mat, sides=12,
+                     track=not attached)
+            if attached:
+                HEART_BITS.append(t)
     # the black ribbed hose from under the nose into the front hub (concept: curling into the glass)
     fy = F_W / 2 * 0.86 + 0.062 + 0.012
     for sgn in (-1, 1):
@@ -686,7 +698,7 @@ def build_body(M):
     import random
     rnd = random.Random(7)
     for sgn in (-1, 1):
-        for k in range(9):
+        for k in range(14):
             x0 = rnd.uniform(-0.35, 0.40)
             z0 = rnd.uniform(0.30, 0.72)
             pts = []
@@ -698,7 +710,7 @@ def build_body(M):
                 if h:
                     pts.append(h[0] + Vector((0, sgn * 0.004, 0)))
             if len(pts) >= 4:
-                tube('Vein', pts, lambda s: 0.0045 * (1 - 0.6 * s) + 0.0015, M['vein'], sides=6, cap1='point')
+                tube('Vein', pts, lambda s: 0.0028 * (1 - 0.6 * s) + 0.001, M['vein'], sides=6, cap1='point')
     return core_ob
 
 
@@ -706,18 +718,19 @@ def build_heart(M):
     """Anatomical heart from overlapping ellipsoids and vessel stubs, fused and smoothed into one lumpy wet muscle,
     with violet coronary veins laid over it."""
     hm = M['heart']
-    C = Vector((0.175, 0.0, 0.575))
+    C = HEART_C
     tilt = -0.42  # apex points down and forward
     R = Matrix.Rotation(tilt, 4, 'Y')
 
     def at(v):
         return C + (R @ Vector(v))
     parts = [
-        ellipsoid('H', at((0.0, 0.0, 0.0)), (0.105, 0.115, 0.125), hm, rot=(0, tilt, 0)),           # ventricles
-        ellipsoid('H', at((0.02, 0.035, -0.09)), (0.065, 0.07, 0.075), hm, rot=(0, tilt - 0.3, 0)),  # apex
-        ellipsoid('H', at((0.035, 0.05, 0.02)), (0.08, 0.075, 0.10), hm, rot=(0, tilt, 0.3)),      # right ventricle bulge
-        ellipsoid('H', at((-0.055, -0.04, 0.10)), (0.07, 0.075, 0.06), hm),                          # left atrium
-        ellipsoid('H', at((0.03, 0.07, 0.10)), (0.06, 0.055, 0.055), hm),                            # right atrium
+        ellipsoid('H', at((0.0, 0.0, 0.0)), (0.115, 0.14, 0.14), hm, rot=(0, tilt, 0)),             # ventricles
+        ellipsoid('H', at((0.02, 0.035, -0.10)), (0.07, 0.085, 0.08), hm, rot=(0, tilt - 0.3, 0)),  # apex
+        ellipsoid('H', at((0.035, 0.06, 0.02)), (0.085, 0.09, 0.11), hm, rot=(0, tilt, 0.3)),      # right ventricle bulge
+        ellipsoid('H', at((0.035, -0.06, 0.02)), (0.085, 0.09, 0.11), hm, rot=(0, tilt, -0.3)),    # left ventricle bulge
+        ellipsoid('H', at((-0.055, -0.06, 0.11)), (0.075, 0.085, 0.065), hm),                        # left atrium
+        ellipsoid('H', at((0.03, 0.08, 0.11)), (0.065, 0.07, 0.06), hm),                             # right atrium
         ellipsoid('H', at((-0.02, 0.0, 0.135)), (0.06, 0.06, 0.045), hm),
     ]
     # great vessels: aorta arching back, pulmonary trunk forward, venae cavae
@@ -737,13 +750,13 @@ def build_heart(M):
     for v in me.vertices:
         p = v.co
         n = v.normal
-        d = 0.006 * noise.noise(p * 14.0) + 0.0025 * noise.noise(p * 40.0 + Vector((3, 1, 2))) + 0.0012 * math.sin((R.inverted() @ (p - C)).z * 260)
+        d = 0.0035 * noise.noise(p * 9.0) + 0.0009 * noise.noise(p * 30.0 + Vector((3, 1, 2))) + 0.0005 * math.sin((R.inverted() @ (p - C)).z * 220)
         v.co = p + n * d
     dm = heart.modifiers.new('dec', 'DECIMATE')
-    dm.ratio = min(1.0, 16000 / tri_count(heart))
+    dm.ratio = min(1.0, 12000 / tri_count(heart))
     apply_mods(heart)
     heart.data.shade_smooth()
-    PARTS.append(heart)
+    heart.name = heart.data.name = 'Bike2Heart'
     # coronary veins: walk over the surface, raycasting back onto it
     tree = bvh([heart])
     import random
@@ -761,7 +774,8 @@ def build_heart(M):
             if h:
                 pts.append(h[0] + h[1] * 0.0015)
         if len(pts) >= 5:
-            tube('Coronary', pts, lambda s: 0.0042 * (1 - 0.7 * s) + 0.001, M['vein'] if k % 3 else M['black'], sides=6, cap1='point')
+            HEART_BITS.append(tube('Coronary', pts, lambda s: 0.0042 * (1 - 0.7 * s) + 0.001, M['vein'] if k % 3 else M['black'], sides=6,
+                                   cap1='point', track=False))
     return heart
 
 
@@ -769,20 +783,20 @@ def build_canopy(M):
     """Smoked glass bubble over the nose: rises from the LED seam over the nose and flows back to the bars, a cockpit
     notch cut out of its rear so the rider sees the dash. Columns run over the top (angle a), rows run back along x."""
     def top(x):  # canopy crown height (concept silhouette, back-projected)
-        pts = [(0.86, 0.69), (0.83, 0.755), (0.79, 0.815), (0.73, 0.875), (0.66, 0.925), (0.58, 0.965), (0.50, 0.99), (0.44, 1.0)]
+        pts = [(0.86, 0.69), (0.83, 0.77), (0.79, 0.835), (0.73, 0.90), (0.66, 0.95), (0.58, 0.99), (0.50, 1.015), (0.44, 1.025)]
         for (x0, z0), (x1, z1) in zip(pts, pts[1:]):
             if x1 <= x <= x0:
                 f = (x - x0) / (x1 - x0)
                 f = f * f * (3 - 2 * f) * 0.3 + f * 0.7
                 return z0 + (z1 - z0) * f
-        return pts[-1][1]
+        return pts[0][1] if x > pts[0][0] else pts[-1][1]
 
     def seam(x):  # where it sits on the hull: the LED line
         c, w, ht, hb = hull_at(x)
         return c.z + ht * 0.15, w * 1.02
 
     x_nose = 0.862
-    nr, na = 36, 40
+    nr, na = 22, 26
     verts = []
     for i in range(nr + 1):
         for j in range(na + 1):
@@ -838,8 +852,8 @@ def build_dash(M):
     if U.z < 0:
         U = -U
     Rt = Vector((0, -1, 0))
-    width, height, Rc, corner = 0.27, 0.085, 0.32, 0.30
-    nu, nv = 40, 10
+    width, height, Rc, corner = 0.30, 0.10, 0.32, 0.30
+    nu, nv = 32, 8
     verts, faces, uvs = [], [], []
     for j in range(nv + 1):
         for i in range(nu + 1):
@@ -873,7 +887,7 @@ def build_dash(M):
     bez = new_obj('Bezel', bverts, faces, M['chrome'])
     if sum(p.normal.dot(N) for p in bez.data.polygons) < 0:
         bez.data.flip_normals()
-    bake(bez, solidify=0.03, subsurf=1, solid_offset=-1)
+    bake(bez, solidify=0.03, subsurf=0, solid_offset=-1)
     return dash, (D, N, U)
 
 
@@ -888,12 +902,12 @@ def build_bars(M):
         # switch pods at the inner ends of the grips (concept-transition)
         ellipsoid('Switch', (0.43, sgn * 0.305, 0.985), (0.03, 0.022, 0.028), M['black'], segs=20, rings=10)
         # mirror: a curved stalk rising outward to a small round chrome head facing back
-        stalk = [Vector((0.47, sgn * 0.24, 0.97)), Vector((0.50, sgn * 0.30, 1.04)), Vector((0.505, sgn * 0.35, 1.10)), Vector((0.495, sgn * 0.38, 1.125))]
+        stalk = [Vector((0.47, sgn * 0.24, 0.97)), Vector((0.50, sgn * 0.31, 1.01)), Vector((0.505, sgn * 0.38, 1.05)), Vector((0.495, sgn * 0.42, 1.065))]
         tube('Stalk', stalk, (0.009, 0.006), ch, sides=10, segs=20)
         head = lathe('Mirror', [(0.0, -0.014), (0.042, -0.012), (0.05, -0.002), (0.046, 0.008), (0.0, 0.006)], ch, 28, closed_prof=False)
-        head.data.transform(Matrix.Translation(Vector((0.49, sgn * 0.39, 1.135))) @ Matrix.Rotation(sgn * 0.25, 4, 'Z') @ Matrix.Rotation(-math.pi / 2, 4, 'Z'))
+        head.data.transform(Matrix.Translation(Vector((0.49, sgn * 0.435, 1.075))) @ Matrix.Rotation(sgn * 0.25, 4, 'Z') @ Matrix.Rotation(-math.pi / 2, 4, 'Z'))
         glass = lathe('MirrorGlass', [(0.0, -0.0145), (0.040, -0.0125)], ch, 28, closed_prof=False)
-        glass.data.transform(Matrix.Translation(Vector((0.49, sgn * 0.39, 1.135))) @ Matrix.Rotation(sgn * 0.25, 4, 'Z') @ Matrix.Rotation(-math.pi / 2, 4, 'Z'))
+        glass.data.transform(Matrix.Translation(Vector((0.49, sgn * 0.435, 1.075))) @ Matrix.Rotation(sgn * 0.25, 4, 'Z') @ Matrix.Rotation(-math.pi / 2, 4, 'Z'))
 
 
 def build_rear(M):
@@ -1120,8 +1134,8 @@ def setup_render(scene):
     sun.rotation_euler = (Vector((0.3, 1.0, 0.12)).to_track_quat('Z', 'Y')).to_euler()
     col.objects.link(sun)
     # bright white/violet 'architecture' panels around, unseen by the camera, for the chrome to reflect
-    for i, (loc, size, colr, s) in enumerate((((0, -6, 2.0), (14, 3), (0.9, 0.85, 1.0), 2.5), ((-3, 5, 1.5), (10, 2.5), (0.85, 0.75, 1.0), 2.0),
-                                               ((6, 1, 1.2), (6, 2), (1.0, 0.8, 0.9), 2.0), ((0, 0, 6), (6, 3), (0.7, 0.6, 1.0), 1.5))):
+    for i, (loc, size, colr, s) in enumerate((((0, -6, 4.0), (14, 3), (0.9, 0.85, 1.0), 2.5), ((-3, 5, 3.5), (10, 2.5), (0.85, 0.75, 1.0), 2.0),
+                                               ((6, 1, 3.0), (6, 2), (1.0, 0.8, 0.9), 2.0), ((0, 0, 6), (6, 3), (0.7, 0.6, 1.0), 1.5))):
         me = bpy.data.meshes.new('Panel')
         me.from_pydata([(-size[0] / 2, -size[1] / 2, 0), (size[0] / 2, -size[1] / 2, 0), (size[0] / 2, size[1] / 2, 0), (-size[0] / 2, size[1] / 2, 0)], [], [(0, 1, 2, 3)])
         p = bpy.data.objects.new('Panel', me)
@@ -1152,8 +1166,8 @@ def setup_render(scene):
     mr = gnt.nodes.new('ShaderNodeMapRange')
     mr.inputs['From Min'].default_value = 0.45
     mr.inputs['From Max'].default_value = 0.6
-    mr.inputs['To Min'].default_value = 0.03
-    mr.inputs['To Max'].default_value = 0.4
+    mr.inputs['To Min'].default_value = 0.12
+    mr.inputs['To Max'].default_value = 0.45
     gnt.links.new(noise.outputs['Fac'], mr.inputs['Value'])
     gnt.links.new(mr.outputs['Result'], b.inputs['Roughness'])
     me.materials.append(gm)
@@ -1204,7 +1218,9 @@ def render_views(scene, col, body):
     cams = {
         # fitted so our tyres and contacts land on the concept's (art/align-bike2/fit_camera.py); not exported
         'concept': (add_camera(col, 'ConceptCam2', cc['location'], cc['look'], lens=cc['lens']), tuple(cc['size'])),
-        'rider': (add_camera(col, 'RiderCam2', None, lens=16, matrix=eye_w @ Matrix.Rotation(math.pi / 2, 4, 'X')), (1672, 941)),
+        'rider': (add_camera(col, 'RiderCam2', None, lens=12, matrix=eye_w @ Matrix.Rotation(math.pi / 2, 4, 'X')), (1672, 941)),
+        # from the rider's eye, aimed at the dash (as bike.glb's rider review aims at the button)
+        'riderdash': (add_camera(col, 'RiderDashCam2', eye_w.translation, body.matrix_world @ Vector((0.585, 0.0, 1.0)), lens=14), (1672, 941)),
         'side': (add_camera(col, 'CamSide2', (0, -8, 0.62), rot=(math.pi / 2, 0, 0), ortho=2.9), (1920, 1080)),
         'hero': (add_camera(col, 'CamHero2', (2.6, -3.4, 0.75), (0.1, 0, 0.6), lens=32), (1920, 1080)),
         'top': (add_camera(col, 'CamTop2', (0, 0, 8), rot=(0, 0, 0), ortho=2.9), (1920, 1080)),
@@ -1232,6 +1248,17 @@ def main():
     build_rear(M)
     dash, _ = build_dash(M)
     extras = build_button(M, body_chrome)
+    # the heart and the vessels on/off it: own objects, origin at the heart's centre, so the site can pulse them
+    heart = bpy.data.objects['Bike2Heart']
+    arts = join('Bike2Arteries', HEART_BITS)
+    for ob in (heart, arts):
+        ob.data.transform(Matrix.Translation(-HEART_C))
+        ob.location = HEART_C
+    extras += [heart, arts]
+    for o in PARTS:
+        zmax = max(v.co.z for v in o.data.vertices)
+        if zmax > 1.16:
+            print('TALL', o.name, round(zmax, 3))
     per = {}
     for o in PARTS:
         per[o.name.split('.')[0]] = per.get(o.name.split('.')[0], 0) + tri_count(o)

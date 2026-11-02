@@ -7,11 +7,16 @@ Run: /opt/homebrew/bin/blender --background --factory-startup --python art/build
      CITY2_ROUND=r1 names the renders (default r0); CITY2_NO_EEVEE=1 skips the EEVEE renders.
 
 City2's own frame (Blender z up, metres): the road comes in along +X at City2.RoadIn (the local origin, where the site's
-straight road hands over; its deck top is z 0), runs 480 m with a lagoon on its right, bends right through 90 deg and
-ends on the plaza (floor z 0). The bike parks there facing -Y (City2.BikeMark, its front along the empty's local +X).
-The arrival camera (City2.ArrivalCam) stands low on the bike's right and looks across it, east-south-east over a canal at
-the city; the low sun sits just right of the spires. City2.ApproachCam is the rider's view coming in along the road,
-~420 m out: the road bending right ahead, the lagoon on the right, the city across it.
+straight road hands over; its deck top is z 0), runs a 120 m lagoon straight, then loops south through the towers (a
+right bend, an S-curve, a U-turn, an S-curve, all radius 120 m, with skybridges and a monorail crossing overhead) and
+comes back up to (480, 0) heading +X, where the final right-hand bend (radius 140 m) takes it into the plaza (floor z 0):
+~1587 m in all. City2.RoadPath carries the bike's line as data ([x, y] every 2 m, RoadIn -> BikeMark, and its length).
+The bike parks facing -Y (City2.BikeMark, its front along the empty's local +X). The arrival camera (City2.ArrivalCam)
+stands low on the bike's right and looks across it, east-south-east over a canal at the city; the low sun sits just right
+of the spires. City2.ApproachCam is the rider's view on the lagoon straight, ~580 m out: the road bending right ahead,
+the city across the water on the right. Everything built only for the approach and the loop is tagged approach_only and
+checked against the arrival frame (sampled ray casts, then a full 3 px ray sweep that removes any tower that shows), so
+the arrival shot is untouched by it. art/renders/city2-plan.png is a top-down plan of the road and buildings.
 
 The arrival shot is fitted to the concept by art/align2/: fit_camera.py fits EYE/LOOK/FOV in the bike's frame to the
 concept bike and horizon (arrival-camera.json); this script carries that into City2's frame and composes the city in the
@@ -151,9 +156,14 @@ MAT = {
 
 
 # --- Mesh helpers --------------------------------------------------------------------------------------------------------
+TAG = [None]  # set while building an approach-only piece: everything made then carries it (see the leak sweep)
+
+
 def obj(name, me, parent=None, loc=(0, 0, 0), rot=(0, 0, 0), scale=(1, 1, 1)):
     o = bpy.data.objects.new(name, me)
     scene.collection.objects.link(o)
+    if TAG[0]:
+        o['approach_only'] = TAG[0]
     o.parent = parent or root
     o.location = loc
     o.rotation_euler = rot
@@ -957,6 +967,11 @@ OBST = []  # other things towers keep clear of: (point, radius)
 def free(c, r, clear=14.0):
     if road_dist(c) < ROAD_W / 2 + clear + r:
         return False
+    # Keep the approach view's foreground open: the lagoon and the city across it, the weave beyond.
+    v = Vector((c.x, c.y, 0)) - APP_EYE
+    v.z = 0
+    if v.length < 330 + r and -44 < math.degrees(math.atan2(v.y, v.x)) < 32:
+        return False
     if any((Vector((c.x, c.y, 0)) - q).length < r + qr + 8 for q, qr in placed + OBST):
         return False
     return True
@@ -974,6 +989,8 @@ def glass_tower(c, r, h, parent):
 
 def weave_tower(c, r, h, style):
     placed.append((Vector((c.x, c.y, 0)), r))
+    if not (TAG[0] or '').startswith('bridge'):
+        TAG[0] = f'weave{len(placed)}'
     if style == 'saucer':
         lv, z = [], rnd.uniform(6, 12)
         while z < h:
@@ -991,6 +1008,7 @@ def weave_tower(c, r, h, style):
 G['Weave'] = group('City2.Weave')
 
 # A monorail line across the loop (over both legs), on chrome pylons clear of the deck, a short train on it.
+TAG[0] = 'monocross'
 MONO2_Y, MONO2_Z = -322.0, 21.0
 m2 = [Vector((x, MONO2_Y, MONO2_Z)) for x in frange(30, 560, 4)]
 m2 = [p for p in m2 if hidden_from_arrival(Vector((p.x, p.y, 0)), 2.0, MONO2_Z + 2)]
@@ -1007,8 +1025,9 @@ for k in range(3):
 OBST += [(Vector((p.x, p.y, 0)), 3.0) for p in m2[::3]]
 
 # Skybridges: a tower each side of the road, close, joined overhead by a glazed tube.
-for s_at, hb in ((300.0, 19.0), (700.0, 24.0), (1120.0, 17.0)):
+for s_at, hb in ((440.0, 19.0), (700.0, 24.0), (960.0, 17.0)):
     p, t, n = road_frame(s_at)
+    TAG[0] = f'bridge{int(s_at)}'
     ends = []
     for side in (1, -1):
         for _ in range(30):
@@ -1066,6 +1085,7 @@ for (xr, yr, rr, hr, n, style) in ZONES:
         if not hidden_from_arrival(c, r * 1.3, h):
             continue
         placed.append((c, r))
+        TAG[0] = f'zone{len(placed)}'
         got += 1
         if style == 'saucer':
             lv, z = [], rnd.uniform(8, 16)
@@ -1080,6 +1100,25 @@ for (xr, yr, rr, hr, n, style) in ZONES:
             if rnd.random() < 0.4:
                 inst('ring', (c.x, c.y, h * 0.8), r * 1.3, parent=G['Spires'])
     print('approach zone', style, got, 'placed in', tries, 'tries')
+
+# The leak sweep: ray-cast the arrival frame every 3 px; any approach-only piece that shows (between the arrival's own
+# buildings, where the sampled hidden_from_arrival test missed it) goes, whole tower at a time, until none shows.
+TAG[0] = None
+for sweep_pass in range(5):
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    leaks = set()
+    for sy in range(0, RES[1], 3):
+        for sx in range(0, RES[0], 3):
+            d = (screen_point(sx + 0.5, sy + 0.5, 1.0) - EYE).normalized()
+            hit, loc, nrm_, idx, ob, mtx = scene.ray_cast(dg, EYE, d, distance=6000)
+            if hit and ob.get('approach_only'):
+                leaks.add(ob['approach_only'])
+    print('leak sweep', sweep_pass, sorted(leaks))
+    if not leaks:
+        break
+    for o in [o for o in scene.objects if o.get('approach_only') in leaks]:
+        bpy.data.objects.remove(o, do_unlink=True)
 
 # =========================================================================================================================
 # Markers.

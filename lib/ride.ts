@@ -50,14 +50,37 @@ export const ride = {
 };
 
 /**
- * The second city's own road from where it takes over (art/build-city2.py, City2.RoadIn's props), in its local frame
- * (Blender: x along the road in, y to its left): straight on, a 90° bend to the right, a short run to the bike's spot.
+ * The second city's own road from where it takes over (art/build-city2.py City2.RoadPath: its centreline every 2 m, in
+ * the city's local frame, Blender's: x along the road in, y to its left), weaving through the towers to the bike's spot.
+ * Set by components/three/city-two.tsx once the city's loaded. Until then (and as a fallback) a straight 120 m, a 90°
+ * right-hand bend of 140 m radius and a 30 m run in.
  */
-export const CITY_ROAD = { straight: 480, radius: 140, tail: 30 };
-export const cityRoadLength = () => CITY_ROAD.straight + (Math.PI / 2) * CITY_ROAD.radius + CITY_ROAD.tail;
+let path: { x: Float32Array; y: Float32Array; step: number; length: number } | null = null;
+export function setCityPath(points: number[][] | number[], step: number, length: number) {
+  const flat = (points as (number | number[])[]).flat() as number[];
+  const n = flat.length / 2;
+  const x = new Float32Array(n);
+  const y = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    x[i] = flat[2 * i];
+    y[i] = flat[2 * i + 1];
+  }
+  path = { x, y, step, length };
+  slicks = null;
+}
+const FALLBACK = { straight: 120, radius: 140, tail: 30 };
+export const cityRoadLength = () => path?.length ?? FALLBACK.straight + (Math.PI / 2) * FALLBACK.radius + FALLBACK.tail;
 /** Where along the second city's road u metres in is: local x, y and heading (radians, anticlockwise from +x). */
 export function cityRoadAt(u: number) {
-  const { straight, radius, tail } = CITY_ROAD;
+  if (path) {
+    const { x, y, step } = path;
+    const last = x.length - 1;
+    const f = Math.min(Math.max(u / step, 0), last);
+    const i = Math.min(Math.floor(f), last - 1);
+    const t = f - i;
+    return { x: x[i] + (x[i + 1] - x[i]) * t, y: y[i] + (y[i + 1] - y[i]) * t, heading: Math.atan2(y[i + 1] - y[i], x[i + 1] - x[i]) };
+  }
+  const { straight, radius, tail } = FALLBACK;
   const arc = (Math.PI / 2) * radius;
   if (u <= straight) return { x: u, y: 0, heading: 0 };
   if (u <= straight + arc) {
@@ -66,6 +89,18 @@ export function cityRoadAt(u: number) {
   }
   return { x: straight + radius, y: -radius - Math.min(tail, u - straight - arc), heading: -Math.PI / 2 };
 }
+/** How sharply the road turns u metres in (radians per metre, positive to the left), over a few metres either side. */
+export function cityRoadCurve(u: number) {
+  const d = cityRoadAt(u + 6).heading - cityRoadAt(u - 6).heading;
+  return Math.atan2(Math.sin(d), Math.cos(d)) / 12;
+}
+/** How far the road runs straight on from where it takes over (m): the lagoon straight. */
+export function cityRoadStraight() {
+  let u = 0;
+  while (u < cityRoadLength() && Math.abs(cityRoadAt(u).heading) < 1e-3) u += 2;
+  return u;
+}
+
 /**
  * The second city's arrival shot (art/build-city2.py City2.ArrivalCam, fitted to concept-chrome-city with the bike at the
  * end of its road): eye and look-at in the city's frame (three's axes: x along the road in, y up, z to its right), vertical FOV.
@@ -77,8 +112,8 @@ export const ARRIVAL = { eye: [617.7743, 0.5002, 169.5642], look: [627.1305, 1.9
  * a hash along the road's last stretch, each an ellipse (along and across the road, m) with a height. Riding through one
  * the bike slows, as through muck (components/three/ride.tsx), and rides up on it.
  */
-export type Slick = { u: number; across: number; along: number; wide: number; height: number; turn: number };
 let slicks: Slick[] | null = null;
+export type Slick = { u: number; across: number; along: number; wide: number; height: number; turn: number };
 export function muckSlicks() {
   if (slicks) return slicks;
   const end = cityRoadLength();
@@ -87,9 +122,9 @@ export function muckSlicks() {
     return h - Math.floor(h);
   };
   slicks = [];
-  for (let i = 0; i < 46; i++) {
+  for (let i = 0; i < 28; i++) {
     // Denser toward the end: squared spacing back from the bike's spot.
-    const u = end - 6 - hash(i, 1) ** 1.8 * 330;
+    const u = end - 6 - hash(i, 1) ** 1.8 * 240;
     slicks.push({
       u,
       across: (hash(i, 2) - 0.5) * 8,

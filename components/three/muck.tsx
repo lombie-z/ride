@@ -2,9 +2,10 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
-import { Color, IcosahedronGeometry, InstancedMesh, MeshBasicMaterial, Object3D } from 'three';
+import { CanvasTexture, Color, IcosahedronGeometry, InstancedMesh, Matrix4, MeshBasicMaterial, Object3D, PlaneGeometry } from 'three';
 import { NO_MIRROR_LAYER } from '@/lib/journey';
 import { cityRoadAt, muckSlicks, ride } from '@/lib/ride';
+import { voidGloop } from './void-gloop';
 
 // The slicks of black ooze on the second city's road (lib/ride.ts muckSlicks), raised gooey lumps, dead black for now.
 // Drawn in the city's own frame (a child of its group): three's axes, x along the road in, z to its right.
@@ -24,12 +25,28 @@ function blob() {
   return g;
 }
 
+/** A soft dark stain round each slick on the road: the ooze seeping out, so its edges blend into the ground. */
+function stain() {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.18, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0.55, 'rgba(255,255,255,0.45)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const material = new MeshBasicMaterial({ color: new Color(0, 0, 0), alphaMap: new CanvasTexture(canvas), transparent: true, depthWrite: false });
+  return material;
+}
+
 export function Muck() {
   const mesh = useMemo(() => {
     const slicks = muckSlicks();
-    // (Unlit pure black, so it reflects nothing; and not drawn into the road's mirror, so nothing reflects it as a
-    // floating black shape either.)
-    const m = new InstancedMesh(blob(), new MeshBasicMaterial({ color: new Color(0, 0, 0) }), slicks.length);
+    // (A window onto somewhere else, reflecting nothing (components/three/void-gloop.ts); and not drawn into the road's
+    // mirror, so nothing reflects it as a floating shape either.)
+    const m = new InstancedMesh(blob(), voidGloop(), slicks.length);
     m.layers.set(NO_MIRROR_LAYER);
     m.name = 'Muck';
     m.frustumCulled = false;
@@ -45,9 +62,41 @@ export function Muck() {
     });
     return m;
   }, []);
-  useEffect(() => () => mesh.geometry.dispose(), [mesh]);
+  // The stains: flat discs a size larger than each slick, just above the road.
+  const stains = useMemo(() => {
+    const slicks = muckSlicks();
+    const disc = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const m = new InstancedMesh(disc, stain(), slicks.length);
+    m.name = 'MuckStains';
+    m.frustumCulled = false;
+    m.renderOrder = 1;
+    const o = new Object3D();
+    const at = new Matrix4();
+    slicks.forEach((s, i) => {
+      mesh.getMatrixAt(i, at);
+      o.matrix.copy(at);
+      o.matrix.decompose(o.position, o.quaternion, o.scale);
+      o.position.y = 0.02;
+      o.scale.set(s.along * 3.4, 1, s.wide * 3.4);
+      o.updateMatrix();
+      m.setMatrixAt(i, o.matrix);
+    });
+    return m;
+  }, [mesh]);
+  useEffect(
+    () => () => {
+      mesh.geometry.dispose();
+      stains.geometry.dispose();
+    },
+    [mesh, stains]
+  );
   useFrame(() => {
-    mesh.visible = ride.transition.placed;
+    mesh.visible = stains.visible = ride.transition.placed;
   });
-  return <primitive object={mesh} />;
+  return (
+    <>
+      <primitive object={stains} />
+      <primitive object={mesh} />
+    </>
+  );
 }

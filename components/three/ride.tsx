@@ -22,8 +22,8 @@ import {
   anchors,
   BRAKE,
   CHROME_SECONDS,
-  CITY_ROAD,
   CRUISE,
+  cityRoadCurve,
   cityRoadLength,
   MORPH_AFTER,
   muckUnder,
@@ -44,7 +44,7 @@ const SEGMENTS = 14; // per streak's trail
 const TRAIL = 0.32; // trail length, as a share of the flight
 const MOUNT_SECONDS = 2.2;
 // Through the ooze: the speed it bogs down to (m/s) and how hard it drags (m/s²).
-const MUCK_SPEED = 5;
+const MUCK_SPEED = 8;
 const MUCK_DRAG = 26;
 
 const target = new Vector3();
@@ -135,7 +135,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // (Pixel mode draws the scene at a quarter of the resolution: the small button needs more light to survive it.)
     const boost = state.gl.getPixelRatio() < 1 ? 2 : 1;
     for (const m of buttonMaterials.current) {
-      const glyph = m.name === 'BikeButtonGlyph';
+      const glyph = m.name.endsWith('ButtonGlyph');
       m.emissiveIntensity = ride.appear * (glyph ? 1.8 + 5 * ride.near : 0.2 + 1.4 * ride.near) * boost;
     }
 
@@ -160,9 +160,12 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           want = Math.min(want, MUCK_SPEED);
           if (drive.speed > MUCK_SPEED) drive.speed = Math.max(MUCK_SPEED, drive.speed - MUCK_DRAG * dt);
         }
-        // (And takes the bend at a speed it can lean into: about 25° over.)
-        const intoBend = drive.s - tr.at - CITY_ROAD.straight;
-        if (intoBend > -120 && intoBend < (Math.PI / 2) * CITY_ROAD.radius) want = Math.min(want, Math.sqrt(9.8 * Math.tan(0.44) * CITY_ROAD.radius));
+        // (And takes the bends at a speed it can lean into, about 25° over: looking a little ahead for the next.)
+        if (drive.s > tr.at - 60) {
+          let curve = 0;
+          for (let ahead = 0; ahead <= 60; ahead += 10) curve = Math.max(curve, Math.abs(cityRoadCurve(drive.s - tr.at + ahead)));
+          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44)) / curve));
+        }
         if (left < 0.6 && drive.speed < 0.4 && !tr.arrived) {
           tr.arrived = true;
           drive.cruise = false;

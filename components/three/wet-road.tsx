@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react';
 import { type Camera, Color, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
-import { CITY_ROAD, ride, road as street } from '@/lib/ride';
+import { cityRoadStraight, ride, road as street } from '@/lib/ride';
 import { AT } from './bike';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
@@ -184,7 +184,7 @@ export function RideMirror() {
     // Centred on the road line, abreast of the bike (how far it is past the deck's end; negative while still on it).
     // (In the second city it covers only its road's straight run in: past the bend its own wet floor takes over.)
     const tr = ride.transition;
-    const far = Math.min(ride.drive.s + STRIP.ahead, tr.placed ? tr.at + CITY_ROAD.straight : Number.POSITIVE_INFINITY);
+    const far = Math.min(ride.drive.s + STRIP.ahead, tr.placed ? tr.at + cityRoadStraight() : Number.POSITIVE_INFINITY);
     if (far - (STRIP.behind + STRIP.ahead) > ride.drive.s - 2 || ride.drive.s > far + 10) {
       mirror.visible = false;
       return;

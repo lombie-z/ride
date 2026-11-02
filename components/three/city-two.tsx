@@ -2,12 +2,13 @@
 
 import { useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Group, Material, Mesh, MeshStandardMaterial, Texture } from 'three';
-import { ride, road } from '@/lib/ride';
+import { ride, road, setCityPath } from '@/lib/ride';
 import { AT, sunsetEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
+import { useVoidGloop, voidGloop } from './void-gloop';
 
 // The second city (art/build-city2.py), loaded during the ride: it's downloaded once the visitor gets on the bike,
 // its shaders compiled and textures uploaded off to the side, and only then marked ready, which is what sets the bike's
@@ -23,6 +24,13 @@ function CityTwo({ src }: { src: string }) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
   const world = useThree((s) => s.scene);
+  useVoidGloop();
+  // Its road's centreline, for the bike to follow (before anything that places itself along it renders).
+  useMemo(() => {
+    const marker = scene.getObjectByName('City2RoadPath') ?? scene.getObjectByName('City2.RoadPath');
+    const d = marker?.userData as { points?: number[][]; step?: number; length?: number } | undefined;
+    if (d?.points && d.length) setCityPath(d.points, d.step ?? 2, d.length);
+  }, [scene]);
 
   // Its materials: the sunset in their reflections; the lit glass, lamps, screen and sun past white for the bloom; the
   // sun itself clear of the haze, far out.
@@ -39,6 +47,12 @@ function CityTwo({ src }: { src: string }) {
         m.toneMapped = false;
       }
       if (m.name === 'City2Sun') m.fog = false;
+      // The ooze (the billboard's drips, its puddles on the plaza) reflects nothing: it's a window onto somewhere else
+      // (components/three/void-gloop.ts), like the slicks.
+      if (m.name === 'City2Ooze') {
+        mesh.material = voidGloop();
+        return;
+      }
       // The rounded pearl forms (terraces, platforms, the bubble pods round the plaza) are matte: chalky, not glossy.
       if (m.name === 'City2Pearl') {
         m.roughness = 0.82;
