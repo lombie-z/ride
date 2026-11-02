@@ -91,6 +91,51 @@ export function sunsetEnvMap(gl: WebGLRenderer) {
   return sunset;
 }
 
+const daylight: (Texture | null)[] = [null, null, null, null];
+/**
+ * What a later zone's bike and city reflect: the chrome city's sunset (above), the hive's dawn (a rose sky, a gold sun
+ * low ahead, warm bone-white walls), the desert's noon (a pale hot sky, the sun high, amber sand below, dark machines).
+ */
+export function zoneEnvMap(gl: WebGLRenderer, k: number) {
+  if (k <= 1) return sunsetEnvMap(gl);
+  const known = daylight[k];
+  if (known) return known;
+  const hive = k === 2;
+  const scene = new Scene();
+  scene.add(
+    new Mesh(new BoxGeometry(20, 20, 20), new MeshBasicMaterial({ color: hive ? new Color(0.06, 0.03, 0.04) : new Color(0.08, 0.05, 0.03), side: BackSide }))
+  );
+  const panel = (w: number, h: number, colour: Color, x: number, y: number, z: number, ry = 0, rx = 0) => {
+    const m = new Mesh(new BoxGeometry(w, h, 0.1), new MeshBasicMaterial({ color: colour }));
+    m.position.set(x, y, z);
+    m.rotation.set(rx, ry, 0);
+    scene.add(m);
+  };
+  if (hive) {
+    panel(20, 20, new Color(0.42, 0.22, 0.34), 0, 9.8, 0, 0, Math.PI / 2);
+    panel(18, 2.6, new Color(1.0, 0.68, 0.52).multiplyScalar(1.5), 9, 0.6, 0, Math.PI / 2);
+    panel(18, 2.2, new Color(0.95, 0.55, 0.62).multiplyScalar(1.0), -9, 0.6, 0, Math.PI / 2);
+    panel(2.5, 18, new Color(0.95, 0.88, 0.8).multiplyScalar(1.3), 0, 0.8, 9);
+    panel(2.5, 18, new Color(0.95, 0.88, 0.8).multiplyScalar(1.0), 0, 0.8, -9);
+    panel(3, 3, new Color(1.0, 0.78, 0.45).multiplyScalar(5), 9.5, 1.0, -4, Math.PI / 2);
+    for (const z of [-7, -3, 3, 7]) panel(1.0, 10, new Color(1.0, 0.7, 0.35).multiplyScalar(1.4), -9, 2, z, Math.PI / 2);
+    panel(20, 20, new Color(0.1, 0.06, 0.05), 0, -9.8, 0, 0, Math.PI / 2);
+  } else {
+    panel(20, 20, new Color(0.75, 0.55, 0.35), 0, 9.8, 0, 0, Math.PI / 2);
+    panel(18, 3, new Color(1.0, 0.82, 0.55).multiplyScalar(1.4), 9, 0.4, 0, Math.PI / 2);
+    panel(18, 3, new Color(0.9, 0.7, 0.45).multiplyScalar(1.1), -9, 0.4, 0, Math.PI / 2);
+    panel(2.5, 18, new Color(0.25, 0.18, 0.12), 0, 1.5, 9);
+    panel(2.5, 18, new Color(0.25, 0.18, 0.12), 0, 1.5, -9);
+    panel(3.5, 3.5, new Color(1.0, 0.97, 0.85).multiplyScalar(6), 5, 8, -3, 0, Math.PI / 2);
+    panel(20, 20, new Color(0.55, 0.36, 0.2), 0, -9.8, 0, 0, Math.PI / 2);
+  }
+  const pmrem = new PMREMGenerator(gl);
+  const t = pmrem.fromScene(scene, 0.02).texture;
+  pmrem.dispose();
+  daylight[k] = t;
+  return t;
+}
+
 // The morph (lib/ride.ts ride.morph): a seam of light sweeps the bike from its nose to its tail, into the next zone's
 // bike. Ahead of it is the new bike, behind it the old (each zone's built in the same frame and anchors: art/build-
 // bike2.py and on), each cut away where the other shows; until the chrome bike's loaded, the black one's own materials
@@ -479,7 +524,7 @@ export function Bike() {
       <group ref={ridden} position={AT} rotation={[0, YAW, 0, 'YXZ']}>
         <primitive object={scene} />
         {ZONES.slice(1).map((z, i) => (
-          <ZoneBikeLoader key={z.id} k={i + 1} env={envSunset} buttonMaterials={buttonMaterials} />
+          <ZoneBikeLoader key={z.id} k={i + 1} env={zoneEnvMap(gl, i + 1)} buttonMaterials={buttonMaterials} />
         ))}
         <spotLight ref={headlight} position={[0.95, 0.72, 0]} angle={0.42} penumbra={0.7} distance={60} decay={1.1} intensity={0} color="#e8ffd8" />
         <object3D ref={headlightAim} position={[24, -1.2, 0]} />

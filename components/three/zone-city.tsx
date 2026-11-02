@@ -18,7 +18,7 @@ import {
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { course, type Shot, ZONES } from '@/lib/course';
 import { MUCKY, ride, setZonePaths } from '@/lib/ride';
-import { sunsetEnvMap } from './bike';
+import { sunsetEnvMap, zoneEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
 import { Traffic } from './traffic';
@@ -88,7 +88,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
   // Its materials: the sunset in their reflections; the lit glass, lamps, screens and sun past white for the bloom; the
   // sun itself clear of the haze, far out.
   useEffect(() => {
-    const env = sunsetEnvMap(gl);
+    const env = zoneEnvMap(gl, k);
     scene.traverse((o) => {
       const mesh = o as Mesh;
       if (!mesh.isMesh) return;
@@ -132,7 +132,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       const m = (o as Mesh).material as MeshStandardMaterial | undefined;
       if (m?.name === `${prefix}Lightning` && !parts.current.lightning.includes(m)) parts.current.lightning.push(m);
     });
-  }, [scene, gl, prefix]);
+  }, [scene, gl, prefix, k]);
 
   // Drawn in as few calls as it can be: its static meshes merged into one per material, and its instanced pieces (the
   // glb's GPU instancing, one per node) gathered into one instanced mesh per geometry and material. (After its
