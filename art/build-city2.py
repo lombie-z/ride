@@ -11,7 +11,10 @@ straight road hands over; its deck top is z 0), runs a 120 m lagoon straight, th
 right bend, an S-curve, a U-turn, an S-curve, all radius 120 m, with skybridges and a monorail crossing overhead) and
 comes back up to (480, 0) heading +X, where the final right-hand bend (radius 140 m) takes it into the plaza (floor z 0):
 ~1587 m in all. City2.RoadPath carries the bike's line as data ([x, y] every 2 m, RoadIn -> BikeMark, and its length).
-The bike parks facing -Y (City2.BikeMark, its front along the empty's local +X). The arrival camera (City2.ArrivalCam)
+The bike parks facing -Y (City2.BikeMark, its front along the empty's local +X). The way out (City2.RoadOut, the same
+data plus END and END_HEADING) runs on from the bike the way it faces, out of the plaza's south side under TerraceR's
+rim, between the lagoon towers and away south over the open water: ~700 m, radius-250 bends, a 545 m straight to END,
+where the next zone carries on (keep the water past it empty). The arrival camera (City2.ArrivalCam)
 stands low on the bike's right and looks across it, east-south-east over a canal at the city; the low sun sits just right
 of the spires. City2.ApproachCam is the rider's view on the lagoon straight, ~580 m out: the road bending right ahead,
 the city across the water on the right. Everything built only for the approach and the loop is tagged approach_only and
@@ -24,7 +27,8 @@ arrival camera's screen space (screen_point) from the features extract_concept.p
 (concept-features.json: skyline, sun, billboard screen, dome, monorail, water line). score.py scores the result.
 
 Renders (art/renders/): city2-arrival-<round>.png (EEVEE, with the site's bike), city2-arrival-ids-<round>.png (flat
-object-ID colours for score.py), city2-approach.png, and art/align2/out/<round>-overlay.png / -compare.png (from score.py).
+object-ID colours for score.py), city2-approach.png, city2-roadout-under.png / -mid.png (the rider on the way out, 60 m
+and 240 m along it), city2-plan.png, and art/align2/out/<round>-overlay.png / -compare.png (from score.py).
 """
 import json
 import math
@@ -422,11 +426,11 @@ ROAD_SEQ = [  # ('S', length) | ('A', radius, degrees, + = left)
 ]
 
 
-def trace(seq, step):
-    """Dense points along a straights-and-arcs sequence from RoadIn (the origin, heading +X), ~`step` m apart (each
-    segment divided evenly, its end points exact)."""
-    x, y, h = 0.0, 0.0, 0.0
-    pts = [Vector((0, 0, 0))]
+def trace(seq, step, start=(0.0, 0.0), heading=0.0):
+    """Dense points along a straights-and-arcs sequence from `start` heading `heading` (radians; default RoadIn, the
+    origin, heading +X), ~`step` m apart (each segment divided evenly, its end points exact)."""
+    x, y, h = start[0], start[1], heading
+    pts = [Vector((x, y, 0))]
     for sg in seq:
         if sg[0] == 'S':
             n = max(1, round(sg[1] / step))
@@ -495,23 +499,29 @@ def frange(a, b, s):
     return out
 
 
+def road_geometry(path, name, parent):
+    """The deck (top at z 0 on `path`, ROAD_W wide) and its kerbs with a lit strip: City2.<name>Deck, <name>KerbR/L,
+    <name>StripR/L."""
+    bm = bmesh.new()
+    sweep(bm, path, rounded_rect_profile(ROAD_W, 1.2, 0.3))
+    me = mesh_from(f'City2.{name}Deck', bm, MAT['floor'])
+    planar_uvs(me, 0.05)
+    obj(f'City2.{name}Deck', me, parent)
+    for side in (1, -1):  # kerbs with a lit strip
+        bm = bmesh.new()
+        pts = []
+        for i, p in enumerate(path):
+            t = (path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]).normalized()
+            pts.append(p + t.cross(Vector((0, 0, 1))) * side * (ROAD_W / 2 - 0.25) + Vector((0, 0, 0.55)))
+        sweep(bm, pts, rounded_rect_profile(0.5, 0.6, 0.12))
+        obj(f'City2.{name}Kerb{"R" if side > 0 else "L"}', mesh_from(f'City2.{name}Kerb', bm, MAT['pearl']), parent)
+        bm = bmesh.new()
+        sweep(bm, [p + Vector((0, 0, 0.32)) for p in pts], rounded_rect_profile(0.52, 0.06, 0.02, 1))
+        obj(f'City2.{name}Strip{"R" if side > 0 else "L"}', mesh_from(f'City2.{name}Strip', bm, MAT['lamp']), parent)
+
+
 ROAD = road_path()
-bm = bmesh.new()
-sweep(bm, ROAD, rounded_rect_profile(ROAD_W, 1.2, 0.3))
-me = mesh_from('City2.RoadDeck', bm, MAT['floor'])
-planar_uvs(me, 0.05)
-obj('City2.RoadDeck', me, G['Road'])
-for side in (1, -1):  # kerbs with a lit strip
-    bm = bmesh.new()
-    pts = []
-    for i, p in enumerate(ROAD):
-        t = (ROAD[min(i + 1, len(ROAD) - 1)] - ROAD[max(i - 1, 0)]).normalized()
-        pts.append(p + t.cross(Vector((0, 0, 1))) * side * (ROAD_W / 2 - 0.25) + Vector((0, 0, 0.55)))
-    sweep(bm, pts, rounded_rect_profile(0.5, 0.6, 0.12))
-    obj(f'City2.RoadKerb{"R" if side > 0 else "L"}', mesh_from('City2.RoadKerb', bm, MAT['pearl']), G['Road'])
-    bm = bmesh.new()
-    sweep(bm, [p + Vector((0, 0, 0.32)) - (t * 0) for p in pts], rounded_rect_profile(0.52, 0.06, 0.02, 1))
-    obj(f'City2.RoadStrip{"R" if side > 0 else "L"}', mesh_from('City2.RoadStrip', bm, MAT['lamp']), G['Road'])
+road_geometry(ROAD, 'Road', G['Road'])
 for i, p in enumerate(ROAD[::7]):  # piers into the lagoon
     inst('pylon', (p.x, p.y, WATER_Z - 1), (1.6, 1.6, 1 - WATER_Z - 1.2 + 1), parent=G['Road'])
 
@@ -1103,22 +1113,245 @@ for (xr, yr, rr, hr, n, style) in ZONES:
 
 # The leak sweep: ray-cast the arrival frame every 3 px; any approach-only piece that shows (between the arrival's own
 # buildings, where the sampled hidden_from_arrival test missed it) goes, whole tower at a time, until none shows.
-TAG[0] = None
-for sweep_pass in range(5):
+# Tags in `keep` (the way out's road itself) must never show: the build stops if one does.
+def leak_sweep(keep=()):
+    TAG[0] = None
+    for sweep_pass in range(5):
+        bpy.context.view_layer.update()
+        dg = bpy.context.evaluated_depsgraph_get()
+        leaks = set()
+        for sy in range(0, RES[1], 3):
+            for sx in range(0, RES[0], 3):
+                d = (screen_point(sx + 0.5, sy + 0.5, 1.0) - EYE).normalized()
+                hit, loc, nrm_, idx, ob, mtx = scene.ray_cast(dg, EYE, d, distance=6000)
+                if hit and ob.get('approach_only'):
+                    leaks.add(ob['approach_only'])
+        print('leak sweep', sweep_pass, sorted(leaks))
+        if not leaks:
+            break
+        shown = sorted(t for t in leaks if t in keep)
+        assert not shown, f'shows in the arrival frame: {shown}'
+        for o in [o for o in scene.objects if o.get('approach_only') in leaks]:
+            bpy.data.objects.remove(o, do_unlink=True)
+
+
+leak_sweep()
+
+# =========================================================================================================================
+# The way out (City2.RoadOut): on from the bike the way it faces (-Y), out of the plaza's south side and away from the
+# city down the lagoon, so the ride carries on to the next zone (lib/course.ts places it at RoadOut's END, carrying on
+# along END_HEADING; keep the water past END empty). TerraceR stands 50 m ahead of the bike with its core just left of
+# the bike's line: a right-hand bend of OUT_R (the tightest the way out takes) runs the deck under its lowest terrace's
+# rim, ~1 m clear of the core, its arcade's pylons on that side gone (outside the arrival frame); then a left-hand bend
+# back to due south between the lagoon towers (approach-only zone30 stood on that line: it goes), and a long straight
+# out over the open water. The deck is the city road's (top at z 0: the site lays its wet mirror at deck level along it;
+# the next zone sits at deck level too), on piers. Built after the approach towers and their leak sweep, so it moves none
+# of them; all of it is tagged and swept the same way (the road itself must not show; a piece by it that does goes).
+# =========================================================================================================================
+OUT_R = 250.0
+OUT_SEQ = [('A', OUT_R, -12.0), ('S', 50.0), ('A', OUT_R, 12.0), ('S', 545.0)]
+OUT_STRAIGHT = OUT_SEQ[-1][1]
+_out = trace(OUT_SEQ, 0.5, start=BIKE_AT, heading=math.radians(BIKE_YAW))
+_out_s = [0.0]
+for a, b in zip(_out, _out[1:]):
+    _out_s.append(_out_s[-1] + (b - a).length)
+OUT_LEN = _out_s[-1]
+OUT_LINE = resample_exact(_out, 2.0)          # the bike's line on, BikeMark -> END, every 2 m (City2.RoadOut)
+OUT_END = _out[-1].copy()
+OUT_HEADING = math.atan2(_out[-1].y - _out[-2].y, _out[-1].x - _out[-2].x)
+_i_straight = next(i for i, s in enumerate(_out_s) if s >= OUT_LEN - OUT_STRAIGHT - 1e-6)
+
+
+def out_frame(i):
+    """Point, tangent and left normal of the way out's line at _out[i]."""
+    a, b = _out[max(i - 1, 0)], _out[min(i + 1, len(_out) - 1)]
+    t = (b - a).normalized()
+    return _out[i], t, Vector((-t.y, t.x, 0))
+
+
+def off_frame(p, margin=12):
+    (sx, sy), d = to_screen(p)
+    return d <= 0 or not (-margin < sx < RES[0] + margin and -margin < sy < RES[1] + margin)
+
+
+# Where the deck starts: the first point past the bike where both its edges (and the kerbs' tops) are out of the arrival
+# frame. Before that the plaza floor is the road; an apron fills between the plaza's rim and the deck's start.
+_i0 = next(i for i in range(len(_out)) if all(
+    off_frame(out_frame(i)[0] + out_frame(i)[2] * side * ROAD_W / 2 + Vector((0, 0, z)))
+    for side in (1, -1) for z in (0.0, 0.9)))
+OUT_S0 = _out_s[_i0]
+print('road out', round(OUT_LEN, 1), 'm, end', [round(OUT_END.x, 2), round(OUT_END.y, 2)], 'heading',
+      round(math.degrees(OUT_HEADING), 2), 'deck from s', OUT_S0)
+
+# Clear the way: anything standing in the deck's corridor (deck to 5.5 m over it) from its start on. Approach-only
+# towers go whole; the arrival's own pieces may only be TerraceR's arcade pylons, out of the arrival frame.
+_op = [(_out[i], out_frame(i)[1]) for i in range(_i0, len(_out), 4)]
+
+
+def out_dist(c, r=0.0):
+    """Distance from the way out's centreline (from the deck's start on) to xy point c; None if c lies before it."""
+    best, bi = 1e9, 0
+    for k, (p, t) in enumerate(_op):
+        dd = (Vector((c.x, c.y, 0)) - p).length
+        if dd < best:
+            best, bi = dd, k
+    if bi == 0 and (Vector((c.x, c.y, 0)) - _op[0][0]).dot(_op[0][1]) < -r:
+        return None
+    return best
+
+
+bpy.context.view_layer.update()
+gone_tags, gone_objs, blocked = set(), [], []
+for o in list(root.children_recursive):
+    if o.type != 'MESH' or o.name in ('City2.WaterSurface', 'City2.PlazaFloor'):  # (the floor it leaves from)
+        continue
+    bb = [o.matrix_world @ Vector(c) for c in o.bound_box]
+    x0, x1 = min(v.x for v in bb), max(v.x for v in bb)
+    y0, y1 = min(v.y for v in bb), max(v.y for v in bb)
+    z0, z1 = min(v.z for v in bb), max(v.z for v in bb)
+    r = max(x1 - x0, y1 - y0) / 2
+    if r > 75 or z0 > 5.5 or z1 < -1.3:
+        continue
+    dd = out_dist(Vector(((x0 + x1) / 2, (y0 + y1) / 2, 0)), r)
+    if dd is None or dd > ROAD_W / 2 + r + 0.3:
+        continue
+    if o.get('approach_only'):
+        gone_tags.add(o['approach_only'])
+    elif o.data == M['pylon'] and all(off_frame(v, 40) for v in bb):
+        gone_objs.append(o)
+    else:
+        blocked.append(o.name)
+assert not blocked, f'in the way out: {blocked}'
+print('cleared for the way out: towers', sorted(gone_tags), 'pylons', sorted(o.name for o in gone_objs))
+for o in gone_objs + [o for o in scene.objects if o.get('approach_only') in gone_tags]:
+    bpy.data.objects.remove(o, do_unlink=True)
+
+G['WayOut'] = group('City2.WayOut')
+TAG[0] = 'roadout'
+OUT_DECK = resample_exact(_out[_i0:_i_straight + 1], 6.0) + resample_exact(_out[_i_straight:], 30.0)[1:]
+road_geometry(OUT_DECK, 'RoadOut', G['WayOut'])
+# The apron: the plaza's rim to the deck's start, flush with both.
+_p0, _t0, _n0 = out_frame(_i0)
+_east, _west = _p0 + _n0 * ROAD_W / 2, _p0 - _n0 * ROAD_W / 2
+
+
+def plaza_rim(a, inset=0.4):
+    r = 13.0 + 3.0 * math.cos(a - math.radians(20)) - inset
+    return (PLAZA_C.x + r * math.cos(a), PLAZA_C.y + r * math.sin(a))
+
+
+_aw = math.atan2(_west.y - PLAZA_C.y, _west.x - PLAZA_C.x)
+_ae = math.atan2(_east.y - PLAZA_C.y, _east.x - PLAZA_C.x)
+apron = [plaza_rim(_aw + (_ae - _aw) * k / 12) for k in range(13)] + [(_east.x, _east.y), (_west.x, _west.y)]
+if sum(ax * by - bx * ay for (ax, ay), (bx, by) in zip(apron, apron[1:] + apron[:1])) < 0:
+    apron.reverse()
+bm = bmesh.new()
+polygon_slab(bm, apron, 0.0, 1.2)
+me = mesh_from('City2.RoadOutApron', bm, MAT['floor'], smooth=False)
+planar_uvs(me, 0.05)
+obj('City2.RoadOutApron', me, G['WayOut'])
+for s_at in frange(42.0, OUT_LEN - 10, 42.0):  # piers into the lagoon
+    i = min(range(len(_out_s)), key=lambda k: abs(_out_s[k] - s_at))
+    p = _out[i]
+    inst('pylon', (p.x, p.y, WATER_Z - 1), (1.6, 1.6, 1 - WATER_Z - 1.2 + 1), parent=G['WayOut'])
+
+# Chrome-city pieces along its first part (where zone30 stood, and on to the city's edge): saucer towers and needles
+# set back off the deck, and three chrome rings the road runs through as it leaves the city. Their own random stream.
+rnd = random.Random(23)
+_obst = []
+for o in root.children_recursive:
+    if o.type == 'MESH' and not (o.get('approach_only') or '').startswith('roadout') and o.name != 'City2.WaterSurface':
+        bb = [o.matrix_world @ Vector(c) for c in o.bound_box]
+        x0, x1 = min(v.x for v in bb), max(v.x for v in bb)
+        y0, y1 = min(v.y for v in bb), max(v.y for v in bb)
+        if max(x1 - x0, y1 - y0) < 150:
+            _obst.append((Vector(((x0 + x1) / 2, (y0 + y1) / 2, 0)), max(x1 - x0, y1 - y0) / 2,
+                          min(v.z for v in bb), max(v.z for v in bb)))
+
+
+def spot_clear(c, r, z1=999.0, gap=6.0):
+    return all((c - q).length > r + qr + gap for q, qr, oz0, oz1 in _obst if oz0 < z1)
+
+
+def out_at(s_at):
+    return out_frame(min(range(len(_out_s)), key=lambda k: abs(_out_s[k] - s_at)))
+
+
+deco = 0
+for s_at, style in zip(frange(90.0, 330.0, 20.0), ('saucer', 'needle') * 7):
+    p, t, n = out_at(s_at)
+    for _ in range(120):
+        r = rnd.uniform(5, 7) if style == 'needle' else rnd.uniform(7, 11)
+        reach = r * 2.0 if style == 'saucer' else r * 1.7  # the widest slab
+        side = rnd.choice((1, -1))
+        c = p + n * side * (ROAD_W / 2 + rnd.uniform(4, 26) + reach) + t * rnd.uniform(-15, 15)
+        c.z = 0
+        h = rnd.uniform(70, 130) if style == 'needle' else rnd.uniform(30, 60)
+        if (out_dist(c) or 0) > ROAD_W / 2 + reach + 3 and spot_clear(c, reach, h, gap=4.0):
+            break
+    else:
+        print('road out: no room for a', style, 'at s', s_at)
+        continue
+    deco += 1
+    TAG[0] = f'roadout_deco{deco}'
+    if style == 'saucer':
+        lv, z = [], rnd.uniform(7, 11)
+        while z < h:
+            lv.append((z, r * rnd.uniform(1.5, 2.0)))
+            z += rnd.uniform(9, 14)
+        saucer_tower(f'OutTower{deco:02d}', c, r, lv, r * 0.55, G['WayOut'], palms=True, top_core=5)
+    else:
+        inst('needle', (c.x, c.y, WATER_Z), (r, r, h), parent=G['WayOut'])
+        inst('band', (c.x, c.y, h * 0.12), (r * 0.9, r * 0.9, h * 0.4), parent=G['WayOut'])
+        inst('slab', (c.x, c.y, h * 0.6), r * 1.7, parent=G['WayOut'])
+    _obst.append((c, reach, WATER_Z, h))
+rings, s_at = [], 320.0
+while len(rings) < 3 and s_at < OUT_LEN - 120:  # the rings: upright across the road, half in the water, 45 m apart
+    p, t, n = out_at(s_at)
+    if spot_clear(Vector((p.x, p.y, 0)), 10.6, 12.5, gap=2.0):
+        rings.append(s_at)
+        TAG[0] = f'roadout_ring{len(rings)}'
+        inst('ring', (p.x, p.y, 1.5), 9.5, rot=(math.pi / 2, 0, math.atan2(t.y, t.x) - math.pi / 2), parent=G['WayOut'])
+        s_at += 45.0
+    else:
+        s_at += 5.0
+print('road out: candidate pieces', deco, 'rings at s', rings)
+leak_sweep(keep={'roadout'})
+
+
+def shown_from(eye, look, fov):
+    """The tags of the tagged pieces that show from a 1280x720 view (vertical fov), ray-cast every 3 px."""
+    f = (look - eye).normalized()
+    rt = f.cross(Vector((0, 0, 1))).normalized()
+    up = rt.cross(f)
+    tv = math.tan(math.radians(fov / 2))
+    th = tv * RES[0] / RES[1]
     bpy.context.view_layer.update()
     dg = bpy.context.evaluated_depsgraph_get()
-    leaks = set()
+    seen = set()
     for sy in range(0, RES[1], 3):
         for sx in range(0, RES[0], 3):
-            d = (screen_point(sx + 0.5, sy + 0.5, 1.0) - EYE).normalized()
-            hit, loc, nrm_, idx, ob, mtx = scene.ray_cast(dg, EYE, d, distance=6000)
+            d = (f + rt * th * (sx + 0.5 - RES[0] / 2) / (RES[0] / 2) + up * tv * (RES[1] / 2 - sy - 0.5) / (RES[1] / 2))
+            hit, loc, nrm_, idx, ob, mtx = scene.ray_cast(dg, eye, d.normalized(), distance=6000)
             if hit and ob.get('approach_only'):
-                leaks.add(ob['approach_only'])
-    print('leak sweep', sweep_pass, sorted(leaks))
-    if not leaks:
+                seen.add(ob['approach_only'])
+    return seen
+
+
+# The approach view (City2.ApproachCam) sees the way out's pieces far off among the lagoon towers (and zone30's going).
+# OUT_PIECES_IN_APPROACH = False keeps them out of it: any piece that shows there goes (which, as built, is all the
+# towers and two of the rings).
+OUT_PIECES_IN_APPROACH = True
+for _ in range(3):
+    seen = shown_from(APP_EYE, APP_LOOK, APP_FOV)
+    print('approach view shows', sorted(t for t in seen if t.startswith('roadout')))
+    drop = {t for t in seen if t.startswith('roadout_')}
+    if OUT_PIECES_IN_APPROACH or not drop:
         break
-    for o in [o for o in scene.objects if o.get('approach_only') in leaks]:
+    for o in [o for o in scene.objects if o.get('approach_only') in drop]:
         bpy.data.objects.remove(o, do_unlink=True)
+print('road out: pieces kept', sorted({o['approach_only'] for o in scene.objects
+                                       if (o.get('approach_only') or '').startswith('roadout_')}))
 
 # =========================================================================================================================
 # Markers.
@@ -1160,6 +1393,14 @@ empty('City2.RoadPath', Vector((0, 0, 0)),
              'note': 'the bike line, RoadIn (0,0) -> BikeMark (620,-170), [x, y] in City2 local Blender frame '
                      '(z up; three: x, -y as z), every 2 m of arc length (last step shorter); the deck top is z 0 '
                      'on this line, ROAD_W wide'})
+empty('City2.RoadOut', Vector((0, 0, 0)),
+      props={'points': [[round(p.x, 3), round(p.y, 3)] for p in OUT_LINE], 'length': round(OUT_LEN, 2),
+             'step': 2.0, 'width': ROAD_W, 'END': [round(OUT_END.x, 3), round(OUT_END.y, 3)],
+             'END_HEADING': round(OUT_HEADING, 6),
+             'note': 'the bike line on out of the plaza, BikeMark (620,-170) heading -Y -> END, [x, y] in City2 local '
+                     'Blender frame, every 2 m of arc length (last step shorter); deck top z 0 on this line, ROAD_W '
+                     'wide; ends on a ' + f'{OUT_STRAIGHT:.0f}' + ' m straight; END_HEADING radians anticlockwise '
+                     'from +x; the water past END is kept empty for the next zone'})
 
 # --- Stats, save, export -----------------------------------------------------------------------------------------------
 meshes = [o for o in root.children_recursive if o.type == 'MESH']
@@ -1331,6 +1572,15 @@ if os.environ.get('CITY2_NO_EEVEE') != '1':
         set_cam(APP_EYE, APP_LOOK, APP_FOV)
         scene.render.filepath = os.path.join(RENDERS, 'city2-approach.png')
         bpy.ops.render.render(write_still=True)
+    if os.environ.get('CITY2_ROADOUT', '1') == '1':  # the rider's view partway along the way out
+        for o in bike_objs:
+            o.hide_render = True
+        for s_at, tag in ((60.0, 'under'), (240.0, 'mid')):
+            p, t, n = out_at(s_at)
+            eye = Vector((p.x, p.y, 1.4))
+            set_cam(eye, eye + t * 100 + Vector((0, 0, -3.0)), 50.0)
+            scene.render.filepath = os.path.join(RENDERS, f'city2-roadout-{tag}.png')
+            bpy.ops.render.render(write_still=True)
 
 # 3. The plan: straight down, orthographic, the road's line, BikeMark, RoadIn and the cameras drawn over it.
 if os.environ.get('CITY2_PLAN', '1') == '1':
@@ -1359,11 +1609,11 @@ if os.environ.get('CITY2_PLAN', '1') == '1':
         return [round((v[0] - PLAN_C.x) / PLAN_S * PLAN_PX + PLAN_PX / 2, 1),
                 round(PLAN_PX / 2 - (v[1] - PLAN_C.y) / PLAN_S * PLAN_PX, 1)]
 
-    marks = {'line': [px(p) for p in ROAD_LINE], 'bike': px(BIKE_AT), 'roadin': px((0, 0)), 'arrival': px(EYE),
+    marks = {'line': [px(p) for p in ROAD_LINE], 'out': [px(p) for p in OUT_LINE], 'end': px(OUT_END),
+             'bike': px(BIKE_AT), 'roadin': px((0, 0)), 'arrival': px(EYE),
              'arrival_look': px(EYE + (LOOK - EYE).normalized() * 60), 'approach': px(APP_EYE),
              'approach_look': px(APP_EYE + (APP_LOOK - APP_EYE).normalized() * 60),
-             'title': f'City2 plan: road {ROAD_LEN:.0f} m, {len(ROAD_LINE)} path points (every 2 m), 1 px = '
-                      f'{PLAN_S / PLAN_PX:.2f} m'}
+             'title': f'City2 plan: road {ROAD_LEN:.0f} m + out {OUT_LEN:.0f} m, 1 px = {PLAN_S / PLAN_PX:.2f} m'}
     draw = """
 import json, sys
 from PIL import Image, ImageDraw
@@ -1371,13 +1621,16 @@ m = json.load(open(sys.argv[2]))
 im = Image.open(sys.argv[1]).convert('RGB')
 d = ImageDraw.Draw(im)
 d.line([tuple(p) for p in m['line']], fill=(255, 40, 40), width=2)
+d.line([tuple(p) for p in m['out']], fill=(40, 120, 255), width=2)
+d.ellipse([m['end'][0] - 7, m['end'][1] - 7, m['end'][0] + 7, m['end'][1] + 7], fill=(40, 120, 255))
 for k, col in (('arrival', (0, 255, 255)), ('approach', (255, 255, 0))):
     d.line([tuple(m[k]), tuple(m[k + '_look'])], fill=col, width=3)
     d.ellipse([m[k][0] - 5, m[k][1] - 5, m[k][0] + 5, m[k][1] + 5], outline=col, width=2)
 for k, col in (('bike', (255, 0, 255)), ('roadin', (0, 255, 0))):
     d.ellipse([m[k][0] - 7, m[k][1] - 7, m[k][0] + 7, m[k][1] + 7], fill=col)
 d.rectangle([0, 0, 1400, 26], fill=(0, 0, 0))
-d.text((8, 7), m['title'] + '   red: RoadPath  green: RoadIn  magenta: BikeMark  cyan: ArrivalCam  yellow: ApproachCam',
+d.text((8, 7), m['title'] + '   red: RoadPath  blue: RoadOut (dot: END)  green: RoadIn  magenta: BikeMark  cyan: '
+       'ArrivalCam  yellow: ApproachCam',
        fill=(255, 255, 255))
 im.save(sys.argv[1])
 """
