@@ -27,7 +27,26 @@ export const ride = {
    * cruising, a boost from scrolling (m/s), and how far it's left the landing behind (0 to 1).
    */
   drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1 },
+  /**
+   * Getting off after a real ride: a sheet of liquid glass washes over the screen (components/three/liquid-sweep.ts) and,
+   * while it covers it, the ride is put back; seconds since it began, or -1.
+   */
+  wash: -1,
 };
+
+/** The wash's timing (s): coming in, holding over the swap, draining away. */
+export const WASH = { in: 0.85, hold: 0.25, out: 1.0 } as const;
+/** How much of the screen the wash covers now, and whether it's draining. */
+export function washCover() {
+  const t = ride.wash;
+  if (t < 0) return { cover: 0, leaving: false };
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  if (t < WASH.in) return { cover: ease(t / WASH.in), leaving: false };
+  if (t < WASH.in + WASH.hold) return { cover: 1, leaving: false };
+  return { cover: 1 - ease(Math.min(1, (t - WASH.in - WASH.hold) / WASH.out)), leaving: true };
+}
+/** Getting off rides back to the spot (the camera gliding with it) when it's only rolled this far; further, the wash. */
+export const WASH_FROM = 25;
 
 /** Top cruising speed (m/s) and how hard it speeds up and brakes (m/s²). */
 export const CRUISE = 32;

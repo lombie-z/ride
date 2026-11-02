@@ -17,7 +17,7 @@ import {
   ShaderMaterial,
   Vector3,
 } from 'three';
-import { BEATS, belowVisible, journey, smoothstep } from '@/lib/journey';
+import { BEATS, belowVisible, devFlag, journey, smoothstep } from '@/lib/journey';
 import { DRACO_PATH } from './biome';
 import { type DeckPlacement, WetRoad } from './wet-road';
 
@@ -189,7 +189,7 @@ export function City() {
     <group ref={group} visible={false}>
       <primitive object={scene} />
       {/* The wet deck. */}
-      <WetRoad deck={deck} />
+      {!devFlag('noroad') && <WetRoad deck={deck} />}
       {BEAMS.map(([x, z, width]) => (
         <mesh key={`${x},${z}`} geometry={beam.geometry} material={beam.material} position={[x, 300, z]} scale={[width, 900, width]} renderOrder={5} />
       ))}

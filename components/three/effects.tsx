@@ -14,7 +14,9 @@ import {
 import { useRef } from 'react';
 import { type Mesh, ShaderChunk, type Sphere, Vector3 } from 'three';
 import { devFlag, journey, landingAt, smoothstep } from '@/lib/journey';
+import { washCover } from '@/lib/ride';
 import { Grade, type GradeEffect } from './grade';
+import { LiquidSweep, type LiquidSweepEffect } from './liquid-sweep';
 import { NearBlur, type NearBlurEffect } from './near-blur';
 import { PixelSweep, type PixelSweepEffect } from './pixel-sweep';
 import { bloomAt, SUN_POSITION } from './sky';
@@ -43,6 +45,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
   const focus = useRef<DepthOfFieldEffect>(null);
   const bloomFx = useRef<BloomEffect>(null);
   const sweep = useRef<PixelSweepEffect>(null);
+  const liquid = useRef<LiquidSweepEffect>(null);
   const smaa = useRef<SMAAEffect>(null);
 
   useFrame((state) => {
@@ -82,6 +85,10 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     const scale = Math.min(1, state.gl.getPixelRatio() / 1.75);
     if (focus.current) focus.current.bokehScale = 1.8 * landingAt(journey.frame) * Math.max(scale, 0.35);
     if (sweep.current) sweep.current.set(pixel ? journey.sweep : 0, pixel * state.gl.getPixelRatio());
+    if (liquid.current) {
+      const { cover, leaving } = washCover();
+      liquid.current.set(cover, leaving);
+    }
     // (No edge smoothing once it's pixels: they should stay crisp.)
     if (smaa.current) smaa.current.blendMode.opacity.value = state.gl.getPixelRatio() < 1 ? 0 : 1;
     // A livelier bloom at the landing: more of the bright scene glows (glints, lit rims, the fall, the mist).
@@ -109,6 +116,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
       <Noise ref={grain} premultiply blendFunction={BlendFunction.SOFT_LIGHT} opacity={0} />
       <SMAA ref={smaa} />
       <PixelSweep ref={sweep} />
+      <LiquidSweep ref={liquid} />
     </EffectComposer>
   );
 }

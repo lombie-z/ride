@@ -15,7 +15,7 @@ import {
   TextureLoader,
   Vector3,
 } from 'three';
-import { BEATS, journey, smoothstep } from '@/lib/journey';
+import { BEATS, devFlag, journey, smoothstep } from '@/lib/journey';
 import { ride } from '@/lib/ride';
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -250,7 +250,7 @@ export function Sky({ sun }: { sun: Mesh | null }) {
 
   return (
     <>
-      <mesh ref={dome} name="SkyDome" material={material} renderOrder={-100} frustumCulled={false}>
+      <mesh ref={dome} name="SkyDome" material={material} renderOrder={-100} frustumCulled={false} visible={!devFlag('nosky')}>
         {/* (Inside the camera's far plane but beyond the farthest towers: it draws after them, as it's transparent.) */}
         <sphereGeometry args={[1800, 32, 16]} />
       </mesh>
