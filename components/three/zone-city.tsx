@@ -123,8 +123,8 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       }
       // (Glossy, not a mirror: the lamps' reflections sat on it as bright blobs.)
       if (kind === 'Floor' || kind === 'Stone') m.roughness = Math.max(m.roughness, 0.22);
-      // The sandstorm's billboards: soft, unlit by the sun's glints, never writing depth.
-      if (kind === 'Storm') {
+      // The sandstorm's billboards and the hive's mist sheets: soft, unlit by the sun's glints, never writing depth.
+      if (kind === 'Storm' || kind === 'Mist' || kind === 'Haze') {
         m.depthWrite = false;
         m.envMapIntensity = 0;
       }
