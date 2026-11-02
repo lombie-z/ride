@@ -7,10 +7,12 @@ import { ride } from '@/lib/ride';
 // <button> kept over it each frame, so it's clickable, focusable and announced. From the landing it covers the whole
 // bike, and clicking gets on: the camera glides to the rider's eye and the page stops scrolling. On the bike it's the
 // throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; pressing and holding
-// it (or Space) surges it on; clicking again or scrolling back brakes, and scrolling back once stopped gets off (as does
-// Escape).
+// it (or Space) surges it on; clicking again or scrolling back brakes. There's no getting off by scrolling (easy to do
+// by accident while finding the controls): the way back is on the map, once in the chrome city (ride.request.back, from
+// the map's green city, components/three/holomap.tsx).
 export function RideButton() {
   const button = useRef<HTMLButtonElement>(null);
+  const backButton = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
   const held = useRef(false);
   const holdTimer = useRef(0);
@@ -52,6 +54,19 @@ export function RideButton() {
         el.style.width = `${Math.max(x1, x + pad) - left}px`;
         el.style.height = `${Math.max(y1, y + pad) - top}px`;
         el.style.visibility = shown ? 'visible' : 'hidden';
+        const b = backButton.current;
+        if (b) {
+          const { x: bx, y: by, w, h, shown: open } = ride.mapBack;
+          b.style.transform = `translate(${bx}px, ${by}px)`;
+          b.style.width = `${w}px`;
+          b.style.height = `${h}px`;
+          b.style.visibility = open ? 'visible' : 'hidden';
+        }
+        // The map's way back: ride back to the green city (the wash, back at the landing).
+        if (ride.request.back) {
+          ride.request.back = false;
+          setMounted(false);
+        }
         const want = !ride.mounted ? 'Get on the bike' : ride.drive.cruise ? 'Slow down' : 'Ride on';
         if (want !== label) {
           label = want;
@@ -77,14 +92,12 @@ export function RideButton() {
       drive.cruise = true;
     };
     const back = () => {
-      if (drive.cruise || drive.speed > 1) drive.cruise = false;
-      else setMounted(false);
+      drive.cruise = false;
     };
     const key = (e: KeyboardEvent) => {
       // (Dev: c previews the second city's chrome morph.)
       if (process.env.NODE_ENV === 'development' && e.key === 'c') ride.chrome.want = 1 - ride.chrome.want;
-      if (e.key === 'Escape') setMounted(false);
-      else if (e.key === ' ') {
+      if (e.key === ' ') {
         // (Space, held, surges it on too.)
         e.preventDefault();
         ride.drive.cruise = true;
@@ -165,6 +178,28 @@ export function RideButton() {
           ride.focused = false;
         }}
         className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer outline-none"
+      />
+      {/* Over the map's green city: the way back. */}
+      <button
+        ref={backButton}
+        type="button"
+        aria-label="Ride back to the green city"
+        onClick={() => {
+          ride.request.back = true;
+        }}
+        onPointerEnter={() => {
+          ride.mapBack.hover = 1;
+        }}
+        onPointerLeave={() => {
+          ride.mapBack.hover = 0;
+        }}
+        onFocus={() => {
+          ride.mapBack.hover = 1;
+        }}
+        onBlur={() => {
+          ride.mapBack.hover = 0;
+        }}
+        className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#7dff6a]"
       />
     </div>
   );

@@ -40,6 +40,10 @@ export const ride = {
    * swept, nose to tail (0 black chitin, 1 chrome).
    */
   chrome: { want: 0, at: 0 },
+  /** Asked for from the map (components/three/holomap.tsx): ride back to the green city, getting off at the landing. */
+  request: { back: false },
+  /** The map's green city on screen (CSS px), for the button over it; shown while the map's open. */
+  mapBack: { x: 0, y: 0, w: 0, h: 0, shown: false, hover: 0 },
   /** The second city has loaded and is ready to draw without a hitch (components/three/city-two.tsx). */
   secondCity: { ready: false },
   /**

@@ -14,6 +14,7 @@ import {
   PlaneGeometry,
   ShaderMaterial,
   SRGBColorSpace,
+  Vector3,
 } from 'three';
 import { smoothstep } from '@/lib/journey';
 import { ride } from '@/lib/ride';
@@ -23,6 +24,9 @@ import { DRACO_PATH } from './biome';
 // come up into view (art/build-hands.py, hands.glb, carried by the camera) holding a slim projector, from which a
 // see-through hologram map opens out: the route back to the green city, the chrome city where you are, and a road on to
 // a question mark. Paced by ride.transition.map (components/three/ride.tsx).
+
+const PANEL = { w: 0.46, h: 0.33 };
+const corner = new Vector3();
 
 /** The map's drawing, as an SVG (glowing lines on nothing: the hologram shader gives it its light). */
 function mapSvg() {
@@ -55,6 +59,7 @@ function mapSvg() {
   </g>
   <g font-family="monospace" font-size="10" letter-spacing="1.6" fill="${glow}">
     <text x="62" y="248" text-anchor="middle" fill="${green}">GREEN CITY</text>
+    <text x="62" y="236" text-anchor="middle" font-size="7" fill="${green}" fill-opacity="0.8">◂ RIDE BACK</text>
     <text x="190" y="182" text-anchor="middle">CHROME CITY</text>
     <text x="190" y="195" text-anchor="middle" font-size="8" fill-opacity="0.75">YOU ARE HERE</text>
     <text x="304" y="84" text-anchor="middle" font-size="8" fill="${violet}">UNCHARTED</text>
@@ -84,7 +89,7 @@ function useMapTexture() {
 /** A see-through hologram: the map's light, scan lines rolling up it, flicker, brighter edges, a faint blue body. */
 function hologramMaterial(map: CanvasTexture) {
   return new ShaderMaterial({
-    uniforms: { uMap: { value: map }, uTime: { value: 0 }, uOpen: { value: 0 } },
+    uniforms: { uMap: { value: map }, uTime: { value: 0 }, uOpen: { value: 0 }, uBack: { value: 0 } },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -92,6 +97,7 @@ function hologramMaterial(map: CanvasTexture) {
       uniform sampler2D uMap;
       uniform float uTime;
       uniform float uOpen;
+      uniform float uBack;
       varying vec2 vUv;
       float hash(float n) { return fract(sin(n) * 43758.5453); }
       void main() {
@@ -109,6 +115,10 @@ function hologramMaterial(map: CanvasTexture) {
         vec3 body = vec3(0.25, 0.55, 0.85) * (0.07 + 0.25 * rim);
         // Opening out from a line: the leading edges glow.
         float sweep = smoothstep(0.0, 0.04, uOpen - abs(vUv.y - 0.5) * 2.0);
+        // The green city's way back, lit up when pointed at (or focused).
+        vec2 g = (vUv - vec2(0.175, 0.2)) / vec2(0.1, 0.16);
+        float back = (1.0 - smoothstep(0.7, 1.0, length(g))) * uBack;
+        col += vec3(0.45, 1.0, 0.4) * back * (0.35 + 0.65 * c.a);
         vec3 lightOut = (col * 1.6 * scan + body) * flicker * sweep;
         gl_FragColor = vec4(lightOut, 1.0);
         #include <colorspace_fragment>
@@ -148,7 +158,7 @@ export function HoloMap() {
   const panel = useRef<Mesh>(null);
   const map = useMapTexture();
   const material = useMemo(() => hologramMaterial(map), [map]);
-  const geometry = useMemo(() => new PlaneGeometry(0.46, 0.33), []);
+  const geometry = useMemo(() => new PlaneGeometry(PANEL.w, PANEL.h), []);
   const [hands, setHands] = useState(false);
   const anchor = useRef<Object3D | null>(null);
 
@@ -172,7 +182,10 @@ export function HoloMap() {
     const r = rig.current;
     if (!r) return;
     r.visible = m > 0.3;
-    if (!r.visible) return;
+    if (!r.visible) {
+      ride.mapBack.shown = false;
+      return;
+    }
     // The hands come up from below (rotating up about a point at the chest), then the map opens out.
     const raise = smoothstep(0.35, 0.72, m);
     const open = smoothstep(0.68, 1, m);
@@ -182,6 +195,7 @@ export function HoloMap() {
     }
     material.uniforms.uTime.value = state.clock.elapsedTime;
     material.uniforms.uOpen.value = open;
+    material.uniforms.uBack.value += ((ride.mapBack.hover ? 1 : 0.15 + 0.15 * Math.sin(state.clock.elapsedTime * 3)) - material.uniforms.uBack.value) * 0.15;
     const p = panel.current;
     if (p) {
       p.visible = open > 0.001;
@@ -196,6 +210,32 @@ export function HoloMap() {
       } else p.position.set(0, -0.05, -0.62);
       p.rotation.set(-0.08, 0, 0);
       p.scale.set(0.25 + 0.75 * smoothstep(0, 0.4, open), Math.max(0.02, open), 1);
+      // Where the green city (the way back) is on screen, for the button over it.
+      const mb = ride.mapBack;
+      mb.shown = open > 0.95;
+      if (mb.shown) {
+        p.updateWorldMatrix(true, false);
+        let x0 = Number.POSITIVE_INFINITY;
+        let y0 = Number.POSITIVE_INFINITY;
+        let x1 = Number.NEGATIVE_INFINITY;
+        let y1 = Number.NEGATIVE_INFINITY;
+        for (const [u, v] of [
+          [0.07, 0.02],
+          [0.28, 0.02],
+          [0.07, 0.38],
+          [0.28, 0.38],
+        ]) {
+          corner.set((u - 0.5) * PANEL.w, (v - 0.5) * PANEL.h, 0);
+          p.localToWorld(corner).project(state.camera);
+          const x = (corner.x * 0.5 + 0.5) * state.size.width;
+          const y = (-corner.y * 0.5 + 0.5) * state.size.height;
+          x0 = Math.min(x0, x);
+          x1 = Math.max(x1, x);
+          y0 = Math.min(y0, y);
+          y1 = Math.max(y1, y);
+        }
+        Object.assign(mb, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+      }
     }
   });
 
