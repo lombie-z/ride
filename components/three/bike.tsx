@@ -225,7 +225,7 @@ function bikeShare(k: number) {
 const trackShown = () => (featureHere() === 'slingshot' ? 1 : 0);
 
 // Each zone's bike's lit parts, by their name's ending.
-const BIKE_GLOWS: Record<string, number> = { Vein: 2.2, Led: 7, Tail: 4, Fluid: 3, Tube: 2.5 };
+const BIKE_GLOWS: Record<string, number> = { Vein: 2.2, Led: 7, Tail: 4, Fluid: 2.2, Tube: 1.3 };
 
 /**
  * A later zone's bike (art/build-bike2.py and on: the chrome bike, the bone bike, the desert's), revealed behind the
