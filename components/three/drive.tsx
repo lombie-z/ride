@@ -182,7 +182,8 @@ export function DriveStreet() {
     const seated = ride.mount > 0.5;
     const first = seated ? Math.floor(-road.end / TILE) - 1 : Math.max(0, Math.floor((past - BEHIND) / TILE));
     const from = Math.max(first, Math.floor((past - BEHIND) / TILE));
-    const key = from * 2 + (seated ? 1 : 0);
+    const tr = ride.transition;
+    const key = from * 4 + (seated ? 1 : 0) + (tr.placed ? 2 : 0);
     if (key === last.current) return;
     last.current = key;
 
@@ -198,8 +199,12 @@ export function DriveStreet() {
     };
 
     const half = SLAB.width / 2;
+    // Where the second city's road takes over (as a distance past the deck's end), once it's placed.
+    const cityAt = tr.placed ? tr.at - road.end : Number.POSITIVE_INFINITY;
     for (let k = from; k < from + tiles; k++) {
       const a = (k + 0.5) * TILE;
+      // The street ends where the second city's road begins.
+      if ((k + 1) * TILE > cityAt) break;
       if (k < 0) {
         // Alongside the deck: barriers, rails and lamps only.
         for (const s of [-1, 1]) {
@@ -239,6 +244,8 @@ export function DriveStreet() {
           const h = 70 + r(5) ** 1.5 * 190;
           const turn = (r(6) - 0.5) * 0.2;
           const body = h * (0.62 + r(7) * 0.2);
+          // Nearing the second city, its side of the road (the right: across the water) opens up.
+          if (s > 0 && along > cityAt - 380) continue;
           put('towers', along, across, GROUND_Y, w, body, d, turn);
           put('towers', along, across, GROUND_Y + body, w * 0.68, h - body, d * 0.68, turn);
           if (r(8) > 0.45) put('spikes', along, across, GROUND_Y + h, w * 0.5, 12 + r(9) * 40, d * 0.5, turn + Math.PI / 4);

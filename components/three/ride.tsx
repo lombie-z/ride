@@ -17,7 +17,21 @@ import {
   Vector3,
 } from 'three';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
-import { ACCEL, anchors, BRAKE, CHROME_SECONDS, CRUISE, MORPH_AFTER, ride, SETTLED_FRAME, WASH, WASH_FROM } from '@/lib/ride';
+import {
+  ACCEL,
+  anchors,
+  BRAKE,
+  CHROME_SECONDS,
+  CITY_ROAD,
+  CRUISE,
+  cityRoadLength,
+  MORPH_AFTER,
+  ride,
+  SETTLED_FRAME,
+  TRANSITION_LEAD,
+  WASH,
+  WASH_FROM,
+} from '@/lib/ride';
 
 // The ride button's entrance: once the camera has settled on the landing, streaks of light fly in from all round the
 // bike and converge between the handlebars, where the button lights (components/three/bike.tsx gives it its glow from
@@ -131,9 +145,23 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     const drive = ride.drive;
     if (ride.mounted) {
       drive.rewindFrom = -1;
-      const want = ride.mount > 0.95 && drive.cruise ? CRUISE + drive.boost : 0;
+      let want = ride.mount > 0.95 && drive.cruise ? CRUISE + drive.boost : 0;
+      // In the second city, the ride slows to pull up at the end of its road, the bike's spot there.
+      const tr = ride.transition;
+      if (tr.placed) {
+        const left = tr.at + cityRoadLength() - drive.s;
+        want = Math.min(want, Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)));
+        // (And takes the bend at a speed it can lean into: about 25° over.)
+        const intoBend = drive.s - tr.at - CITY_ROAD.straight;
+        if (intoBend > -120 && intoBend < (Math.PI / 2) * CITY_ROAD.radius) want = Math.min(want, Math.sqrt(9.8 * Math.tan(0.44) * CITY_ROAD.radius));
+        if (left < 0.6 && drive.speed < 0.4 && !tr.arrived) {
+          tr.arrived = true;
+          drive.cruise = false;
+        }
+      }
       drive.speed = want > drive.speed ? Math.min(want, drive.speed + ACCEL * dt) : Math.max(want, drive.speed - BRAKE * dt);
       drive.s += drive.speed * dt;
+      if (tr.placed) drive.s = Math.min(drive.s, tr.at + cityRoadLength());
       if (drive.speed > 0.5) drive.time += dt;
     } else {
       drive.cruise = false;
@@ -151,6 +179,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           ride.chrome.want = 0;
           ride.chrome.at = 0;
           drive.time = 0;
+          // (And the second city's gone again: the next ride makes its way there afresh.)
+          Object.assign(ride.transition, { placed: false, at: 0, t: 0, arrived: false, arrive: 0 });
         }
         if (ride.wash > WASH.in + WASH.hold + WASH.out) ride.wash = -1;
       } else if (drive.s > 0) {
@@ -163,10 +193,17 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       }
     }
     drive.boost = Math.max(0, drive.boost - dt * 5);
-    // The chrome morph: once the second city's loaded and the ride's been going a while, the bike turns; it sweeps at a
-    // steady pace either way.
+    // The change to the second city: once it's loaded and the ride's been going a while, it's placed a stretch down the
+    // road ahead, the sky turns from green night to sunset as the bike nears it, and the bike's chrome morph runs.
+    const tr = ride.transition;
+    if (!tr.placed && ride.secondCity.ready && ride.mounted && drive.time > MORPH_AFTER) {
+      tr.placed = true;
+      tr.at = drive.s + TRANSITION_LEAD;
+    }
+    tr.t = tr.placed ? smoothstep(tr.at - TRANSITION_LEAD, tr.at + 160, drive.s) : 0;
+    tr.arrive = tr.arrived && ride.mounted ? Math.min(1, tr.arrive + dt / 3.2) : Math.max(0, tr.arrive - dt / 1.2);
     const c = ride.chrome;
-    if (ride.secondCity.ready && ride.mounted && drive.time > MORPH_AFTER) c.want = 1;
+    if (tr.placed && ride.mounted) c.want = 1;
     c.at = c.want > c.at ? Math.min(c.want, c.at + dt / CHROME_SECONDS) : Math.max(c.want, c.at - dt / CHROME_SECONDS);
     drive.away = smoothstep(20, 260, drive.s);
   });

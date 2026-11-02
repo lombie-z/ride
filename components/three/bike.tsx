@@ -19,10 +19,11 @@ import {
   Scene,
   type SpotLight,
   type Texture,
+  Vector3,
   type WebGLRenderer,
 } from 'three';
 import { belowVisible, journey, smoothstep } from '@/lib/journey';
-import { anchors, CRUISE, ride, road } from '@/lib/ride';
+import { anchors, CITY_ROAD, CRUISE, cityRoadAt, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { RideControl, RideHalo, RideStreaks } from './ride';
 
@@ -61,9 +62,13 @@ function nightEnvMap(gl: WebGLRenderer) {
   return night;
 }
 
+// (Leaning about its own length, after turning: yaw first.)
+const UP = new Vector3(0, 1, 0);
+const cityLocal = new Vector3();
+
 let sunset: Texture | null = null;
 /** What the chrome bike reflects in the second city: a pink-violet sky, a low sun, white towers. */
-function sunsetEnvMap(gl: WebGLRenderer) {
+export function sunsetEnvMap(gl: WebGLRenderer) {
   if (sunset) return sunset;
   const scene = new Scene();
   // (Mostly dark, with bright bands: mirror chrome reads by the contrast of what it reflects.)
@@ -225,8 +230,22 @@ export function Bike() {
     // Riding: down the road from its spot, turning the last degree or two to run true along it, the wheels rolling.
     const b = ridden.current;
     if (b) {
-      b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, s);
-      b.rotation.y = YAW + (road.yaw - YAW) * smoothstep(0, 12, s);
+      const tr = ride.transition;
+      if (tr.placed && s > tr.at) {
+        // On the second city's own road: along it from where it takes over (its local x along the road in, y left).
+        const p = cityRoadAt(s - tr.at);
+        cityLocal.set(p.x, 0, -p.y).applyAxisAngle(UP, road.yaw);
+        b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, tr.at).add(cityLocal);
+        b.rotation.y = road.yaw + p.heading;
+        // Leaning into the bend as it takes it.
+        const bending = p.heading < 0 && p.heading > -Math.PI / 2 + 1e-3;
+        const lean = bending ? Math.atan((speed * speed) / (CITY_ROAD.radius * 9.8)) : 0;
+        b.rotation.x += (Math.min(lean, 0.5) - b.rotation.x) * 0.08;
+      } else {
+        b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, s);
+        b.rotation.y = YAW + (road.yaw - YAW) * smoothstep(0, 12, s);
+        b.rotation.x *= 0.9;
+      }
       const ds = s - last.current;
       last.current = s;
       if (wheels.current.front) wheels.current.front.rotation.z -= ds / 0.315;
@@ -249,7 +268,7 @@ export function Bike() {
 
   return (
     <group ref={group} visible={false}>
-      <group ref={ridden} position={AT} rotation-y={YAW}>
+      <group ref={ridden} position={AT} rotation={[0, YAW, 0, 'YXZ']}>
         <primitive object={scene} />
         <spotLight ref={headlight} position={[0.95, 0.72, 0]} angle={0.42} penumbra={0.7} distance={60} decay={1.1} intensity={0} color="#e8ffd8" />
         <object3D ref={headlightAim} position={[24, -1.2, 0]} />

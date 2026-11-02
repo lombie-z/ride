@@ -23,6 +23,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BEATS, devFlag, journey, landingAt, ledgeIn, NO_MIRROR_LAYER, RAINBOW_LAYER, smoothstep, toyPresence } from '@/lib/journey';
+import { ride } from '@/lib/ride';
 import { FallStreaks } from './fall-streaks';
 import { landingMaterial } from './landing';
 import { useLandingReflections } from './landing-reflections';
@@ -34,6 +35,10 @@ import { useStudioReflections } from './studio-environment';
 import { waterFromSky, waterLanding, waterLedge, waterMaterial, waterTime } from './water';
 
 export const DRACO_PATH = '/draco/';
+const STUDIO_SKY = new Color('#fffaf2');
+const STUDIO_GROUND = new Color('#e3d6c6');
+const DUSK_SKY = new Color('#c9b2ff');
+const DUSK_GROUND = new Color('#ffb59a');
 const URL = '/models/micro-biome.glb';
 
 // The letter ring orbits this point; the sticker band sits at its depth so the ring weaves in front of and behind it.
@@ -379,7 +384,13 @@ export function Biome({ onReady, onSun }: { onReady: () => void; onSun: (sun: Me
     // (Nearly gone at night: the studio's warm white sky would light every upward face in the city, the towers' spikes
     // glowing pale.)
     if (key.current) key.current.intensity = (1.8 - 0.7 * bloomAt(journey.frame)) * (1 - 0.95 * realLight);
-    if (hemi.current) hemi.current.intensity = 0.9 - 0.84 * realLight;
+    if (hemi.current) {
+      // (In the second city, a soft fill from its lavender sky and warm ground.)
+      const dusk = ride.transition.t;
+      hemi.current.intensity = 0.9 - 0.84 * realLight + 0.9 * dusk;
+      hemi.current.color.lerpColors(STUDIO_SKY, DUSK_SKY, dusk);
+      hemi.current.groundColor.lerpColors(STUDIO_GROUND, DUSK_GROUND, dusk);
+    }
     // The planter recedes into the haze above on the pull-back; its streams then pour out of the sky.
     const presence = toyPresence(journey.frame);
     for (const m of toyMaterials) {

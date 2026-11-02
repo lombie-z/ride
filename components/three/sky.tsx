@@ -16,7 +16,9 @@ import {
   Vector3,
 } from 'three';
 import { BEATS, devFlag, journey, smoothstep } from '@/lib/journey';
-import { ride } from '@/lib/ride';
+import { ride, road } from '@/lib/ride';
+
+const UP = new Vector3(0, 1, 0);
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -35,6 +37,20 @@ const CLOUD_SHADE = new Color('#1c2520');
 // The night's key: cold light from high on the left, behind the camera, so the bike's chrome and carapace catch it and
 // its glare off the wet road falls away from the camera rather than whiting the road out.
 const WARM_LIGHT = new Color('#cfe8d4');
+// The second city's sunset (concept-chrome-city): violet overhead to hot pink at the horizon, a low orange sun, rose and
+// mauve clouds, a pink haze, and its warm light.
+const DUSK = {
+  top: new Color('#4b3586'),
+  horizon: new Color('#ff9eb0'),
+  glow: new Color('#ff7a3c').multiplyScalar(1.6),
+  cloudLit: new Color('#ffb7c8'),
+  cloudShade: new Color('#7a5191'),
+  haze: new Color('#d8a2c4'),
+  light: new Color('#ffb48c'),
+};
+/** Where the second city's sun is, in its own frame (three's axes; art/build-city2.py City2.Sun). */
+const DUSK_SUN = new Vector3(2759, 691, 1400).normalize();
+const duskSun = new Vector3();
 /** Where the sun sits (art/build-sky.py), in three.js space (y up). */
 export const SUN_POSITION = new Vector3(47.6, 7.4, -47.4);
 const LANDING_LIGHT = new Vector3(-63.81, 14, 31.48);
@@ -174,15 +190,16 @@ export function Sky({ sun }: { sun: Mesh | null }) {
         vertexShader,
         fragmentShader,
         uniforms: {
-          uTop: { value: SKY_TOP },
-          uHorizon: { value: SKY_HORIZON },
-          uGlow: { value: SUN_GLOW },
-          uCloudLit: { value: CLOUD_LIT },
-          uCloudShade: { value: CLOUD_SHADE },
+          // (Copies: the change to the second city's sunset blends them.)
+          uTop: { value: SKY_TOP.clone() },
+          uHorizon: { value: SKY_HORIZON.clone() },
+          uGlow: { value: SUN_GLOW.clone() },
+          uCloudLit: { value: CLOUD_LIT.clone() },
+          uCloudShade: { value: CLOUD_SHADE.clone() },
           uTime: { value: 0 },
           // Dev: ?skydebug shows the cloud mask (red), raw noise (green) and height (blue).
           uDebug: { value: process.env.NODE_ENV === 'development' && window.location.search.includes('skydebug') ? 1 : 0 },
-          uSun: { value: MOON },
+          uSun: { value: MOON.clone() },
           uOpacity: { value: 0 },
           uPhotoSky: { value: photoSky() },
           uPhoto: { value: 0 },
@@ -236,6 +253,20 @@ export function Sky({ sun }: { sun: Mesh | null }) {
     // warms to the landing's horizon.
     fog.color.copy(PLASTER).lerp(DESCENT_HAZE, bloom).lerp(SKY_HORIZON, lake);
 
+    // Riding into the second city: night gives way to its sunset, the haze turns pink and opens right out.
+    const dusk = ride.transition.t;
+    const u = material.uniforms;
+    (u.uTop.value as Color).lerpColors(SKY_TOP, DUSK.top, dusk);
+    (u.uHorizon.value as Color).lerpColors(SKY_HORIZON, DUSK.horizon, dusk);
+    (u.uGlow.value as Color).lerpColors(SUN_GLOW, DUSK.glow, dusk);
+    (u.uCloudLit.value as Color).lerpColors(CLOUD_LIT, DUSK.cloudLit, dusk);
+    (u.uCloudShade.value as Color).lerpColors(CLOUD_SHADE, DUSK.cloudShade, dusk);
+    duskSun.copy(DUSK_SUN).applyAxisAngle(UP, road.yaw);
+    (u.uSun.value as Vector3).copy(MOON).lerp(duskSun, dusk).normalize();
+    fog.color.lerp(DUSK.haze, dusk);
+    fog.near = lerp(fog.near, 250, dusk);
+    fog.far = lerp(fog.far, 3800, dusk);
+
     // Low, warm, behind the scene at the landing: it rims the reeds, the frog and the spray.
     if (light.current) {
       // (Most of the landing's raking light already on the way down, so the cliffs and water have shape from the start.)
@@ -244,6 +275,12 @@ export function Sky({ sun }: { sun: Mesh | null }) {
       // At the landing the light is cheated round to rake across the cliff faces from the left (as in the reference),
       // while the sun itself stays where it's seen, low over the saddle.
       light.current.position.lerpVectors(SUN_POSITION, LANDING_LIGHT, landing);
+      // (The second city's low sun, from where it stands.)
+      if (dusk > 0) {
+        light.current.position.lerp(duskSun.clone().multiplyScalar(300).add(light.current.target.position), dusk);
+        light.current.color.lerpColors(WARM_LIGHT, DUSK.light, dusk);
+        light.current.intensity = lerp(light.current.intensity, 3.2, dusk);
+      }
     }
     if (sun) {
       const m = sun.material as { opacity: number };

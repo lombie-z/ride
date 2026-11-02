@@ -31,7 +31,8 @@ export function Weather() {
     if (group.current) group.current.visible = on;
     const landing = landingAt(f);
     // The rain starts as the camera comes down to the deck; the drips and the smog are there from the approach.
-    rain.current = smoothstep(0.35, 1, landing);
+    // (The rain stops as the ride comes out of the smog into the second city's sunset.)
+    rain.current = smoothstep(0.35, 1, landing) * (1 - smoothstep(0, 0.6, ride.transition.t));
     ooze.current = smoothstep(0.1, 0.5, landing);
     // (Thinner from the deck's new vantage, looking down on the city: at full strength it washed the towers out.)
     // (Its shells are centred on the landing: gone once the ride leaves it.)

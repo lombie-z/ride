@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react';
 import { type Camera, Color, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER } from '@/lib/journey';
-import { ride, road as street } from '@/lib/ride';
+import { CITY_ROAD, ride, road as street } from '@/lib/ride';
 import { AT } from './bike';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
@@ -154,6 +154,8 @@ export function WetRoad({ deck }: { deck: DeckPlacement }) {
 // as the strip slides along under them).
 const STRIP = { behind: 40, ahead: 420 };
 const ahead = new Vector3();
+const across = new Vector3();
+const bikeLine = new Vector3();
 export function RideMirror() {
   const mirror = useMemo(() => {
     const light = isLightDevice();
@@ -176,8 +178,20 @@ export function RideMirror() {
     (mirror.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
     (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
     // Centred on the road line, abreast of the bike (how far it is past the deck's end; negative while still on it).
-    const past = ride.drive.s - street.end;
-    ahead.copy(street.endCentre).addScaledVector(street.ahead, past + (STRIP.ahead - STRIP.behind) / 2);
+    // (In the second city it covers only its road's straight run in: past the bend its own wet floor takes over.)
+    const tr = ride.transition;
+    const far = Math.min(ride.drive.s + STRIP.ahead, tr.placed ? tr.at + CITY_ROAD.straight : Number.POSITIVE_INFINITY);
+    if (far - (STRIP.behind + STRIP.ahead) > ride.drive.s - 2 || ride.drive.s > far + 10) {
+      mirror.visible = false;
+      return;
+    }
+    const centreAt = far - (STRIP.behind + STRIP.ahead) / 2;
+    ahead.copy(street.endCentre).addScaledVector(street.ahead, centreAt - street.end);
+    // (The second city's road runs on the bike's line, not the deck's centre line: over its straight, follow that.)
+    if (tr.placed && centreAt > tr.at) {
+      across.set(-street.ahead.z, 0, street.ahead.x);
+      ahead.addScaledVector(across, across.dot(bikeLine.set(AT[0], 0, AT[2]).sub(street.endCentre)));
+    }
     mirror.position.set(ahead.x, -11 + 0.03, ahead.z);
     mirror.rotation.set(-Math.PI / 2, 0, street.yaw);
     const u = (mirror.material as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;

@@ -4,8 +4,9 @@ import { PerspectiveCamera } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
 import { PerspectiveCamera as Looker, MathUtils, type PerspectiveCamera as PerspectiveCameraImpl, Quaternion, Vector3 } from 'three';
+import { AT } from '@/components/three/bike';
 import { BEATS, heroStageSize, journey, journeyProgress, landingAt, PRE_ROLL, TRACK_FRAMES } from '@/lib/journey';
-import { anchors, CRUISE, ride } from '@/lib/ride';
+import { ARRIVAL, anchors, CRUISE, ride, road } from '@/lib/ride';
 
 // The hero matches the blog's biome view (and the Blender preview camera): three-quarter, 3.7 units across the stage.
 // A long lens from far away stands in for the blog's orthographic camera, so the journey can widen it.
@@ -44,6 +45,10 @@ const forward = new Vector3(1, 0, 0);
 // (Sat a little back from the model's RiderEye and looking a touch further down, so the dome and the lit button fill the
 // bottom of the view, the road running away above them.)
 const RIDER_FOV = 70;
+const Y_AXIS = new Vector3(0, 1, 0);
+const cityOrigin = new Vector3();
+const arrivalEye = new Vector3();
+const arrivalLook = new Vector3();
 const RIDER_PITCH = MathUtils.degToRad(15);
 const RIDER_BACK = 0.22;
 const RIDER_DOWN = 0.07;
@@ -156,9 +161,30 @@ export function JourneyCamera() {
       cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV + 12 * pace * pace, e);
       cam.filmOffset *= 1 - e;
     }
+    // Pulled up in the second city: the camera eases off the bike to the arrival shot.
+    const tr = ride.transition;
+    if (tr.placed && tr.arrive > 0) {
+      const a = tr.arrive * tr.arrive * tr.arrive * (tr.arrive * (tr.arrive * 6 - 15) + 10);
+      cityOrigin.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, tr.at);
+      arrivalEye
+        .set(...ARRIVAL.eye)
+        .applyAxisAngle(Y_AXIS, road.yaw)
+        .add(cityOrigin);
+      arrivalLook
+        .set(...ARRIVAL.look)
+        .applyAxisAngle(Y_AXIS, road.yaw)
+        .add(cityOrigin);
+      looker.position.copy(arrivalEye);
+      looker.up.set(0, 1, 0);
+      looker.lookAt(arrivalLook);
+      cam.position.lerp(arrivalEye, a);
+      cam.quaternion.slerp(looker.quaternion, a);
+      cam.fov = MathUtils.lerp(cam.fov, ARRIVAL.fov, a);
+    }
     // (Close in on the bike, the near plane has to be too, however far the ride has gone from the planter.)
     cam.near = ride.mount > 0 ? 0.04 : Math.max(0.03, cam.position.distanceTo(HERO_TARGET) * 0.002);
-    cam.far = 2000;
+    // (Further once the second city's out there: its sun stands kilometres off.)
+    cam.far = ride.transition.placed ? 4500 : 2000;
     cam.updateProjectionMatrix();
     if (process.env.NODE_ENV === 'development') (window as unknown as { __journeyCamera?: unknown }).__journeyCamera = cam;
   }, -1);

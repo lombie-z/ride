@@ -41,10 +41,45 @@ export const ride = {
   chrome: { want: 0, at: 0 },
   /** The second city has loaded and is ready to draw without a hitch (components/three/city-two.tsx). */
   secondCity: { ready: false },
+  /**
+   * Riding into the second city: once it's placed, `at` is how far down the road (m, as drive.s) its own road takes over;
+   * `t` the change from the green night to its sunset (0 to 1), `arrived` once the bike's pulled up at its spot, and
+   * `arrive` the camera's glide from the rider's seat to the arrival shot (0 to 1).
+   */
+  transition: { placed: false, at: 0, t: 0, arrived: false, arrive: 0 },
 };
+
+/**
+ * The second city's own road from where it takes over (art/build-city2.py, City2.RoadIn's props), in its local frame
+ * (Blender: x along the road in, y to its left): straight on, a 90° bend to the right, a short run to the bike's spot.
+ */
+export const CITY_ROAD = { straight: 480, radius: 140, tail: 30 };
+export const cityRoadLength = () => CITY_ROAD.straight + (Math.PI / 2) * CITY_ROAD.radius + CITY_ROAD.tail;
+/** Where along the second city's road u metres in is: local x, y and heading (radians, anticlockwise from +x). */
+export function cityRoadAt(u: number) {
+  const { straight, radius, tail } = CITY_ROAD;
+  const arc = (Math.PI / 2) * radius;
+  if (u <= straight) return { x: u, y: 0, heading: 0 };
+  if (u <= straight + arc) {
+    const a = (u - straight) / radius;
+    return { x: straight + radius * Math.sin(a), y: -radius * (1 - Math.cos(a)), heading: -a };
+  }
+  return { x: straight + radius, y: -radius - Math.min(tail, u - straight - arc), heading: -Math.PI / 2 };
+}
+/**
+ * The second city's arrival shot (art/build-city2.py City2.ArrivalCam, fitted to concept-chrome-city with the bike at the
+ * end of its road): eye and look-at in the city's frame (three's axes: x along the road in, y up, z to its right), vertical FOV.
+ */
+export const ARRIVAL = { eye: [617.7743, 0.5002, 169.5642], look: [627.1305, 1.9546, 172.7805], fov: 50.635 } as const;
+
+/** How far ahead of the bike the second city's road is placed when the change begins (m): the approach. */
+export const TRANSITION_LEAD = 320;
 /** Seconds for the chrome seam to sweep the bike. */
 export const CHROME_SECONDS = 2.6;
-/** The morph waits for the second city to load, and for at least this long riding (s), so a fast load doesn't cut the ride short. */
+/**
+ * The change to the second city (and the bike's morph with it) waits for the city to load, and for at least this long
+ * riding (s), so a fast load doesn't cut the ride short.
+ */
 export const MORPH_AFTER = 12;
 
 /** The wash's timing (s): coming in, holding over the swap, draining away. */
