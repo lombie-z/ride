@@ -158,8 +158,9 @@ export function RideMirror() {
   const mirror = useMemo(() => {
     const light = isLightDevice();
     const m = new Reflector(new PlaneGeometry(STRIP.behind + STRIP.ahead, street.width - 1.1), {
-      textureWidth: light ? 384 : 768,
-      textureHeight: light ? 216 : 432,
+      // (Lower than the landing's: it's re-rendered every frame while riding, and at speed the smear hides it.)
+      textureWidth: light ? 320 : 576,
+      textureHeight: light ? 180 : 324,
       clipBias: 0.003,
       shader: RoadShader,
     });
