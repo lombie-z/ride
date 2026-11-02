@@ -11,6 +11,7 @@ import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
 import { Traffic } from './traffic';
 import { useVoidGloop, voidGloop } from './void-gloop';
+import { CityRoadMirror } from './wet-road';
 
 // The second city (art/build-city2.py), loaded during the ride: it's downloaded once the visitor gets on the bike,
 // its shaders compiled and textures uploaded off to the side, and only then marked ready, which is what sets the bike's
@@ -165,6 +166,7 @@ function CityTwo({ src }: { src: string }) {
     <group ref={group} visible={false}>
       <primitive object={scene} />
       <Muck />
+      <CityRoadMirror />
       <Traffic env={sunsetEnvMap(gl)} />
     </group>
   );

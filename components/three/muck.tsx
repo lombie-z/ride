@@ -76,7 +76,7 @@ export function Muck() {
       mesh.getMatrixAt(i, at);
       o.matrix.copy(at);
       o.matrix.decompose(o.position, o.quaternion, o.scale);
-      o.position.y = 0.02;
+      o.position.y = 0.05;
       o.scale.set(s.along * 3.4, 1, s.wide * 3.4);
       o.updateMatrix();
       m.setMatrixAt(i, o.matrix);

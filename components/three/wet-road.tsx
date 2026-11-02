@@ -2,16 +2,16 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
-import { type Camera, Color, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
+import { BufferGeometry, type Camera, Color, Float32BufferAttribute, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
-import { cityRoadStraight, ride, road as street } from '@/lib/ride';
+import { cityRoadAt, cityRoadLength, ride, road as street } from '@/lib/ride';
 import { AT } from './bike';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
 // up the way rain on asphalt does: sharp in the puddles, smeared into long streaks toward the camera on the wet tarmac
 // between them, shivering with the rain. The surface's own colour is near black.
-const RoadShader = {
+export const RoadShader = {
   name: 'RoadShader',
   uniforms: {
     color: { value: null },
@@ -184,7 +184,8 @@ export function RideMirror() {
     // Centred on the road line, abreast of the bike (how far it is past the deck's end; negative while still on it).
     // (In the second city it covers only its road's straight run in: past the bend its own wet floor takes over.)
     const tr = ride.transition;
-    const far = Math.min(ride.drive.s + STRIP.ahead, tr.placed ? tr.at + cityRoadStraight() : Number.POSITIVE_INFINITY);
+    // (Up to where the second city's road begins: from there CityRoadMirror, laid along its curves, takes over.)
+    const far = Math.min(ride.drive.s + STRIP.ahead, tr.placed ? tr.at : Number.POSITIVE_INFINITY);
     if (far - (STRIP.behind + STRIP.ahead) > ride.drive.s - 2 || ride.drive.s > far + 10) {
       mirror.visible = false;
       return;
@@ -206,5 +207,50 @@ export function RideMirror() {
     u.uMirror.value = smoothstep(0.3, 0.65, tr.t);
   });
 
+  return <primitive object={mirror} />;
+}
+
+/**
+ * The second city's road as a mirror, all the way along its weave: a ribbon on its centreline (flat, so one reflection
+ * serves it all), in the city's own frame (a child of its group). Pure mirror, as the ride's road has become by then.
+ */
+export function CityRoadMirror() {
+  const mirror = useMemo(() => {
+    const length = cityRoadLength();
+    const half = 5.3;
+    const n = Math.ceil(length / 3) + 1;
+    const positions: number[] = [];
+    const index: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const p = cityRoadAt(Math.min(length, i * 3));
+      // (In the mirror's own plane, x and y; laid flat by turning it -90° about x, so its y is the road's local y.)
+      const nx = -Math.sin(p.heading);
+      const ny = Math.cos(p.heading);
+      positions.push(p.x + nx * half, p.y + ny * half, 0, p.x - nx * half, p.y - ny * half, 0);
+      if (i > 0) {
+        const a = 2 * (i - 1);
+        index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+      }
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+    geometry.setIndex(index);
+    const light = isLightDevice();
+    const m = new Reflector(geometry, { textureWidth: light ? 320 : 576, textureHeight: light ? 180 : 324, clipBias: 0.003, shader: RoadShader });
+    m.name = 'CityRoadMirror';
+    m.rotation.x = -Math.PI / 2;
+    m.position.y = 0.03;
+    (m.material as unknown as { uniforms: { uMirror: { value: number } } }).uniforms.uMirror.value = 1;
+    m.frustumCulled = false;
+    return m;
+  }, []);
+  useEffect(() => () => mirror.dispose(), [mirror]);
+  useFrame((state) => {
+    const tr = ride.transition;
+    mirror.visible = tr.placed && ride.drive.s > tr.at - 300;
+    if (!mirror.visible) return;
+    (mirror.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
+    (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
+  });
   return <primitive object={mirror} />;
 }

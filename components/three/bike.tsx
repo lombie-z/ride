@@ -172,7 +172,14 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
       m.envMap = env;
       m.envMapIntensity = 1.5;
       m.roughness = Math.max(m.roughness, 0.05);
-      if (m.name === 'Bike2Glass' || m.name === 'Bike2Smoke') m.depthWrite = false;
+      if (m.name === 'Bike2Glass' || m.name === 'Bike2Smoke') {
+        m.depthWrite = false;
+        // (Plain see-through glass, not transmission: any transmissive material makes three render the whole scene
+        // again every frame, to refract it, and at this size the refraction can't be seen.)
+        m.transmission = 0;
+        m.transparent = true;
+        m.opacity = m.name === 'Bike2Glass' ? 0.28 : 0.55;
+      }
       const glowing: Record<string, number> = { Bike2Vein: 2.2, Bike2Led: 7, Bike2Tail: 4, Bike2Dash: 1.6 };
       if (m.name in glowing) {
         m.emissiveIntensity = glowing[m.name];
@@ -199,9 +206,11 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
     chromeUniforms.uSwap.value = 1;
     return () => {
       chromeUniforms.uSwap.value = 0;
+      // (The black bike back on: without the chrome one there's nothing else to show.)
+      black.visible = true;
       buttonMaterials.current = buttonMaterials.current.filter((m) => !mine.includes(m));
     };
-  }, [scene, env, buttonMaterials]);
+  }, [scene, env, buttonMaterials, black]);
 
   const last = useRef(0);
   useFrame((state) => {
