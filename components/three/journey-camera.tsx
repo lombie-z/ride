@@ -164,8 +164,10 @@ export function JourneyCamera() {
     }
     // Pulled up in the second city: the camera eases off the bike to the arrival shot.
     const tr = ride.transition;
-    if (tr.placed && tr.arrive > 0) {
-      const a = tr.arrive * tr.arrive * tr.arrive * (tr.arrive * (tr.arrive * 6 - 15) + 10);
+    // (And when the map comes up, back onto the bike: the hands hold it up in the rider's view.)
+    const shot = tr.arrive * (1 - MathUtils.smoothstep(tr.map, 0, 0.4));
+    if (tr.placed && shot > 0) {
+      const a = shot * shot * shot * (shot * (shot * 6 - 15) + 10);
       cityOrigin.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, tr.at);
       arrivalEye
         .set(...ARRIVAL.eye)

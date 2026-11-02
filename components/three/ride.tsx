@@ -47,6 +47,9 @@ const MOUNT_SECONDS = 2.2;
 // Through the ooze: the speed it bogs down to (m/s) and how hard it drags (m/s²).
 const MUCK_SPEED = 8;
 const CLEAR_SECONDS = 4;
+// The map: how long after the arrival shot settles, and how long the camera's return, the hands and the opening take.
+const MAP_AFTER = 3.5;
+const MAP_SECONDS = 4.5;
 const MUCK_DRAG = 26;
 
 const target = new Vector3();
@@ -199,7 +202,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           ride.chrome.at = 0;
           drive.time = 0;
           // (And the second city's gone again: the next ride makes its way there afresh.)
-          Object.assign(ride.transition, { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0 });
+          Object.assign(ride.transition, { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0, held: 0, map: 0 });
         }
         if (ride.wash > WASH.in + WASH.hold + WASH.out) ride.wash = -1;
       } else if (drive.s > 0) {
@@ -223,6 +226,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // The towers by the water sink away and the train's beam rises in their place, over a few seconds.
     tr.clear = tr.placed ? Math.min(1, tr.clear + dt / CLEAR_SECONDS) : 0;
     tr.arrive = tr.arrived && ride.mounted ? Math.min(1, tr.arrive + dt / 3.2) : Math.max(0, tr.arrive - dt / 1.2);
+    // A few seconds on the arrival shot, then the map: back on the bike, the hands come up with it.
+    tr.held = tr.arrive >= 1 ? tr.held + dt : 0;
+    tr.map = tr.arrived && ride.mounted ? Math.min(1, Math.max(tr.map, (tr.held - MAP_AFTER) / MAP_SECONDS)) : Math.max(0, tr.map - dt / 0.8);
     const c = ride.chrome;
     // (Once the sunset is coming in, so the chrome bike arrives with its light.)
     if (tr.placed && ride.mounted && tr.t > 0.3) c.want = 1;

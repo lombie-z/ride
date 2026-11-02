@@ -12,6 +12,7 @@ import { City } from './city';
 import { CityTwoLoader } from './city-two';
 import { DriveStreet } from './drive';
 import { Effects } from './effects';
+import { HoloMap } from './holomap';
 import { JourneyCamera } from './journey-camera';
 import { Sky } from './sky';
 import { Weather } from './weather';
@@ -139,6 +140,7 @@ export default function JourneyCanvas({ onReady, onProgress }: { onReady: () => 
         {!flag('nobike') && <Bike />}
         {!flag('nodrive') && <DriveStreet />}
         <CityTwoLoader />
+        <HoloMap />
       </Suspense>
       {flag('nofx') ? <Render /> : <Effects sun={null} pixel={pixel} />}
     </Canvas>

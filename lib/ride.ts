@@ -46,9 +46,11 @@ export const ride = {
    * Riding into the second city: once it's placed, `at` is how far down the road (m, as drive.s) its own road takes over;
    * `t` the change from the green night to its sunset (0 to 1), `arrived` once the bike's pulled up at its spot, and
    * `arrive` the camera's glide from the rider's seat to the arrival shot (0 to 1), and `clear` how far the street's
-   * towers by the water have sunk away and the train's beam risen in their place (0 to 1, over a few seconds).
+   * towers by the water have sunk away and the train's beam risen in their place (0 to 1, over a few seconds); then,
+   * pulled up, `held` the seconds since the arrival shot settled and `map` the map sequence after it (0 to 1: the
+   * camera back on the bike, the rider's hands coming up, the hologram map opening out; components/three/holomap.tsx).
    */
-  transition: { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0 },
+  transition: { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0, held: 0, map: 0 },
 };
 
 /**
