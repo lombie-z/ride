@@ -15,6 +15,7 @@ import {
   Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { course } from '@/lib/course';
 import { isLightDevice } from '@/lib/journey';
 import { ride } from '@/lib/ride';
 
@@ -99,7 +100,7 @@ export function Traffic({ env }: { env: Texture }) {
 
   const o = useMemo(() => new Object3D(), []);
   useFrame((state) => {
-    if (!ride.transition.placed) return;
+    if (!course.legs[1].placed) return;
     const t = state.clock.elapsedTime;
     flyers.forEach((f, i) => {
       const a = f.phase + (t * f.speed) / Math.max(f.rx, f.rz);
@@ -130,7 +131,7 @@ export function Traffic({ env }: { env: Texture }) {
     train.beam.instanceMatrix.needsUpdate = true;
     o.scale.set(1, 1, 1);
     // The train: abreast of the bike while it's still a way out, then pulling ahead of it, until the beam ends.
-    const u = ride.drive.s - ride.transition.at;
+    const u = ride.drive.s - course.legs[1].at;
     // (From 40 m behind the bike to 150 m ahead of it over the approach.)
     const lead = Math.min(BEAM.to - 8, Math.max(BEAM.from + 70, u - 40 + Math.max(0, Math.min(1, (u + 600) / 720)) * 190));
     for (let k = 0; k < 4; k++) {

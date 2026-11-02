@@ -4,8 +4,9 @@ import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
 import { BufferGeometry, type Camera, Color, Float32BufferAttribute, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
+import { course, inLength, outLength, pathAt } from '@/lib/course';
 import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
-import { cityRoadAt, cityRoadLength, ride, road as street } from '@/lib/ride';
+import { ride, road as street, zoneRoad } from '@/lib/ride';
 import { AT } from './bike';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
@@ -207,8 +208,9 @@ export function RideMirror() {
     // Centred on the road line, abreast of the bike (how far it is past the deck's end; negative while still on it).
     // (In the second city it covers only its road's straight run in: past the bend its own wet floor takes over.)
     const tr = ride.transition;
-    // (Up to where the second city's road begins: from there CityRoadMirror, laid along its curves, takes over.)
-    const far = Math.min(ride.drive.s + STRIP.ahead, tr.placed ? tr.at : Number.POSITIVE_INFINITY);
+    const first = course.legs[1];
+    // (Up to where the chrome city's road begins: from there CityRoadMirror, laid along its curves, takes over.)
+    const far = Math.min(ride.drive.s + STRIP.ahead, first.placed ? first.at : Number.POSITIVE_INFINITY);
     if (far - (STRIP.behind + STRIP.ahead) > ride.drive.s - 2 || ride.drive.s > far + 10) {
       mirror.visible = false;
       return;
@@ -216,7 +218,7 @@ export function RideMirror() {
     const centreAt = far - (STRIP.behind + STRIP.ahead) / 2;
     ahead.copy(street.endCentre).addScaledVector(street.ahead, centreAt - street.end);
     // (The second city's road runs on the bike's line, not the deck's centre line: over its straight, follow that.)
-    if (tr.placed && centreAt > tr.at) {
+    if (first.placed && centreAt > first.at) {
       across.set(-street.ahead.z, 0, street.ahead.x);
       ahead.addScaledVector(across, across.dot(bikeLine.set(AT[0], 0, AT[2]).sub(street.endCentre)));
     }
@@ -225,36 +227,41 @@ export function RideMirror() {
     const u = (mirror.material as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     (u.uLamp.value as Vector3).set(AT[0], AT[1], AT[2]).addScaledVector(street.ahead, ride.drive.s + 1);
     (u.uLampDir.value as Vector3).copy(street.ahead);
-    u.uLampOn.value = Math.min(1, ride.drive.speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (1 - smoothstep(0.3, 0.65, tr.t));
-    // The road turns to the second city's pure mirror as that city comes to fill the view.
-    u.uMirror.value = smoothstep(0.3, 0.65, tr.t);
+    const dusk = ride.zone === 1 ? tr.t : 1;
+    u.uLampOn.value = Math.min(1, ride.drive.speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (1 - smoothstep(0.3, 0.65, dusk));
+    // The road turns to the chrome city's pure mirror as that city comes to fill the view.
+    u.uMirror.value = smoothstep(0.3, 0.65, dusk);
   });
 
   return <primitive object={mirror} />;
 }
 
 /**
- * The second city's road as a mirror, all the way along its weave: a ribbon on its centreline (flat, so one reflection
- * serves it all), in the city's own frame (a child of its group). Pure mirror, as the ride's road has become by then.
+ * A city's road as a mirror, all the way along its weave and on out: a ribbon on its centreline (flat, so one
+ * reflection serves it all), in the city's own frame (a child of its group). The chrome city's a pure mirror, as the
+ * ride's road has become by then; the hive's polished stone, less of one (`strength`).
  */
-export function CityRoadMirror() {
+export function CityRoadMirror({ k, strength }: { k: number; strength: number }) {
   const mirror = useMemo(() => {
-    const length = cityRoadLength();
+    const leg = course.legs[k];
+    const into = zoneRoad(k);
     const half = 5.3;
-    const n = Math.ceil(length / 3) + 1;
     const positions: number[] = [];
     const index: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const p = cityRoadAt(Math.min(length, i * 3));
+    const lay = (p: { x: number; y: number; heading: number }) => {
       // (In the mirror's own plane, x and y; laid flat by turning it -90° about x, so its y is the road's local y.)
       const nx = -Math.sin(p.heading);
       const ny = Math.cos(p.heading);
+      const n = positions.length / 6;
       positions.push(p.x + nx * half, p.y + ny * half, 0, p.x - nx * half, p.y - ny * half, 0);
-      if (i > 0) {
-        const a = 2 * (i - 1);
+      if (n > 0) {
+        const a = 2 * (n - 1);
         index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       }
-    }
+    };
+    for (let u = 0; u < into.length; u += 3) lay(pathAt(into, u));
+    lay(pathAt(into, into.length));
+    if (leg.out) for (let u = 3; u <= leg.out.length; u += 3) lay(pathAt(leg.out, u));
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
     geometry.setIndex(index);
@@ -263,14 +270,15 @@ export function CityRoadMirror() {
     m.name = 'CityRoadMirror';
     m.rotation.x = -Math.PI / 2;
     m.position.y = 0.03;
-    (m.material as unknown as { uniforms: { uMirror: { value: number } } }).uniforms.uMirror.value = 1;
+    (m.material as unknown as { uniforms: { uMirror: { value: number } } }).uniforms.uMirror.value = strength;
     m.frustumCulled = false;
     return m;
-  }, []);
+  }, [k, strength]);
   useEffect(() => () => mirror.dispose(), [mirror]);
   useFrame((state) => {
-    const tr = ride.transition;
-    mirror.visible = tr.placed && ride.drive.s > tr.at - 300;
+    const leg = course.legs[k];
+    const s = ride.drive.s;
+    mirror.visible = leg.placed && s > leg.at - 300 && s < leg.at + inLength(leg) + outLength(leg) + 50;
     if (!mirror.visible) return;
     (mirror.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
     (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);

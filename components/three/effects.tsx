@@ -15,7 +15,8 @@ import {
 import { useRef } from 'react';
 import { type Mesh, ShaderChunk, type Sphere, Vector3 } from 'three';
 import { devFlag, journey, landingAt, smoothstep } from '@/lib/journey';
-import { CRUISE, ride, washCover } from '@/lib/ride';
+import { look } from '@/lib/look';
+import { CRUISE, featureHere, ride, washCover } from '@/lib/ride';
 import { Grade, type GradeEffect } from './grade';
 import { LiquidSweep, type LiquidSweepEffect } from './liquid-sweep';
 import { NearBlur, type NearBlurEffect } from './near-blur';
@@ -81,8 +82,8 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
       // The warm, saturated grade comes in with the real sky as the camera leaves the hero, not only at the landing.
       grade.current.weight = Math.max(bloom, landingAt(journey.frame));
       // (Brighter on the way down: the landing's exposure is set for its stronger low sun.)
-      grade.current.exposure = 0.82 + 0.08 * (1 - landingAt(journey.frame)) + 0.1 * ride.transition.t;
-      grade.current.setDusk(ride.transition.t);
+      grade.current.exposure = 0.82 + 0.08 * (1 - landingAt(journey.frame)) + look.exposure * look.day;
+      grade.current.setDusk(look.day, look.tone, look.saturation);
       grade.current.glow = 0.55 * glow;
       // Where the sun is on screen, for its starburst (only at the landing, and not when it's behind the camera).
       // (From the sun disc itself, the centre of its geometry: Blender's mesh isn't centred on its origin.)
@@ -116,9 +117,12 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     // (Launched from the slingshot, it streaks harder still and flames lick in round the view.)
     const surge = ride.mount * ride.drive.surge;
     const fire = ride.mount * ride.drive.fire;
-    const blur = devFlag('noblur') ? 0 : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire);
-    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire);
-    gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002);
+    // (In the hive the veins show the heart's beat faintly even unpumped, so the rhythm's there to tap to.)
+    const hive = ride.mount * (featureHere() === 'heartbeat' ? 1 : 0);
+    const veins = hive * (0.18 + 0.82 * ride.drive.pump);
+    const blur = devFlag('noblur') ? 0 : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 0.6 * ride.drive.pump);
+    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire, veins, ride.drive.beat);
+    gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002 || veins > 0.002);
     if (liquid.current) {
       const { cover, leaving } = washCover();
       liquid.current.set(cover, leaving);

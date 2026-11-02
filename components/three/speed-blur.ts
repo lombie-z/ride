@@ -11,6 +11,8 @@ const fragmentShader = /* glsl */ `
 uniform float amount;
 uniform float surge;
 uniform float fire;
+uniform float veins;
+uniform float beat;
 uniform vec2 focus;
 
 float hash21(vec2 p) {
@@ -77,8 +79,29 @@ vec3 iridescence(vec2 uv, vec2 toward, vec3 c) {
   return c + (film * 0.55 + streak * 0.8) * rim;
 }
 
+// The hive's heartbeat: dark red veins branching in from the edges of the view, swelling and flushing on each beat, more
+// of them the harder it's pumped; and the whole rim of the view flushing red with the beat.
+vec3 heartbeat(vec2 toward, vec3 c) {
+  if (veins <= 0.001) return c;
+  float aspect = resolution.x / resolution.y;
+  vec2 q = toward * vec2(aspect, 1.0);
+  float r = length(q);
+  float a = atan(q.y, q.x);
+  // Ridged noise along the rays: thin branching lines, wandering as they come in.
+  vec2 p = vec2(a * 3.0, r * 2.4);
+  float n = noise(p * 2.0 + vec2(0.0, 0.3 * sin(time * 0.4))) * 0.6 + noise(p * 5.0) * 0.4;
+  float ridge = pow(1.0 - abs(n * 2.0 - 1.0), 14.0);
+  float reach = mix(1.05, 0.62, veins);
+  float rim = smoothstep(reach, reach + 0.45, r);
+  float swell = 0.55 + 0.9 * beat;
+  vec3 blood = vec3(0.55, 0.02, 0.04);
+  vec3 lines = blood * ridge * rim * swell * veins * 2.2;
+  float flush = smoothstep(0.55, 1.25, r) * beat * (0.25 + 0.5 * veins);
+  return c * (1.0 - 0.35 * rim * veins - 0.3 * flush) + lines + vec3(0.45, 0.02, 0.05) * flush;
+}
+
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-  if (amount <= 0.001 && surge <= 0.001 && fire <= 0.001) {
+  if (amount <= 0.001 && surge <= 0.001 && fire <= 0.001 && veins <= 0.001) {
     outputColor = inputColor;
     return;
   }
@@ -93,7 +116,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   if (fire > 0.001) at += (vec2(noise(uv * 18.0 + vec2(0.0, -time * 6.0)), noise(uv * 18.0 + vec2(7.3, -time * 6.0))) - 0.5) * 0.012 * fire * edge;
   vec3 sum = fire > 0.001 ? texture2D(inputBuffer, at).rgb : inputColor.rgb;
   if (k < 0.002) {
-    outputColor = vec4(flames(toward, iridescence(uv, toward, sum)), inputColor.a);
+    outputColor = vec4(heartbeat(toward, flames(toward, iridescence(uv, toward, sum))), inputColor.a);
     return;
   }
   float jitter = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
@@ -101,7 +124,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     float t = (float(i) + jitter) / 10.0;
     sum += texture2D(inputBuffer, at - toward * k * 0.09 * t).rgb;
   }
-  outputColor = vec4(flames(toward, iridescence(uv, toward, sum / 10.0)), inputColor.a);
+  outputColor = vec4(heartbeat(toward, flames(toward, iridescence(uv, toward, sum / 10.0))), inputColor.a);
 }`;
 
 export class SpeedBlurEffect extends Effect {
@@ -113,16 +136,20 @@ export class SpeedBlurEffect extends Effect {
         ['amount', new Uniform(0)],
         ['surge', new Uniform(0)],
         ['fire', new Uniform(0)],
+        ['veins', new Uniform(0)],
+        ['beat', new Uniform(0)],
         ['focus', new Uniform([0.5, 0.58])],
       ]),
     });
   }
 
-  /** How strong the blur is (from the speed), the surge and the slingshot's flames (0 to 1). */
-  set(amount: number, surge = 0, fire = 0) {
+  /** How strong the blur is (from the speed), the surge, the slingshot's flames and the heartbeat's veins (0 to 1). */
+  set(amount: number, surge = 0, fire = 0, veins = 0, beat = 0) {
     (this.uniforms.get('amount') as Uniform<number>).value = amount;
     (this.uniforms.get('surge') as Uniform<number>).value = surge;
     (this.uniforms.get('fire') as Uniform<number>).value = fire;
+    (this.uniforms.get('veins') as Uniform<number>).value = veins;
+    (this.uniforms.get('beat') as Uniform<number>).value = beat;
   }
 }
 

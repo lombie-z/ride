@@ -1,4 +1,5 @@
 import { type Object3D, Vector3 } from 'three';
+import { course, type Feature, inLength, makePath, type Path, pathAt, ZONES } from './course';
 
 /**
  * The ride button on the bike and getting on: shared per-frame state, written by components/three/ride.tsx (and the
@@ -31,6 +32,8 @@ export const ride = {
    * The slingshot: the button dragged back along its track (`pull`, 0 to 1, from components/ride-button.tsx; `draw`,
    * the same eased, where it's drawn), let go (`release`, its strength, picked up next frame) launches it (`launch`,
    * the kick left, running down over a few seconds; `fire`, the flames round the view, following it).
+   * The heartbeat: tapped on the beat (`taps`, counted by the button, picked up next frame), each tap pumps it on
+   * (`pump`, 0 to 1, built up beat by beat, ebbing away without them); `beat` the heart's pulse now (0 to 1).
    */
   drive: {
     s: 0,
@@ -47,6 +50,10 @@ export const ride = {
     release: 0,
     launch: 0,
     fire: 0,
+    taps: 0,
+    pump: 0,
+    phase: 0,
+    beat: 0,
   },
   /**
    * Getting off after a real ride: a sheet of black oil washes over the screen (components/three/liquid-sweep.ts) and,
@@ -54,12 +61,20 @@ export const ride = {
    */
   wash: -1,
   /**
-   * The bike's chrome morph for the second city (components/three/bike.tsx): wanted (0 or 1) and how far the seam has
-   * swept, nose to tail (0 black chitin, 1 chrome).
+   * The zone the ride's heading for, or in once it's there (lib/course.ts ZONES: 1 the chrome city, from the green
+   * city's street, and on). It moves on to the next when the visitor picks it on the map.
    */
-  chrome: { want: 0, at: 0 },
-  /** Asked for from the map (components/three/holomap.tsx): ride back to the green city, getting off at the landing. */
-  request: { back: false },
+  zone: 1,
+  /**
+   * The bike's morph from one zone's bike to the next (components/three/bike.tsx): the bike it's been (`from`), the one
+   * it's becoming (`to`; the same once it's done), and how far the seam has swept, nose to tail (0 to 1).
+   */
+  morph: { from: 0, to: 0, at: 0 },
+  /**
+   * Asked for from the map (components/three/holomap.tsx): ride back to the green city, getting off at the landing;
+   * ride on to the next zone.
+   */
+  request: { back: false, on: false },
   /**
    * Getting on, a glance at the map in the rider's hands before setting off (0 to 1 and back: the same sequence as
    * arriving, components/three/holomap.tsx), and how long it's been going (s).
@@ -68,78 +83,68 @@ export const ride = {
   previewTime: -1,
   /** The map's green city on screen (CSS px), for the button over it; shown while the map's open. */
   mapBack: { x: 0, y: 0, w: 0, h: 0, shown: false, hover: 0 },
-  /** The second city has loaded and is ready to draw without a hitch (components/three/city-two.tsx). */
-  secondCity: { ready: false },
+  /** The map's next place on screen (CSS px), for the button over it: ride on there; shown while the map's open. */
+  mapOn: { x: 0, y: 0, w: 0, h: 0, shown: false, hover: 0 },
   /**
-   * Riding into the second city: once it's placed, `at` is how far down the road (m, as drive.s) its own road takes over;
-   * `t` the change from the green night to its sunset (0 to 1), `arrived` once the bike's pulled up at its spot, and
-   * `arrive` the camera's glide from the rider's seat to the arrival shot (0 to 1), and `clear` how far the street's
-   * towers by the water have sunk away and the train's beam risen in their place (0 to 1, over a few seconds); then,
-   * pulled up, `held` the seconds since the arrival shot settled and `map` the map sequence after it (0 to 1: the
-   * camera back on the bike, the rider's hands coming up, the hologram map opening out; components/three/holomap.tsx).
+   * Riding into the zone the ride's heading for (ride.zone): once it's placed, `at` is how far down the road (m, as
+   * drive.s) its own road takes over (lib/course.ts course.legs); `t` the change of sky and light from the zone before
+   * to it (0 to 1), `arrived` once the bike's pulled up at its spot, and `arrive` the camera's glide from the rider's
+   * seat to the arrival shot (0 to 1); `clear`, into the chrome city, how far the street's towers by the water have sunk
+   * away and the train's beam risen in their place (0 to 1, over a few seconds); then, pulled up, `held` the seconds
+   * since the arrival shot settled and `map` the map sequence after it (0 to 1: the camera back on the bike, the
+   * rider's hands coming up, the hologram map opening out; components/three/holomap.tsx).
    */
   transition: { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0, held: 0, map: 0 },
 };
 
 /**
- * The second city's own road from where it takes over (art/build-city2.py City2.RoadPath: its centreline every 2 m, in
- * the city's local frame, Blender's: x along the road in, y to its left), weaving through the towers to the bike's spot.
- * Set by components/three/city-two.tsx once the city's loaded. Until then (and as a fallback) a straight 120 m, a 90°
- * right-hand bend of 140 m radius and a 30 m run in.
+ * A city's own road from where it takes over (art/build-city2.py City2.RoadPath and on: its centreline every 2 m, in
+ * the city's local frame, Blender's: x along the road in, y to its left), to the bike's spot in its plaza; and its way
+ * out. Set by the city's loader (components/three/zone-city.tsx) once it's loaded. Until the chrome city's in (and as a
+ * fallback) its road is a straight 120 m, a 90° right-hand bend of 140 m radius and a 30 m run in.
  */
-let path: { x: Float32Array; y: Float32Array; step: number; length: number } | null = null;
-export function setCityPath(points: number[][] | number[], step: number, length: number) {
-  const flat = (points as (number | number[])[]).flat() as number[];
-  const n = flat.length / 2;
-  const x = new Float32Array(n);
-  const y = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    x[i] = flat[2 * i];
-    y[i] = flat[2 * i + 1];
-  }
-  path = { x, y, step, length };
-  slicks = null;
+export function setZonePaths(
+  k: number,
+  data: { in?: { points: number[][]; step?: number; length: number }; out?: { points: number[][]; step?: number; length: number } }
+) {
+  const leg = course.legs[k];
+  if (data.in) leg.in = makePath(data.in.points, data.in.step ?? 2, data.in.length);
+  if (data.out) leg.out = makePath(data.out.points, data.out.step ?? 2, data.out.length);
+  slicks.delete(k);
 }
 const FALLBACK = { straight: 120, radius: 140, tail: 30 };
-export const cityRoadLength = () => path?.length ?? FALLBACK.straight + (Math.PI / 2) * FALLBACK.radius + FALLBACK.tail;
-/** Where along the second city's road u metres in is: local x, y and heading (radians, anticlockwise from +x). */
-export function cityRoadAt(u: number) {
-  if (path) {
-    const { x, y, step } = path;
-    const last = x.length - 1;
-    const at = (v: number) => {
-      const f = Math.min(Math.max(v / step, 0), last);
-      const i = Math.min(Math.floor(f), last - 1);
-      const t = f - i;
-      return [x[i] + (x[i + 1] - x[i]) * t, y[i] + (y[i + 1] - y[i]) * t];
-    };
-    const [px, py] = at(u);
-    // (Heading from points a few metres either side, not the 2 m segment underfoot: that turned in steps, a jolt to the
-    // bike, and the camera riding on it, every segment.)
-    const [ax, ay] = at(u - 4);
-    const [bx, by] = at(u + 4);
-    return { x: px, y: py, heading: Math.atan2(by - ay, bx - ax) };
-  }
+function fallbackPath(): Path {
   const { straight, radius, tail } = FALLBACK;
+  const points: number[][] = [];
   const arc = (Math.PI / 2) * radius;
-  if (u <= straight) return { x: u, y: 0, heading: 0 };
-  if (u <= straight + arc) {
-    const a = (u - straight) / radius;
-    return { x: straight + radius * Math.sin(a), y: -radius * (1 - Math.cos(a)), heading: -a };
+  const length = straight + arc + tail;
+  for (let u = 0; u <= length; u += 2) {
+    if (u <= straight) points.push([u, 0]);
+    else if (u <= straight + arc) {
+      const a = (u - straight) / radius;
+      points.push([straight + radius * Math.sin(a), -radius * (1 - Math.cos(a))]);
+    } else points.push([straight + radius, -radius - (u - straight - arc)]);
   }
-  return { x: straight + radius, y: -radius - Math.min(tail, u - straight - arc), heading: -Math.PI / 2 };
+  return makePath(points, 2, length);
 }
-/** How sharply the road turns u metres in (radians per metre, positive to the left), over a few metres either side. */
+const fallback = fallbackPath();
+/** A zone's road in (the chrome city's fallback until one's loaded). */
+export const zoneRoad = (k: number) => course.legs[k].in ?? fallback;
+/** The chrome city's road in: its length, where along it u metres in is, how sharply it turns there. */
+export const cityRoadLength = () => zoneRoad(1).length;
+export const cityRoadAt = (u: number) => pathAt(zoneRoad(1), u);
 export function cityRoadCurve(u: number) {
   const d = cityRoadAt(u + 6).heading - cityRoadAt(u - 6).heading;
   return Math.atan2(Math.sin(d), Math.cos(d)) / 12;
 }
-/** How far the road runs straight on from where it takes over (m): the lagoon straight. */
-export function cityRoadStraight() {
+/** How far a zone's road runs straight on from where it takes over (m). */
+export function zoneRoadStraight(k: number) {
+  const p = zoneRoad(k);
   let u = 0;
-  while (u < cityRoadLength() && Math.abs(cityRoadAt(u).heading) < 1e-3) u += 2;
+  while (u < p.length && Math.abs(pathAt(p, u).heading) < 1e-3) u += 2;
   return u;
 }
+export const cityRoadStraight = () => zoneRoadStraight(1);
 
 /**
  * The second city's arrival shot (art/build-city2.py City2.ArrivalCam, fitted to concept-chrome-city with the bike at the
@@ -148,24 +153,26 @@ export function cityRoadStraight() {
 export const ARRIVAL = { eye: [617.7743, 0.5002, 169.5642], look: [627.1305, 1.9546, 172.7805], fov: 50.635 } as const;
 
 /**
- * Slicks of black ooze on the second city's road, thickening toward the plaza (the billboard's ooze has run): placed by
- * a hash along the road's last stretch, each an ellipse (along and across the road, m) with a height. Riding through one
- * the bike slows, as through muck (components/three/ride.tsx), and rides up on it.
+ * Slicks of black ooze on a city's road, thickening toward its plaza (the ooze has run): placed by a hash along the
+ * road's last stretch, each an ellipse (along and across the road, m) with a height. Riding through one the bike slows,
+ * as through muck (components/three/ride.tsx), and rides up on it. In the zones that ooze (the chrome city, the hive).
  */
-let slicks: Slick[] | null = null;
+export const MUCKY = [false, true, true, false];
+const slicks = new Map<number, Slick[]>();
 export type Slick = { u: number; across: number; along: number; wide: number; height: number; turn: number };
-export function muckSlicks() {
-  if (slicks) return slicks;
-  const end = cityRoadLength();
+export function muckSlicks(k = 1) {
+  const known = slicks.get(k);
+  if (known) return known;
+  const end = zoneRoad(k).length;
   const hash = (i: number, n: number) => {
-    const h = Math.sin(i * 127.1 + n * 311.7) * 43758.5453;
+    const h = Math.sin(i * 127.1 + n * 311.7 + k * 17.3) * 43758.5453;
     return h - Math.floor(h);
   };
-  slicks = [];
+  const list: Slick[] = [];
   for (let i = 0; i < 28; i++) {
     // Denser toward the end: squared spacing back from the bike's spot.
     const u = end - 6 - hash(i, 1) ** 1.8 * 240;
-    slicks.push({
+    list.push({
       u,
       across: (hash(i, 2) - 0.5) * 8,
       along: 1.2 + hash(i, 3) * 3.4,
@@ -174,12 +181,14 @@ export function muckSlicks() {
       turn: (hash(i, 6) - 0.5) * 1.2,
     });
   }
-  return slicks;
+  slicks.set(k, list);
+  return list;
 }
-/** How high the ooze is under the bike u metres along the second city's road (on its line): 0 off any slick. */
-export function muckUnder(u: number) {
+/** How high the ooze is under the bike u metres along zone k's road in (on its line): 0 off any slick. */
+export function muckUnder(u: number, k = 1) {
+  if (!MUCKY[k] || u < 0 || u > inLength(course.legs[k]) + 1) return 0;
   let h = 0;
-  for (const s of muckSlicks()) {
+  for (const s of muckSlicks(k)) {
     const a = (u - s.u) / s.along;
     const c = s.across / s.wide;
     const r = a * a + c * c;
@@ -190,7 +199,7 @@ export function muckUnder(u: number) {
 
 /** How far ahead of the bike the second city's road is placed when the change begins (m): the approach. */
 export const TRANSITION_LEAD = 320;
-/** Seconds for the chrome seam to sweep the bike. */
+/** Seconds for the morph's seam to sweep the bike. */
 export const CHROME_SECONDS = 2.6;
 /**
  * The change to the second city (and the bike's morph with it) waits for the city to load, and for at least this long
@@ -204,7 +213,7 @@ export const MORPH_AFTER = 12;
  */
 export const pastFirstCity = () => {
   const tr = ride.transition;
-  return tr.placed && tr.t >= 1 && ride.chrome.at >= 1 && ride.drive.s - tr.at > 260;
+  return ride.zone > 1 || (tr.placed && tr.t >= 1 && ride.morph.to >= 1 && ride.morph.at >= 1 && ride.drive.s - tr.at > 260);
 };
 
 /** The wash's timing (s): coming in, holding over the swap, draining away. */
@@ -227,9 +236,26 @@ export const CRUISE = 32;
 export const SURGE = 1.1;
 export const ACCEL = 7;
 export const BRAKE = 14;
-/** The slingshot at full draw: how much faster than cruising it launches, and how long the kick lasts (s). */
-export const LAUNCH = 2.2;
+/** The slingshot: how long its kick lasts (s). */
 export const LAUNCH_SECONDS = 3.2;
+/**
+ * The heartbeat: the heart's period at rest (s) and how much quicker it beats fully pumped, how much each tap on the
+ * beat pumps it, how far off the beat a tap still counts (s), and how fast the pump ebbs without them (per s).
+ */
+export const HEART = { period: 0.82, quicken: 0.3, pump: 0.22, window: 0.17, ebb: 0.09 };
+/** Which zones' bikes have loaded (components/three/bike.tsx): the morph into one waits for it. */
+export const bikeReady = [true, false, false, false];
+/** The zone the bike's in now: the one it's heading for once that's mostly come in, else the one before. */
+export const zoneHere = () => (ride.transition.placed && ride.transition.t > 0.5 ? ride.zone : ride.zone - 1);
+// (Dev: ?feature=surge|heartbeat|slingshot puts that feature on the throttle everywhere, to try it.)
+const devFeature =
+  process.env.NODE_ENV === 'development' && typeof window !== 'undefined'
+    ? (new URLSearchParams(window.location.search).get('feature') as Feature | null)
+    : null;
+/** The throttle's feature where the bike is now (lib/course.ts ZONES). */
+export const featureHere = (): Feature => devFeature ?? ZONES[Math.max(0, zoneHere())].feature;
+/** How much the feature here adds at full strength (as a share of cruising). */
+export const boostHere = () => (ZONES.find((z) => z.feature === featureHere()) ?? ZONES[0]).boost;
 
 /**
  * The road the bike rides along (components/three/drive.tsx works it out from the city's City.DeckTop marker): its

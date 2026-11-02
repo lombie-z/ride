@@ -1,19 +1,33 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ride } from '@/lib/ride';
+import { course, inLength, ZONES } from '@/lib/course';
+import { featureHere, HEART, ride } from '@/lib/ride';
 
 // The hit area for the glowing button on the bike (drawn in the canvas, components/three/ride.tsx): a real, invisible
 // <button> kept over it each frame, so it's clickable, focusable and announced. From the landing it covers the whole
 // bike, and clicking gets on: the camera glides to the rider's eye and the page stops scrolling. On the bike it's the
-// throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; pressing and holding
-// it (or Space) surges it on; dragging it back, down the screen toward the rider, draws it back along its track like a
-// slingshot, and letting go launches the bike; clicking again or scrolling back brakes. There's no getting off by scrolling (easy to do
+// throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or
+// scrolling back brakes. Each zone after the green city adds its own feature to it (lib/course.ts ZONES): in the chrome
+// city pressing and holding it (or Space) surges the bike on; in the hive, tapping it on the heart's beat pumps it on,
+// harder beat by beat; in the desert, dragging it back, down the screen toward the rider (or holding Space), draws it
+// back along its track like a slingshot, and letting go launches the bike. There's no getting off by scrolling (easy to do
 // by accident while finding the controls): the way back is on the map, once in the chrome city (ride.request.back, from
 // the map's green city, components/three/holomap.tsx).
+/** The throttle's feature in the zone the bike's in. */
+const feature = () => featureHere();
+// The hive's heartbeat: a tap on the beat pumps it on, one off it knocks some of the pump off.
+const beatTap = () => {
+  const d = ride.drive;
+  const period = HEART.period - HEART.quicken * d.pump;
+  const off = Math.min(d.phase, 1 - d.phase) * period;
+  d.taps += off < HEART.window || !d.cruise ? 1 : -1;
+};
+
 export function RideButton() {
   const button = useRef<HTMLButtonElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
+  const onButton = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
   const held = useRef(false);
   const holdTimer = useRef(0);
@@ -23,6 +37,7 @@ export function RideButton() {
     window.clearTimeout(holdTimer.current);
     ride.drive.boosting = false;
   };
+
   // Let go of a draw: far enough back, it launches (as hard as it was drawn); not, it just slides home.
   const letGo = (launch: boolean) => {
     const drive = ride.drive;
@@ -65,13 +80,21 @@ export function RideButton() {
         el.style.width = `${Math.max(x1, x + pad) - left}px`;
         el.style.height = `${Math.max(y1, y + pad) - top}px`;
         el.style.visibility = shown ? 'visible' : 'hidden';
-        const b = backButton.current;
-        if (b) {
-          const { x: bx, y: by, w, h, shown: open } = ride.mapBack;
-          b.style.transform = `translate(${bx}px, ${by}px)`;
-          b.style.width = `${w}px`;
-          b.style.height = `${h}px`;
-          b.style.visibility = open ? 'visible' : 'hidden';
+        for (const [b, r] of [
+          [backButton.current, ride.mapBack],
+          [onButton.current, ride.mapOn],
+        ] as const) {
+          if (!b) continue;
+          b.style.transform = `translate(${r.x}px, ${r.y}px)`;
+          b.style.width = `${r.w}px`;
+          b.style.height = `${r.h}px`;
+          b.style.visibility = r.shown ? 'visible' : 'hidden';
+        }
+        const on = onButton.current;
+        const next = ZONES[ride.zone + 1];
+        if (on && next && on.dataset.zone !== next.id) {
+          on.dataset.zone = next.id;
+          on.setAttribute('aria-label', `Ride on to the next place`);
         }
         // The map's way back: ride back to the green city (the wash, back at the landing).
         if (ride.request.back) {
@@ -105,14 +128,31 @@ export function RideButton() {
     const back = () => {
       drive.cruise = false;
     };
+    // (Space, held, draws the slingshot back over a moment.)
+    let drawing = 0;
     const key = (e: KeyboardEvent) => {
-      // (Dev: c previews the second city's chrome morph.)
-      if (process.env.NODE_ENV === 'development' && e.key === 'c') ride.chrome.want = 1 - ride.chrome.want;
+      if (process.env.NODE_ENV === 'development') {
+        // (Dev: j jumps to a little short of the plaza ahead; n rides on from one, as the map's next place does.)
+        const leg = course.legs[ride.zone];
+        if (e.key === 'j' && ride.transition.placed && leg.in) ride.drive.s = Math.max(ride.drive.s, leg.at + inLength(leg) - 250);
+        if (e.key === 'n') ride.request.on = true;
+      }
       if (e.key === ' ') {
-        // (Space, held, surges it on too.)
+        // Space is the throttle's feature: it surges, beats, draws back.
         e.preventDefault();
-        ride.drive.cruise = true;
-        ride.drive.boosting = true;
+        if (e.repeat) return;
+        const f = feature();
+        if (f === 'surge') {
+          ride.drive.cruise = true;
+          ride.drive.boosting = true;
+        } else if (f === 'heartbeat') beatTap();
+        else if (f === 'slingshot') {
+          const from = performance.now();
+          window.clearInterval(drawing);
+          drawing = window.setInterval(() => {
+            ride.drive.pull = Math.min(1, (performance.now() - from) / 900);
+          }, 16);
+        } else go();
       } else if (e.key === 'ArrowUp' || e.key === 'w') go();
       else if (e.key === 'ArrowDown' || e.key === 's') back();
     };
@@ -140,7 +180,14 @@ export function RideButton() {
       else back();
     };
     const keyUp = (e: KeyboardEvent) => {
-      if (e.key === ' ') ride.drive.boosting = false;
+      if (e.key !== ' ') return;
+      ride.drive.boosting = false;
+      if (drawing) {
+        window.clearInterval(drawing);
+        drawing = 0;
+        if (ride.drive.pull > 0.12) ride.drive.release = ride.drive.pull;
+        ride.drive.pull = 0;
+      }
     };
     window.addEventListener('keydown', key);
     window.addEventListener('keyup', keyUp);
@@ -151,6 +198,7 @@ export function RideButton() {
       root.style.overflow = '';
       window.removeEventListener('keydown', key);
       window.removeEventListener('keyup', keyUp);
+      window.clearInterval(drawing);
       ride.drive.boosting = false;
       window.removeEventListener('wheel', wheel);
       window.removeEventListener('touchstart', touchStart);
@@ -168,6 +216,8 @@ export function RideButton() {
           if (!mounted) setMounted(true);
           // (A long press was a surge, not a tap: it leaves the ride going.)
           else if (held.current) held.current = false;
+          // (In the hive, a tap is a beat: it doesn't stop the bike.)
+          else if (feature() === 'heartbeat') beatTap();
           else ride.drive.cruise = !ride.drive.cruise;
         }}
         // On the bike, pressing and holding the button surges it on (riding on first if it was stopped).
@@ -177,6 +227,7 @@ export function RideButton() {
           // (Kept on the button while it's dragged off it.)
           e.currentTarget.setPointerCapture(e.pointerId);
           window.clearTimeout(holdTimer.current);
+          if (feature() !== 'surge') return;
           holdTimer.current = window.setTimeout(() => {
             held.current = true;
             ride.drive.cruise = true;
@@ -188,7 +239,7 @@ export function RideButton() {
           const p = press.current;
           if (!p) return;
           const back = e.clientY - p.y;
-          if (!p.dragging && back > 8 && back > Math.abs(e.clientX - p.x)) {
+          if (!p.dragging && feature() === 'slingshot' && back > 8 && back > Math.abs(e.clientX - p.x)) {
             p.dragging = true;
             // (A drag, not a tap or a held surge.)
             held.current = true;
@@ -230,6 +281,28 @@ export function RideButton() {
           ride.mapBack.hover = 0;
         }}
         className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#7dff6a]"
+      />
+      {/* Over the map's next place, in its fog: ride on there. */}
+      <button
+        ref={onButton}
+        type="button"
+        aria-label="Ride on to the next place"
+        onClick={() => {
+          ride.request.on = true;
+        }}
+        onPointerEnter={() => {
+          ride.mapOn.hover = 1;
+        }}
+        onPointerLeave={() => {
+          ride.mapOn.hover = 0;
+        }}
+        onFocus={() => {
+          ride.mapOn.hover = 1;
+        }}
+        onBlur={() => {
+          ride.mapOn.hover = 0;
+        }}
+        className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[#ffd27a]"
       />
     </div>
   );

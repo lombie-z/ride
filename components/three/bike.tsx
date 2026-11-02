@@ -19,18 +19,17 @@ import {
   Scene,
   type SpotLight,
   type Texture,
-  Vector3,
   type WebGLRenderer,
 } from 'three';
+import { courseAt, courseCurve, ZONES } from '@/lib/course';
 import { belowVisible, journey, smoothstep } from '@/lib/journey';
-import { anchors, CRUISE, cityRoadAt, cityRoadCurve, muckUnder, ride, road } from '@/lib/ride';
+import { anchors, bikeReady, CRUISE, featureHere, muckUnder, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { dashDisplay } from './dash';
 import { RideControl, RideHalo, RideStreaks } from './ride';
 import { BLACK_TANK, CHROME_TANK, throttleTrack } from './throttle-track';
 
-const URL = '/models/bike.glb';
-const URL2 = '/models/bike2.glb';
+const URL = ZONES[0].bike;
 // Where it parks on the deck (art/build-city.py BIKE_AT, BIKE_YAW, fitted to the concept's framing; Blender's (x, y, z) is
 // three's (x, z, -y)).
 export const AT = [-35.9138, -11, 38.0126] as const;
@@ -65,10 +64,6 @@ function nightEnvMap(gl: WebGLRenderer) {
   return night;
 }
 
-// (Leaning about its own length, after turning: yaw first.)
-const UP = new Vector3(0, 1, 0);
-const cityLocal = new Vector3();
-
 let sunset: Texture | null = null;
 /** What the chrome bike reflects in the second city: a pink-violet sky, a low sun, white towers. */
 export function sunsetEnvMap(gl: WebGLRenderer) {
@@ -96,64 +91,66 @@ export function sunsetEnvMap(gl: WebGLRenderer) {
   return sunset;
 }
 
-// The chrome morph (lib/ride.ts ride.chrome): a seam of light sweeps the bike from its nose to its tail. Ahead of it
-// is the black biotech bike, behind it the liquid-chrome one (art/build-bike2.py, the same frame and anchors), each
-// cut away where the other shows; until the chrome bike's loaded, the black one's own materials turn to chrome behind
-// the seam instead. Measured along the bike (its own x, from the world through the inverse of where it's ridden), so
-// it holds however it moves.
-const chromeUniforms = {
-  uChromeEdge: { value: 2 },
-  uWorldToBike: { value: new Matrix4() },
-  uSeam: { value: 0 },
-  // 1 once the chrome bike's in: the black bike is cut away behind the seam rather than recoloured.
-  uSwap: { value: 0 },
-};
+// The morph (lib/ride.ts ride.morph): a seam of light sweeps the bike from its nose to its tail, into the next zone's
+// bike. Ahead of it is the new bike, behind it the old (each zone's built in the same frame and anchors: art/build-
+// bike2.py and on), each cut away where the other shows; until the chrome bike's loaded, the black one's own materials
+// turn to chrome behind the seam instead. Measured along the bike (its own x, from the world through the inverse of
+// where it's ridden), so it holds however it moves.
+const shared = { uWorldToBike: { value: new Matrix4() }, uSeamColour: { value: new Color(0.85, 0.75, 1.0) } };
+/** Each bike's say in the morph: where the seam is, which side of it the bike shows (1 ahead, -1 behind, 0 all of it). */
+const morphUniforms = ZONES.map(() => ({ uEdge: { value: 2 }, uSide: { value: 0 }, uSeam: { value: 0 }, uSwap: { value: 1 } }));
 const CHROME_REACH = 1.45; // m either side of the bike's middle the seam starts and ends
-type MorphKind = 'body' | 'glow' | 'plain' | 'chrome';
-function morphable(material: Material & MeshPhysicalMaterial, kind: MorphKind) {
+// Each zone's seam: the colour of the light it sweeps with.
+const SEAM = [new Color(0.6, 1.0, 0.5), new Color(0.85, 0.75, 1.0), new Color(1.0, 0.7, 0.4), new Color(0.55, 1.0, 0.35)];
+type MorphKind = 'body' | 'glow' | 'plain';
+function morphable(material: Material & MeshPhysicalMaterial, kind: MorphKind, bike: number) {
+  const own = morphUniforms[bike];
   material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, chromeUniforms);
+    Object.assign(shader.uniforms, shared, own);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform mat4 uWorldToBike;\nvarying float vBikeX;')
       .replace('#include <project_vertex>', '#include <project_vertex>\nvBikeX = (uWorldToBike * modelMatrix * vec4(transformed, 1.0)).x;');
+    // (Only the black bike recolours itself, while the chrome one's still loading.)
     const recolour =
-      kind === 'glow'
-        ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.32, 0.12, 0.45), chromed);'
-        : kind === 'body'
-          ? `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.96, 1.0), chromed);
+      bike !== 0
+        ? ''
+        : kind === 'glow'
+          ? 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.32, 0.12, 0.45), chromed);'
+          : kind === 'body'
+            ? `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.97, 0.96, 1.0), chromed);
 metalnessFactor = mix(metalnessFactor, 1.0, chromed);
 roughnessFactor = mix(roughnessFactor, 0.04, chromed);`
-          : '';
+            : '';
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `#include <common>
-uniform float uChromeEdge;
+uniform float uEdge;
+uniform float uSide;
 uniform float uSeam;
 uniform float uSwap;
+uniform vec3 uSeamColour;
 varying float vBikeX;`
       )
       .replace(
         '#include <metalnessmap_fragment>',
         `#include <metalnessmap_fragment>
-float chromed = smoothstep(uChromeEdge - 0.04, uChromeEdge + 0.04, vBikeX);
-${
-  kind === 'chrome'
-    ? '// The chrome bike: only behind the seam.\nif (vBikeX < uChromeEdge) discard;'
-    : `// The black bike: cut away behind the seam once the chrome one's there, else turned to chrome.
-if (uSwap > 0.5 && vBikeX > uChromeEdge) discard;
-${recolour.replace(/chromed\)/g, 'chromed * (1.0 - uSwap))')}`
-}`
+// The bike it's becoming shows only ahead of the seam; the one it's been, only behind it (or, before the new one's in,
+// all of it, turning behind the seam).
+if (uSide > 0.5 && vBikeX < uEdge) discard;
+if (uSide < -0.5 && uSwap > 0.5 && vBikeX > uEdge) discard;
+float chromed = smoothstep(uEdge - 0.04, uEdge + 0.04, vBikeX) * step(uSide, -0.5) * (1.0 - uSwap);
+${recolour}`
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
-${kind === 'glow' ? 'totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.33))) * vec3(0.8, 0.42, 1.3), chromed * (1.0 - uSwap));' : ''}
+${kind === 'glow' && bike === 0 ? 'totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.33))) * vec3(0.8, 0.42, 1.3), chromed);' : ''}
 // The seam itself: a bright band of light where the change is happening.
-totalEmissiveRadiance += vec3(0.85, 0.75, 1.0) * exp(-abs(vBikeX - uChromeEdge) * 38.0) * 4.0 * uSeam;`
+totalEmissiveRadiance += uSeamColour * exp(-abs(vBikeX - uEdge) * 38.0) * 4.0 * uSeam;`
       );
   };
-  material.customProgramCacheKey = () => `bike-morph-${kind}`;
+  material.customProgramCacheKey = () => `bike-morph-${bike}-${kind}`;
 }
 
 /** The track's glow: the colour of the button's own light (a fallback if it hasn't one). */
@@ -166,9 +163,32 @@ function trackColour(scene: Object3D, material: string, fallback: string) {
   return found?.emissive && found.emissive.getHex() !== 0 ? found.emissive.clone() : new Color(fallback);
 }
 
-/** The liquid-chrome bike (art/build-bike2.py), revealed behind the morph's seam; its heart beats once it's arrived. */
-function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] }; black: Object3D }) {
-  const { scene } = useGLTF(URL2, DRACO_PATH);
+/** Whether zone k's bike is drawn: the one it is or is becoming, the one it's been while the seam sweeps it. */
+function bikeShown(k: number) {
+  const m = ride.morph;
+  // (Until the chrome bike's loaded, the black one stands in for it, turned to chrome.)
+  if (k === 0 && m.to === 1 && !bikeReady[1]) return true;
+  return k === m.to || (k === m.from && m.from !== m.to);
+}
+/** How much of zone k's bike shows (for its throttle track's glow): all of it, none, or its share of the morph. */
+function bikeShare(k: number) {
+  const m = ride.morph;
+  if (m.from === m.to) return k === m.to ? 1 : 0;
+  return k === m.to ? m.at : k === m.from ? 1 - m.at : 0;
+}
+/** The throttle's track shows only where the slingshot is the zone's feature. */
+const trackShown = () => (featureHere() === 'slingshot' ? 1 : 0);
+
+// Each zone's bike's lit parts, by their name's ending.
+const BIKE_GLOWS: Record<string, number> = { Vein: 2.2, Led: 7, Tail: 4, Fluid: 3, Tube: 2.5 };
+
+/**
+ * A later zone's bike (art/build-bike2.py and on: the chrome bike, the bone bike, the desert's), revealed behind the
+ * morph's seam; the chrome one's heart beats once it's arrived.
+ */
+function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; buttonMaterials: { current: MeshStandardMaterial[] } }) {
+  const { scene } = useGLTF(ZONES[k].bike, DRACO_PATH);
+  const P = `Bike${k + 1}`;
   const dash = useMemo(dashDisplay, []);
   const parts = useRef<{ heart: Object3D | null; arteries: Object3D | null; front: Object3D | null; rear: Object3D | null }>({
     heart: null,
@@ -182,20 +202,20 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
       const mesh = child as Mesh;
       if (!mesh.isMesh) return;
       const m = mesh.material as Material & MeshPhysicalMaterial;
+      const kind = m.name.startsWith(P) ? m.name.slice(P.length) : m.name;
       m.envMap = env;
-      m.envMapIntensity = 1.5;
+      m.envMapIntensity = k === 1 ? 1.5 : 1.1;
       m.roughness = Math.max(m.roughness, 0.05);
-      if (m.name === 'Bike2Glass' || m.name === 'Bike2Smoke') {
+      if (kind === 'Glass' || kind === 'Smoke') {
         m.depthWrite = false;
         // (Plain see-through glass, not transmission: any transmissive material makes three render the whole scene
         // again every frame, to refract it, and at this size the refraction can't be seen.)
         m.transmission = 0;
         m.transparent = true;
-        m.opacity = m.name === 'Bike2Glass' ? 0.28 : 0.55;
+        m.opacity = kind === 'Glass' ? 0.3 : 0.55;
       }
-      const glowing: Record<string, number> = { Bike2Vein: 2.2, Bike2Led: 7, Bike2Tail: 4 };
       // The dash shows the speed and the logo (components/three/dash.ts).
-      if (m.name === 'Bike2Dash') {
+      if (kind === 'Dash') {
         m.map = dash.texture;
         m.emissiveMap = dash.texture;
         m.emissive.setRGB(1, 1, 1);
@@ -203,54 +223,54 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
         m.color.setRGB(1, 1, 1);
         m.toneMapped = false;
       }
-      if (m.name in glowing) {
-        m.emissiveIntensity = glowing[m.name];
+      if (kind in BIKE_GLOWS) {
+        m.emissiveIntensity = BIKE_GLOWS[kind];
         m.toneMapped = false;
       }
       // Its button takes over as the throttle's: lit by components/three/ride.tsx with the black bike's.
-      if (m.name === 'Bike2Button' || m.name === 'Bike2ButtonGlyph') {
+      if (kind === 'Button' || kind === 'ButtonGlyph') {
         m.emissiveIntensity = 0;
         m.toneMapped = false;
         if (!mine.includes(m)) mine.push(m);
       }
-      morphable(m, 'chrome');
-      mesh.castShadow = m.name !== 'Bike2Glass' && m.name !== 'Bike2Smoke';
+      morphable(m, 'plain', k);
+      mesh.castShadow = kind !== 'Glass' && kind !== 'Smoke';
       mesh.receiveShadow = true;
       m.needsUpdate = true;
     });
     buttonMaterials.current = [...buttonMaterials.current, ...mine];
     parts.current = {
-      heart: scene.getObjectByName('Bike2Heart') ?? null,
-      arteries: scene.getObjectByName('Bike2Arteries') ?? null,
-      front: scene.getObjectByName('Wheel2Front') ?? null,
-      rear: scene.getObjectByName('Wheel2Rear') ?? null,
+      heart: scene.getObjectByName(`${P}Heart`) ?? null,
+      arteries: scene.getObjectByName(`${P}Arteries`) ?? null,
+      front: scene.getObjectByName(`Wheel${k + 1}Front`) ?? null,
+      rear: scene.getObjectByName(`Wheel${k + 1}Rear`) ?? null,
     };
-    chromeUniforms.uSwap.value = 1;
+    bikeReady[k] = true;
     return () => {
-      chromeUniforms.uSwap.value = 0;
-      // (The black bike back on: without the chrome one there's nothing else to show.)
-      black.visible = true;
+      bikeReady[k] = false;
       buttonMaterials.current = buttonMaterials.current.filter((m) => !mine.includes(m));
     };
-  }, [scene, env, buttonMaterials, black, dash]);
+  }, [scene, env, buttonMaterials, dash, k, P]);
 
-  // Its throttle on its own track (components/three/throttle-track.ts).
+  // Its throttle on its own track (components/three/throttle-track.ts), on its tank's own profile where it carries one.
   const track = useRef<ReturnType<typeof throttleTrack>>(null);
   useEffect(() => {
-    const t = throttleTrack(scene, ['Bike2Button', 'Bike2ButtonGlyph'], trackColour(scene, 'Bike2ButtonGlyph', '#d8c4ff'), CHROME_TANK);
+    const d = scene.getObjectByName('ButtonCentre')?.userData as { TRACK_D?: number[]; TRACK_CENTRE?: number[]; TRACK_SIDE?: number[] } | undefined;
+    const profile =
+      d?.TRACK_D && d.TRACK_CENTRE && d.TRACK_SIDE ? { d: d.TRACK_D, centre: d.TRACK_CENTRE, side: d.TRACK_SIDE } : k === 1 ? CHROME_TANK : BLACK_TANK;
+    const t = throttleTrack(scene, [`${P}Button`, `${P}ButtonGlyph`], trackColour(scene, `${P}ButtonGlyph`, '#ffb070'), profile);
     track.current = t;
     return () => {
       t?.dispose();
       track.current = null;
     };
-  }, [scene]);
+  }, [scene, k, P]);
 
   const last = useRef(0);
   useFrame((state) => {
-    track.current?.set(ride.drive.draw, ride.mount * ride.appear * ride.chrome.at, state.clock.elapsedTime);
-    scene.visible = ride.chrome.at > 0.001;
-    // (The black bike, wholly cut away by now, isn't drawn.)
-    black.visible = ride.chrome.at < 0.999;
+    scene.visible = bikeShown(k);
+    track.current?.set(ride.drive.draw, ride.mount * ride.appear * bikeShare(k) * trackShown(), state.clock.elapsedTime);
+    if (!scene.visible) return;
     const { front, rear, heart, arteries } = parts.current;
     const ds = ride.drive.s - last.current;
     last.current = ride.drive.s;
@@ -269,15 +289,26 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
   return <primitive object={scene} />;
 }
 
-/** Loads the chrome bike once the visitor's on the black one, as the second city does (components/three/city-two.tsx). */
-function ChromeBikeLoader(props: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] }; black: Object3D }) {
+/**
+ * Loads a zone's bike as its city does (components/three/zone-city.tsx): the chrome one once the visitor's on the black
+ * one, each after once the ride's heading for the zone before it.
+ */
+function ZoneBikeLoader(props: { k: number; env: Texture; buttonMaterials: { current: MeshStandardMaterial[] } }) {
   const [go, setGo] = useState(false);
+  const asked = useRef(false);
   useFrame(() => {
-    if (!go && ride.mount > 0.5) setGo(true);
+    if (asked.current || ride.mount < 0.5) return;
+    const { k } = props;
+    if (!(k === 1 || ride.zone > k - 1 || (ride.zone === k - 1 && ride.transition.placed))) return;
+    asked.current = true;
+    // (If it's been built: the file's checked for first.)
+    fetch(ZONES[k].bike, { method: 'HEAD' })
+      .then((r) => r.ok && setGo(true))
+      .catch(() => {});
   });
   return go ? (
     <Suspense fallback={null}>
-      <ChromeBike {...props} />
+      <ZoneBike {...props} />
     </Suspense>
   ) : null;
 }
@@ -332,7 +363,8 @@ export function Bike() {
           ? 'plain'
           : m.name === 'BikeGlow' || m.name === 'BikeEye' || m.name === 'BikeRibGlass'
             ? 'glow'
-            : 'body'
+            : 'body',
+        0
       );
       // The ride button and its lettering: lit by components/three/ride.tsx, dark until the streaks arrive.
       if (m.name === 'BikeButton' || m.name === 'BikeButtonGlyph') {
@@ -382,8 +414,9 @@ export function Bike() {
   // (Before the camera, -1, which rides on the bike: otherwise it trails a frame behind it.)
   useFrame((state) => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
-    // (The track shows once seated: it's the throttle's.)
-    track.current?.set(ride.drive.draw, ride.mount * ride.appear * (1 - ride.chrome.at), state.clock.elapsedTime);
+    scene.visible = bikeShown(0);
+    // (The track shows once seated, where it's the throttle's.)
+    track.current?.set(ride.drive.draw, ride.mount * ride.appear * bikeShare(0) * trackShown(), state.clock.elapsedTime);
     const { s, speed } = ride.drive;
     const pace = Math.min(1, speed / CRUISE);
     // The ribs breathe, slowly; brighter and quicker as it goes.
@@ -392,19 +425,17 @@ export function Bike() {
     // Riding: down the road from its spot, turning the last degree or two to run true along it, the wheels rolling.
     const b = ridden.current;
     if (b) {
-      const tr = ride.transition;
-      if (tr.placed && s > tr.at) {
-        // On the second city's own road: along it from where it takes over (its local x along the road in, y left).
-        const p = cityRoadAt(s - tr.at);
-        cityLocal.set(p.x, 0, -p.y).applyAxisAngle(UP, road.yaw);
-        b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, tr.at).add(cityLocal);
+      const p = courseAt(s);
+      if (p) {
+        // On a city's own road: along it from where it takes over (lib/course.ts), on out of its plaza and into the next.
+        b.position.set(p.x, AT[1], p.z);
         // (Riding up over the slicks of ooze: eased, the suspension taking the edge off.)
-        rise.current += (muckUnder(s - tr.at) - rise.current) * 0.12;
+        rise.current += (muckUnder(p.u, p.k) - rise.current) * 0.12;
         b.position.y += rise.current;
-        b.rotation.y = road.yaw + p.heading;
+        b.rotation.y = p.yaw;
         // Leaning into the bend as it takes it.
         // (Into a right-hand bend it leans right: its +x roll, as the yaw is applied first.)
-        const lean = -Math.atan((speed * speed * cityRoadCurve(s - tr.at)) / 9.8);
+        const lean = -Math.atan((speed * speed * courseCurve(s)) / 9.8);
         b.rotation.x += (Math.max(-0.5, Math.min(0.5, lean)) - b.rotation.x) * 0.08;
       } else {
         b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, s);
@@ -415,29 +446,41 @@ export function Bike() {
       last.current = s;
       if (wheels.current.front) wheels.current.front.rotation.z -= ds / 0.315;
       if (wheels.current.rear) wheels.current.rear.rotation.z -= ds / 0.325;
-      // The chrome morph: where its seam is along the bike, and what the bike reflects once it's mostly chrome.
+      // The morph: where its seam is along the bike, which bike shows which side of it, and what the bike reflects
+      // once it's mostly chrome.
       b.updateMatrixWorld();
-      chromeUniforms.uWorldToBike.value.copy(b.matrixWorld).invert();
-      const at = ride.chrome.at;
-      chromeUniforms.uChromeEdge.value = CHROME_REACH - 2 * CHROME_REACH * at;
-      chromeUniforms.uSeam.value = at > 0.001 && at < 0.999 ? 1 : 0;
-      const wanted = at > 0.5 ? envSunset : env;
+      shared.uWorldToBike.value.copy(b.matrixWorld).invert();
+      const m = ride.morph;
+      const moving = m.from !== m.to;
+      const fallback = m.to === 1 && !bikeReady[1];
+      shared.uSeamColour.value.copy(SEAM[m.to]);
+      morphUniforms.forEach((u, k) => {
+        u.uEdge.value = CHROME_REACH - 2 * CHROME_REACH * m.at;
+        u.uSeam.value = moving && m.at > 0.001 && m.at < 0.999 ? 1 : 0;
+        u.uSide.value = k === 0 && fallback ? -1 : !moving ? 0 : k === m.to ? 1 : k === m.from ? -1 : 0;
+      });
+      morphUniforms[0].uSwap.value = fallback ? 0 : 1;
+      const dusk = ride.zone > 1 || (m.to >= 1 && m.at > 0.5);
+      const wanted = dusk ? envSunset : env;
       if (reflecting.current !== wanted) {
         reflecting.current = wanted;
-        for (const m of materials.current) m.envMap = wanted;
+        for (const mat of materials.current) mat.envMap = wanted;
       }
     }
     // Its own headlight on the road ahead once it's moving.
     // (Off in the second city's sunset, where its pool on the mirror road read as a glowing blob.)
     if (headlight.current)
-      headlight.current.intensity = 240 * Math.min(1, speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (1 - smoothstep(0.3, 0.65, ride.transition.t));
+      headlight.current.intensity =
+        240 * Math.min(1, speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (ride.zone > 1 ? 0 : 1 - smoothstep(0.3, 0.65, ride.transition.t));
   }, -2);
 
   return (
     <group ref={group} visible={false}>
       <group ref={ridden} position={AT} rotation={[0, YAW, 0, 'YXZ']}>
         <primitive object={scene} />
-        <ChromeBikeLoader env={envSunset} buttonMaterials={buttonMaterials} black={scene} />
+        {ZONES.slice(1).map((z, i) => (
+          <ZoneBikeLoader key={z.id} k={i + 1} env={envSunset} buttonMaterials={buttonMaterials} />
+        ))}
         <spotLight ref={headlight} position={[0.95, 0.72, 0]} angle={0.42} penumbra={0.7} distance={60} decay={1.1} intensity={0} color="#e8ffd8" />
         <object3D ref={headlightAim} position={[24, -1.2, 0]} />
       </group>

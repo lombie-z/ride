@@ -63,7 +63,6 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 }`;
 
 const NIGHT = { shadow: new Vector3(0.95, 1.02, 0.99), mid: new Vector3(0.97, 1.02, 0.98), highlight: new Vector3(1.0, 1.02, 0.95) };
-const DUSK_TONE = { shadow: new Vector3(0.98, 0.9, 1.08), mid: new Vector3(1.04, 0.97, 1.0), highlight: new Vector3(1.06, 0.98, 0.9) };
 
 export class GradeEffect extends Effect {
   constructor() {
@@ -99,12 +98,13 @@ export class GradeEffect extends Effect {
   }
 
   /** Blends the night's green-cold tones toward the second city's warm sunset (0 to 1). */
-  setDusk(t: number) {
+  /** From the green city's night toward a city's tones (lib/look.ts), by t. */
+  setDusk(t: number, tone: { shadow: Vector3; mid: Vector3; highlight: Vector3 }, saturation: number) {
     const v = (name: string) => (this.uniforms.get(name) as Uniform<Vector3>).value;
-    v('shadowTint').lerpVectors(NIGHT.shadow, DUSK_TONE.shadow, t);
-    v('midTint').lerpVectors(NIGHT.mid, DUSK_TONE.mid, t);
-    v('highlightTint').lerpVectors(NIGHT.highlight, DUSK_TONE.highlight, t);
-    (this.uniforms.get('saturation') as Uniform<number>).value = 0.82 + (1.2 - 0.82) * t;
+    v('shadowTint').lerpVectors(NIGHT.shadow, tone.shadow, t);
+    v('midTint').lerpVectors(NIGHT.mid, tone.mid, t);
+    v('highlightTint').lerpVectors(NIGHT.highlight, tone.highlight, t);
+    (this.uniforms.get('saturation') as Uniform<number>).value = 0.82 + (saturation - 0.82) * t;
   }
 
   set glow(value: number) {

@@ -4,9 +4,9 @@ import { PerspectiveCamera } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
 import { PerspectiveCamera as Looker, MathUtils, type PerspectiveCamera as PerspectiveCameraImpl, Quaternion, Vector3 } from 'three';
-import { AT } from '@/components/three/bike';
+import { course, type Shot } from '@/lib/course';
 import { BEATS, heroStageSize, journey, journeyProgress, landingAt, PRE_ROLL, TRACK_FRAMES } from '@/lib/journey';
-import { ARRIVAL, anchors, CRUISE, ride, road } from '@/lib/ride';
+import { ARRIVAL, anchors, CRUISE, ride } from '@/lib/ride';
 
 // The hero matches the blog's biome view (and the Blender preview camera): three-quarter, 3.7 units across the stage.
 // A long lens from far away stands in for the blog's orthographic camera, so the journey can widen it.
@@ -165,32 +165,34 @@ export function JourneyCamera() {
       if (fire > 0.01) cam.position.y += fire * 0.012 * (Math.sin(t * 53) + 0.7 * Math.sin(t * 89));
       cam.filmOffset *= 1 - e;
     }
-    // Pulled up in the second city: the camera eases off the bike to the arrival shot.
+    // Pulled up in a city: the camera eases off the bike to its arrival shot.
     const tr = ride.transition;
     // (And when the map comes up, back onto the bike: the hands hold it up in the rider's view.)
     const shot = tr.arrive * (1 - MathUtils.smoothstep(tr.map, 0, 0.4));
+    const leg = course.legs[ride.zone];
     if (tr.placed && shot > 0) {
       const a = shot * shot * shot * (shot * (shot * 6 - 15) + 10);
-      cityOrigin.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, tr.at);
+      const fitted: Shot = leg.shot ?? { eye: [...ARRIVAL.eye], look: [...ARRIVAL.look], fov: ARRIVAL.fov };
+      cityOrigin.copy(leg.origin);
       arrivalEye
-        .set(...ARRIVAL.eye)
-        .applyAxisAngle(Y_AXIS, road.yaw)
+        .set(...fitted.eye)
+        .applyAxisAngle(Y_AXIS, leg.yaw)
         .add(cityOrigin);
       arrivalLook
-        .set(...ARRIVAL.look)
-        .applyAxisAngle(Y_AXIS, road.yaw)
+        .set(...fitted.look)
+        .applyAxisAngle(Y_AXIS, leg.yaw)
         .add(cityOrigin);
       looker.position.copy(arrivalEye);
       looker.up.set(0, 1, 0);
       looker.lookAt(arrivalLook);
       cam.position.lerp(arrivalEye, a);
       cam.quaternion.slerp(looker.quaternion, a);
-      cam.fov = MathUtils.lerp(cam.fov, ARRIVAL.fov, a);
+      cam.fov = MathUtils.lerp(cam.fov, fitted.fov, a);
     }
     // (Close in on the bike, the near plane has to be too, however far the ride has gone from the planter.)
     cam.near = ride.mount > 0 ? 0.04 : Math.max(0.03, cam.position.distanceTo(HERO_TARGET) * 0.002);
-    // (Further once the second city's out there: its sun stands kilometres off.)
-    cam.far = ride.transition.placed ? 4500 : 2000;
+    // (Further once the cities are out there: their suns stand kilometres off.)
+    cam.far = ride.transition.placed || ride.zone > 1 ? 6000 : 2000;
     cam.updateProjectionMatrix();
     if (process.env.NODE_ENV === 'development') (window as unknown as { __journeyCamera?: unknown }).__journeyCamera = cam;
   }, -1);

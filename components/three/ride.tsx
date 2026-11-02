@@ -16,26 +16,30 @@ import {
   SpriteMaterial,
   Vector3,
 } from 'three';
+import { course, courseCurve, inLength, legIndexAt, outLength, placeAfter, resetCourse, ZONES } from '@/lib/course';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
+import { updateLook } from '@/lib/look';
 import {
   ACCEL,
   anchors,
   BRAKE,
+  bikeReady,
+  boostHere,
   CHROME_SECONDS,
-  CRUISE,
-  cityRoadCurve,
-  cityRoadLength,
-  LAUNCH,
+  featureHere,
+  HEART,
   LAUNCH_SECONDS,
   MORPH_AFTER,
   muckUnder,
   ride,
+  road,
   SETTLED_FRAME,
-  SURGE,
   TRANSITION_LEAD,
   WASH,
   WASH_FROM,
+  zoneHere,
 } from '@/lib/ride';
+import { AT } from './bike';
 
 // The ride button's entrance: once the camera has settled on the landing, streaks of light fly in from all round the
 // bike and converge between the handlebars, where the button lights (components/three/bike.tsx gives it its glow from
@@ -151,7 +155,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       const glyph = m.name.endsWith('ButtonGlyph');
       if (!m.userData.light) m.userData.light = m.emissive.clone();
       m.emissive.copy(m.userData.light).lerp(HOT, 0.85 * heat);
-      m.emissiveIntensity = ride.appear * (glyph ? 1.8 + 5 * ride.near : 0.2 + 1.4 * ride.near) * boost * (1 + 1.5 * drive.draw + 2 * drive.fire);
+      // (In the hive it beats with the heart, the beat to tap on.)
+      const beating = featureHere() === 'heartbeat' ? 1 + 1.6 * drive.beat : 1;
+      m.emissiveIntensity = ride.appear * (glyph ? 1.8 + 5 * ride.near : 0.2 + 1.4 * ride.near) * boost * (1 + 1.5 * drive.draw + 2 * drive.fire) * beating;
     }
 
     // Getting on: an eased glide there and back.
@@ -160,58 +166,81 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     const washing = ride.wash >= 0 && ride.wash < WASH.in;
     if (!washing) ride.mount = goal > ride.mount ? Math.min(goal, ride.mount + dt / MOUNT_SECONDS) : Math.max(goal, ride.mount - dt / MOUNT_SECONDS);
 
-    // Riding on (this runs before the bike moves and the camera follows: components/three/bike.tsx): up to cruising speed (plus any boost from scrolling) once it's told to go, braking to a stop when not.
+    // Riding on (this runs before the bike moves and the camera follows: components/three/bike.tsx): up to cruising
+    // speed (plus any boost from scrolling) once it's told to go, braking to a stop when not. Each zone has its own
+    // cruising speed and its own feature on the throttle (lib/course.ts ZONES), pushing it on far faster.
+    const tr = ride.transition;
+    const _here = zoneHere();
+    const feature = featureHere();
     if (ride.mounted) {
       drive.rewindFrom = -1;
-      // Holding the throttle button surges it on, easing in and out.
-      drive.surge += ((drive.boosting && drive.cruise ? 1 : 0) - drive.surge) * Math.min(1, dt * (drive.boosting ? 1.6 : 2.4));
-      // The slingshot: the button drawn back along its track (it snaps home fast when let go); let go, the bike's flung
-      // on, the kick running down over a few seconds.
+      // The chrome city's surge: holding the throttle down, easing in and out.
+      const surging = drive.boosting && drive.cruise && feature === 'surge';
+      drive.surge += ((surging ? 1 : 0) - drive.surge) * Math.min(1, dt * (surging ? 1.6 : 2.4));
+      // The desert's slingshot: the button drawn back along its track (it snaps home fast when let go); let go, the
+      // bike's flung on, the kick running down over a few seconds.
+      if (feature !== 'slingshot') drive.pull = 0;
       drive.draw += (drive.pull - drive.draw) * Math.min(1, dt * (drive.pull > drive.draw ? 16 : 30));
       if (drive.release > 0) {
         drive.launch = Math.max(drive.launch, drive.release);
-        drive.speed += 30 * drive.release;
+        drive.speed += 40 * drive.release;
         drive.cruise = true;
         drive.release = 0;
       }
       drive.launch = Math.max(0, drive.launch - dt / LAUNCH_SECONDS);
       drive.fire += (Math.min(1, drive.launch * 1.5) - drive.fire) * Math.min(1, dt * (drive.launch * 1.5 > drive.fire ? 14 : 3));
-      let want = ride.mount > 0.95 && drive.cruise ? CRUISE * (1 + SURGE * drive.surge + LAUNCH * drive.launch) + drive.boost : 0;
+      // The hive's heartbeat: the heart beats on (quicker as it's pumped); each tap on the beat pumps the bike on harder,
+      // beat by beat, a miss knocks some off, and with no taps it ebbs away.
+      drive.phase = (drive.phase + dt / (HEART.period - HEART.quicken * drive.pump)) % 1;
+      drive.beat =
+        Math.exp(-((drive.phase / 0.06) ** 2)) + 0.6 * Math.exp(-(((drive.phase - 0.28) / 0.07) ** 2)) + Math.exp(-(((drive.phase - 1) / 0.06) ** 2));
+      if (feature === 'heartbeat' && drive.taps !== 0) {
+        drive.pump = drive.taps > 0 ? Math.min(1, drive.pump + HEART.pump * drive.taps) : drive.pump * 0.7;
+        drive.cruise = true;
+      }
+      drive.taps = 0;
+      drive.pump = Math.max(0, drive.pump - dt * (feature === 'heartbeat' ? HEART.ebb : 1));
+      const kick = feature === 'surge' ? drive.surge : feature === 'heartbeat' ? drive.pump : feature === 'slingshot' ? drive.launch : 0;
+      // (Cruising speed changes with the zone, over the change between them.)
+      const cruise = ZONES[Math.max(0, ride.zone - 1)].cruise + (ZONES[ride.zone].cruise - ZONES[Math.max(0, ride.zone - 1)].cruise) * tr.t;
+      let want = ride.mount > 0.95 && drive.cruise ? cruise * (1 + boostHere() * kick) + drive.boost : 0;
       // (Drawn back, it holds back a little, like a bow.)
       want *= 1 - 0.35 * drive.draw;
-      // In the second city, the ride slows to pull up at the end of its road, the bike's spot there.
-      const tr = ride.transition;
+      // In a city, the ride slows to pull up at the end of its road, the bike's spot there (until the visitor rides on).
+      const leg = course.legs[ride.zone];
+      const stop = tr.placed ? leg.at + inLength(leg) : Number.POSITIVE_INFINITY;
       if (tr.placed) {
-        const left = tr.at + cityRoadLength() - drive.s;
+        const left = stop - drive.s;
         want = Math.min(want, Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)));
         // Through a slick of ooze it bogs down, as in muck.
-        if (drive.s > tr.at && muckUnder(drive.s - tr.at) > 0.01) {
+        const k = legIndexAt(drive.s);
+        if (k > 0 && muckUnder(drive.s - course.legs[k].at, k) > 0.01) {
           want = Math.min(want, MUCK_SPEED);
           if (drive.speed > MUCK_SPEED) drive.speed = Math.max(MUCK_SPEED, drive.speed - MUCK_DRAG * dt);
         }
         // (And takes the bends at a speed it can lean into, about 25° over: looking a little ahead for the next.)
-        if (drive.s > tr.at - 60) {
+        if (drive.s > course.legs[1].at - 60) {
           let curve = 0;
-          for (let ahead = 0; ahead <= 60; ahead += 10) curve = Math.max(curve, Math.abs(cityRoadCurve(drive.s - tr.at + ahead)));
-          // (Surging or launched, it leans harder and takes them faster.)
-          const kick = Math.max(drive.surge, drive.launch);
+          for (let ahead = 0; ahead <= 60 + drive.speed; ahead += 10) curve = Math.max(curve, Math.abs(courseCurve(drive.s + ahead)));
+          // (With the zone's feature going, it leans harder and takes them faster.)
           if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * kick)) / curve) * (1 + 0.5 * kick));
         }
-        if (left < 0.6 && drive.speed < 0.4 && !tr.arrived) {
+        // (Only once its road's known: a zone still loading holds the ride at the end of the last one's way out.)
+        if (left < 0.6 && drive.speed < 0.4 && !tr.arrived && leg.in) {
           tr.arrived = true;
           drive.cruise = false;
         }
       }
-      drive.speed = want > drive.speed ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch) * dt) : Math.max(want, drive.speed - BRAKE * dt);
-      drive.s += drive.speed * dt;
-      if (tr.placed) drive.s = Math.min(drive.s, tr.at + cityRoadLength());
+      drive.speed =
+        want > drive.speed ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump) * dt) : Math.max(want, drive.speed - BRAKE * dt);
+      drive.s = Math.min(drive.s + drive.speed * dt, stop);
       if (drive.speed > 0.5) drive.time += dt;
     } else {
       drive.cruise = false;
       drive.speed = 0;
       drive.boosting = false;
       drive.surge = 0;
-      Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0 });
+      Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0, taps: 0, pump: 0 });
       if (ride.wash < 0 && drive.s > WASH_FROM) ride.wash = 0;
       if (ride.wash >= 0) {
         // Getting off after a ride: the liquid wash, everything put back once it covers the screen.
@@ -222,11 +251,12 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           drive.rewindFrom = -1;
           ride.mount = 0;
           // (Back at the landing, the bike's its black self again.)
-          ride.chrome.want = 0;
-          ride.chrome.at = 0;
+          Object.assign(ride.morph, { from: 0, to: 0, at: 0 });
           drive.time = 0;
-          // (And the second city's gone again: the next ride makes its way there afresh.)
-          Object.assign(ride.transition, { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0, held: 0, map: 0 });
+          // (And the cities are gone again: the next ride makes its way there afresh.)
+          resetCourse();
+          ride.zone = 1;
+          Object.assign(tr, { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0, held: 0, map: 0 });
         }
         if (ride.wash > WASH.in + WASH.hold + WASH.out) ride.wash = -1;
       } else if (drive.s > 0) {
@@ -239,14 +269,34 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       }
     }
     drive.boost = Math.max(0, drive.boost - dt * 5);
-    // The change to the second city: once it's loaded and the ride's been going a while, it's placed a stretch down the
-    // road ahead, the sky turns from green night to sunset as the bike nears it, and the bike's chrome morph runs.
-    const tr = ride.transition;
-    if (!tr.placed && ride.secondCity.ready && ride.mounted && drive.time > MORPH_AFTER) {
+    // The change to the chrome city: once it's loaded and the ride's been going a while, it's placed a stretch down
+    // the street ahead, the sky turns from green night to its sunset as the bike nears it, and the bike's morph runs.
+    const first = course.legs[1];
+    if (ride.zone === 1 && !first.placed && first.ready && ride.mounted && drive.time > MORPH_AFTER) {
+      first.at = drive.s + TRANSITION_LEAD;
+      first.origin.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, first.at);
+      first.yaw = road.yaw;
+      first.placed = true;
       tr.placed = true;
-      tr.at = drive.s + TRANSITION_LEAD;
+      tr.at = first.at;
     }
-    tr.t = tr.placed ? smoothstep(tr.at - TRANSITION_LEAD, tr.at + 160, drive.s) : 0;
+    // Riding on from a city's plaza (picked on the map): the next zone is placed where its way out ends, and the ride
+    // heads there, the sky changing over the way out.
+    if (ride.request.on) {
+      ride.request.on = false;
+      const next = ride.zone + 1;
+      if (tr.arrived && next < ZONES.length && placeAfter(next)) {
+        ride.zone = next;
+        Object.assign(tr, { placed: true, at: course.legs[next].at, t: 0, arrived: false, arrive: 0, held: 0, map: 0 });
+        drive.cruise = true;
+      }
+    }
+    const before = course.legs[ride.zone - 1];
+    tr.t = !tr.placed
+      ? 0
+      : ride.zone === 1
+        ? smoothstep(tr.at - TRANSITION_LEAD, tr.at + 160, drive.s)
+        : smoothstep(tr.at - 0.75 * outLength(before), tr.at + 200, drive.s);
     // The towers by the water sink away and the train's beam rises in their place, over a few seconds.
     tr.clear = tr.placed ? Math.min(1, tr.clear + dt / CLEAR_SECONDS) : 0;
     tr.arrive = tr.arrived && ride.mounted ? Math.min(1, tr.arrive + dt / 3.2) : Math.max(0, tr.arrive - dt / 1.2);
@@ -264,10 +314,18 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // A few seconds on the arrival shot, then the map: back on the bike, the hands come up with it.
     tr.held = tr.arrive >= 1 ? tr.held + dt : 0;
     tr.map = tr.arrived && ride.mounted ? Math.min(1, Math.max(tr.map, (tr.held - MAP_AFTER) / MAP_SECONDS)) : Math.max(0, tr.map - dt / 0.8);
-    const c = ride.chrome;
-    // (Once the sunset is coming in, so the chrome bike arrives with its light.)
-    if (tr.placed && ride.mounted && tr.t > 0.3) c.want = 1;
-    c.at = c.want > c.at ? Math.min(c.want, c.at + dt / CHROME_SECONDS) : Math.max(c.want, c.at - dt / CHROME_SECONDS);
+    // The bike's morph into the zone's own: once its sky's coming in, so the bike arrives with its light. (The chrome
+    // one can start before its bike's loaded: the black one turns to chrome itself until it is; the others wait.)
+    const m = ride.morph;
+    if (tr.placed && ride.mounted && tr.t > 0.3 && m.from === m.to && m.to !== ride.zone && (ride.zone === 1 || bikeReady[ride.zone])) {
+      Object.assign(m, { from: m.to, to: ride.zone, at: 0 });
+    }
+    if (m.from !== m.to) {
+      m.at = Math.min(1, m.at + dt / CHROME_SECONDS);
+      if (m.at >= 1) m.from = m.to;
+    }
+    // The light now, from the zones' looks.
+    updateLook();
     drive.away = smoothstep(20, 260, drive.s);
   });
 

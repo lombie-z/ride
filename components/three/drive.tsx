@@ -4,6 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import { BoxGeometry, Color, ConeGeometry, type Group, InstancedMesh, type Material, MeshStandardMaterial, Object3D, Quaternion, Vector3 } from 'three';
+import { course } from '@/lib/course';
 import { isLightDevice } from '@/lib/journey';
 import { ride, road } from '@/lib/ride';
 import { AT } from './bike';
@@ -185,7 +186,8 @@ export function DriveStreet() {
     const g = group.current;
     if (!g) return;
     // Only once on the bike: it's out of the landing's view, and costs nothing until then.
-    g.visible = road.known && (ride.mount > 0.01 || ride.drive.s > 0);
+    // (And gone once the ride's left the chrome city behind: it's kilometres back by then.)
+    g.visible = road.known && (ride.mount > 0.01 || ride.drive.s > 0) && ride.zone <= 1;
     if (!g.visible) return;
     // Rebuild the instances whenever the first tile in range changes (every TILE metres of riding).
     const past = ride.drive.s - road.end;
@@ -195,9 +197,10 @@ export function DriveStreet() {
     const first = seated ? Math.floor(-road.end / TILE) - 1 : Math.max(0, Math.floor((past - BEHIND) / TILE));
     const from = Math.max(first, Math.floor((past - BEHIND) / TILE));
     const tr = ride.transition;
+    const chrome = course.legs[1];
     // (Rebuilt every frame while the towers by the water are sinking away.)
     const sinking = tr.placed && tr.clear < 1;
-    const key = from * 4 + (seated ? 1 : 0) + (tr.placed ? 2 : 0);
+    const key = from * 4 + (seated ? 1 : 0) + (chrome.placed ? 2 : 0);
     if (key === last.current && !sinking) return;
     last.current = key;
 
@@ -214,7 +217,7 @@ export function DriveStreet() {
 
     const half = SLAB.width / 2;
     // Where the second city's road takes over (as a distance past the deck's end), once it's placed.
-    const cityAt = tr.placed ? tr.at - road.end : Number.POSITIVE_INFINITY;
+    const cityAt = chrome.placed ? chrome.at - road.end : Number.POSITIVE_INFINITY;
     for (let k = from; k < from + tiles; k++) {
       const a = (k + 0.5) * TILE;
       // The street ends where the second city's road begins.

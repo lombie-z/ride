@@ -9,13 +9,13 @@ import { ride } from '@/lib/ride';
 import { Bike } from './bike';
 import { Biome } from './biome';
 import { City } from './city';
-import { CityTwoLoader } from './city-two';
 import { DriveStreet } from './drive';
 import { Effects } from './effects';
 import { HoloMap } from './holomap';
 import { JourneyCamera } from './journey-camera';
 import { Sky } from './sky';
 import { Weather } from './weather';
+import { ZoneCityLoader } from './zone-city';
 
 /** Download progress (0-100) of the model and decoder, for the loading overlay. */
 function Progress({ onProgress }: { onProgress: (progress: number) => void }) {
@@ -139,7 +139,9 @@ export default function JourneyCanvas({ onReady, onProgress }: { onReady: () => 
         {!flag('noweather') && <Weather />}
         {!flag('nobike') && <Bike />}
         {!flag('nodrive') && <DriveStreet />}
-        <CityTwoLoader />
+        <ZoneCityLoader k={1} />
+        <ZoneCityLoader k={2} />
+        <ZoneCityLoader k={3} />
         <HoloMap />
       </Suspense>
       {flag('nofx') ? <Render /> : <Effects sun={null} pixel={pixel} />}

@@ -14,28 +14,45 @@ import {
   PlaneGeometry,
   ShaderMaterial,
   SRGBColorSpace,
+  Vector2,
   Vector3,
 } from 'three';
+import { course, ZONES } from '@/lib/course';
 import { smoothstep } from '@/lib/journey';
 import { ride } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 
-// Pulled up in the chrome city, after the arrival shot, the camera's back on the bike and the rider's gloved hands
-// come up into view (art/build-hands.py, hands.glb, carried by the camera) holding a slim projector, from which a
-// see-through hologram map opens out: the route back to the green city, the chrome city where you are, and a road on to
-// a question mark. Paced by ride.transition.map (components/three/ride.tsx).
+// Pulled up in a city, after the arrival shot, the camera's back on the bike and the rider's gloved hands come up into
+// view (art/build-hands.py, hands.glb, carried by the camera) holding a slim projector, from which a see-through
+// hologram map opens out: the road back to the green city through every place passed, where you are, and the road on
+// into a haze of the next place's colours (to ride on there, picked on the map). Paced by ride.transition.map
+// (components/three/ride.tsx).
 
 const PANEL = { w: 0.38, h: 0.27 };
 const corner = new Vector3();
 
 /**
- * The map's drawing, as an SVG (glowing light on nothing: the hologram shader adds the scan lines and flicker). Abstract:
- * where you are is a glowing four-pointed star in that city's colours; where you've been, a smaller, dimmer one; where
- * the road goes next, the path fades out into a haze of the next place's colours. At the start, in the green city, the
- * next place is the chrome city (a pink, violet and cyan haze); arrived there, the next is unknown (gold and coral, a hint
- * of somewhere warmer).
+ * The places on the map, in its drawing's units (360 by 260), along a road winding up from the bottom left: the green
+ * city, the chrome city, the hive, the desert. Each with its star's colours and the colours of its haze, seen from the
+ * place before it.
  */
-function mapSvg(mode: 'start' | 'arrived') {
+const PLACES = [
+  { x: 60, y: 212, star: ['#3dff6a', '#b8ff9a'], haze: ['#3dff6a', '#1fb35a', '#b8ff9a'] },
+  { x: 150, y: 152, star: ['#ff7ad0', '#9feeff'], haze: ['#ff7ad0', '#8a7bff', '#5ff0ff'] },
+  { x: 236, y: 104, star: ['#ffb84d', '#ff8f9a'], haze: ['#ffb84d', '#ff6f61', '#ffe27a'] },
+  { x: 308, y: 50, star: ['#ffcf6a', '#8dff7a'], haze: ['#e8a14a', '#c9762e', '#8dff7a'] },
+];
+/** The road's curve between two places (a gentle S). */
+const leg = (a: (typeof PLACES)[number], b: (typeof PLACES)[number]) =>
+  `C${a.x + (b.x - a.x) * 0.45} ${a.y - 4}, ${a.x + (b.x - a.x) * 0.55} ${b.y + 8}, ${b.x} ${b.y}`;
+
+/**
+ * The map's drawing, as an SVG (glowing light on nothing: the hologram shader adds the scan lines and flicker). Abstract:
+ * where you are (`here`, a zone) is a glowing four-pointed star in that place's colours; where you've been, smaller,
+ * dimmer ones, the road back through them lit; where the road goes next, it fades out into a haze of the next place's
+ * colours. Nothing past that: it's unknown.
+ */
+function mapSvg(here: number) {
   const ink = '#7ff6ff';
   const star = (x: number, y: number, r: number, a: string, b: string, id: string, glow = 1) => `
   <g transform="translate(${x} ${y})">
@@ -57,12 +74,16 @@ function mapSvg(mode: 'start' | 'arrived') {
     <ellipse cx="4" cy="14" rx="34" ry="18" fill="${colours[2]}" opacity="0.26"/>
     <ellipse cx="0" cy="0" rx="58" ry="34" fill="#cfd2ff" opacity="0.12"/>
   </g>`;
+  const at = PLACES[here];
+  const next = PLACES[here + 1];
   const frame = `
   <defs>
     <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="0.8"/></filter>
     <filter id="fog" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="11"/></filter>
-    <linearGradient id="fadeOn" gradientUnits="userSpaceOnUse" x1="${mode === 'start' ? 76 : 206}" y1="0" x2="${mode === 'start' ? 300 : 316}" y2="0"><stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/><stop offset="0.55" stop-color="#ffffff" stop-opacity="0.6"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
-    <linearGradient id="trail" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#7dff6a"/><stop offset="1" stop-color="#ff8ad8"/></linearGradient>
+    <linearGradient id="fadeOn" gradientUnits="userSpaceOnUse" x1="${at.x + 10}" y1="0" x2="${next ? next.x + 8 : at.x + 60}" y2="0"><stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/><stop offset="0.55" stop-color="#ffffff" stop-opacity="0.6"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+    <linearGradient id="trail" gradientUnits="userSpaceOnUse" x1="${PLACES[0].x}" y1="0" x2="${at.x}" y2="0">${PLACES.slice(0, here + 1)
+      .map((p, i) => `<stop offset="${here ? i / here : 0}" stop-color="${p.star[0]}"/>`)
+      .join('')}</linearGradient>
   </defs>
   <path d="M10 10h22M10 10v22M350 10h-22M350 10v22M10 250h22M10 250v-22M350 250h-22M350 250v-22" stroke="${ink}" stroke-opacity="0.8" stroke-width="2" fill="none"/>
   ${Array.from({ length: 40 }, (_, i) => {
@@ -71,22 +92,28 @@ function mapSvg(mode: 'start' | 'arrived') {
     const g = Math.sin(i * 47.3) * 9631.7;
     return `<circle cx="${(20 + f * 320).toFixed(1)}" cy="${(20 + (g - Math.floor(g)) * 220).toFixed(1)}" r="${(0.5 + f * 0.9).toFixed(2)}" fill="${ink}" fill-opacity="${(0.25 + f * 0.4).toFixed(2)}"/>`;
   }).join('')}`;
-  if (mode === 'start')
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
-  ${fog(282, 80, ['#ff7ad0', '#8a7bff', '#5ff0ff'])}
-  <path d="M76 190 C130 176, 160 150, 205 124 S262 92, 300 72" fill="none" stroke="url(#fadeOn)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8"/>
-  ${star(72, 194, 24, '#3dff6a', '#b8ff9a', 'here')}
-</svg>`;
+  // The road travelled, lit, back to the green city; the road on, dotted, fading into the next place's haze.
+  const travelled = here
+    ? `<path d="M${PLACES[0].x} ${PLACES[0].y} ${PLACES.slice(1, here + 1)
+        .map((p, i) => leg(PLACES[i], p))
+        .join(' ')}" fill="none" stroke="url(#trail)" stroke-width="3" stroke-linecap="round" opacity="0.9"/>`
+    : '';
+  const on = next
+    ? `${fog(next.x, next.y, next.haze)}
+  <path d="M${at.x} ${at.y} ${leg(at, next)}" fill="none" stroke="url(#fadeOn)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8"/>`
+    : '';
+  const been = PLACES.slice(0, here)
+    .map((p, i) => star(p.x, p.y, i === 0 ? 13 : 11, p.star[0], p.star[1], `was${i}`, 0.55))
+    .join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 260" width="1024" height="740">${frame}
-  <path d="M62 212 C100 190, 120 160, 160 146 S186 140, 196 134" fill="none" stroke="url(#trail)" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
-  ${fog(300, 58, ['#ffb84d', '#ff6f61', '#ffe27a'])}
-  <path d="M206 124 C232 102, 250 92, 270 78 S300 56, 316 46" fill="none" stroke="url(#fadeOn)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="1.5 8"/>
-  ${star(60, 212, 13, '#3dff6a', '#b8ff9a', 'was', 0.55)}
-  ${star(198, 132, 24, '#ff7ad0', '#9feeff', 'here')}
+  ${travelled}
+  ${on}
+  ${been}
+  ${star(at.x, at.y, 24, at.star[0], at.star[1], 'here')}
 </svg>`;
 }
 
-function useMapTexture(mode: 'start' | 'arrived') {
+function useMapTexture(here: number) {
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
@@ -98,9 +125,9 @@ function useMapTexture(mode: 'start' | 'arrived') {
       (canvas.getContext('2d') as CanvasRenderingContext2D).drawImage(image, 0, 0, canvas.width, canvas.height);
       t.needsUpdate = true;
     };
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(mapSvg(mode))}`;
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(mapSvg(here))}`;
     return t;
-  }, [mode]);
+  }, [here]);
   useEffect(() => () => texture.dispose(), [texture]);
   return texture;
 }
@@ -108,7 +135,14 @@ function useMapTexture(mode: 'start' | 'arrived') {
 /** A see-through hologram: the map's light, scan lines rolling up it, flicker, brighter edges, a faint blue body. */
 function hologramMaterial(map: CanvasTexture) {
   return new ShaderMaterial({
-    uniforms: { uMap: { value: map }, uTime: { value: 0 }, uOpen: { value: 0 }, uBack: { value: 0 } },
+    uniforms: {
+      uMap: { value: map },
+      uTime: { value: 0 },
+      uOpen: { value: 0 },
+      uBack: { value: 0 },
+      uOn: { value: 0 },
+      uOnAt: { value: new Vector2(0.5, 0.5) },
+    },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
@@ -117,6 +151,8 @@ function hologramMaterial(map: CanvasTexture) {
       uniform float uTime;
       uniform float uOpen;
       uniform float uBack;
+      uniform float uOn;
+      uniform vec2 uOnAt;
       varying vec2 vUv;
       float hash(float n) { return fract(sin(n) * 43758.5453); }
       void main() {
@@ -138,6 +174,10 @@ function hologramMaterial(map: CanvasTexture) {
         vec2 g = (vUv - vec2(0.167, 0.185)) / vec2(0.08, 0.12);
         float back = (1.0 - smoothstep(0.7, 1.0, length(g))) * uBack;
         col += vec3(0.45, 1.0, 0.4) * back * (0.35 + 0.65 * c.a);
+        // The next place, ridden on to from its haze: lit the same way.
+        vec2 o = (vUv - uOnAt) / vec2(0.15, 0.2);
+        float on = (1.0 - smoothstep(0.6, 1.0, length(o))) * uOn;
+        col += vec3(1.0, 0.85, 0.55) * on * (0.25 + 0.75 * c.a);
         vec3 lightOut = (col * 1.6 * scan + body) * flicker * sweep;
         gl_FragColor = vec4(lightOut, 1.0);
         #include <colorspace_fragment>
@@ -175,9 +215,9 @@ export function HoloMap() {
   const rig = useRef<Group>(null);
   const holder = useRef<Group>(null);
   const panel = useRef<Mesh>(null);
-  const startMap = useMapTexture('start');
-  const arrivedMap = useMapTexture('arrived');
-  const material = useMemo(() => hologramMaterial(arrivedMap), [arrivedMap]);
+  // (One drawing for each place: where you are, there.)
+  const maps = [useMapTexture(0), useMapTexture(1), useMapTexture(2), useMapTexture(3)];
+  const material = useMemo(() => hologramMaterial(maps[0]), [maps[0]]);
   const geometry = useMemo(() => new PlaneGeometry(PANEL.w, PANEL.h), []);
   const [hands, setHands] = useState(false);
   const anchor = useRef<Object3D | null>(null);
@@ -201,12 +241,15 @@ export function HoloMap() {
     // Arrived in the chrome city, its map; otherwise the glance at the start, in the green city.
     const arrived = ride.transition.arrived;
     const m = arrived ? ride.transition.map : ride.preview;
-    material.uniforms.uMap.value = arrived ? arrivedMap : startMap;
+    const here = arrived ? ride.zone : 0;
+    material.uniforms.uMap.value = maps[here];
+    const next = PLACES[here + 1];
+    if (next) (material.uniforms.uOnAt.value as Vector2).set(next.x / 360, 1 - next.y / 260);
     const r = rig.current;
     if (!r) return;
     r.visible = m > 0.3;
     if (!r.visible) {
-      ride.mapBack.shown = false;
+      ride.mapBack.shown = ride.mapOn.shown = false;
       return;
     }
     // The hands come up from below (rotating up about a point at the chest), then the map opens out.
@@ -220,6 +263,10 @@ export function HoloMap() {
     material.uniforms.uTime.value = state.clock.elapsedTime;
     material.uniforms.uOpen.value = open;
     material.uniforms.uBack.value += ((ride.mapBack.hover ? 1 : 0.15 + 0.15 * Math.sin(state.clock.elapsedTime * 3)) - material.uniforms.uBack.value) * 0.15;
+    // (The next place breathes too, while it can be ridden on to: its city's way out is known.)
+    const onward = arrived && !!next && ZONES[here + 1] !== undefined && !!course.legs[here].end;
+    const onGlow = onward ? (ride.mapOn.hover ? 1 : 0.2 + 0.2 * Math.sin(state.clock.elapsedTime * 3 + 1.5)) : 0;
+    material.uniforms.uOn.value += (onGlow - material.uniforms.uOn.value) * 0.15;
     const p = panel.current;
     if (p) {
       p.visible = open > 0.001;
@@ -234,20 +281,20 @@ export function HoloMap() {
       } else p.position.set(0, -0.05, -0.62);
       p.rotation.set(-0.08, 0, 0);
       p.scale.set(0.25 + 0.75 * smoothstep(0, 0.4, open), Math.max(0.02, open), 1);
-      // Where the green city (the way back) is on screen, for the button over it.
-      const mb = ride.mapBack;
-      mb.shown = arrived && open > 0.95;
-      if (mb.shown) {
-        p.updateWorldMatrix(true, false);
+      // Where the green city (the way back) and the next place (on) are on screen, for the buttons over them.
+      p.updateWorldMatrix(true, false);
+      const onScreen = (target: typeof ride.mapBack, shown: boolean, u0: number, u1: number, v0: number, v1: number) => {
+        target.shown = shown;
+        if (!shown) return;
         let x0 = Number.POSITIVE_INFINITY;
         let y0 = Number.POSITIVE_INFINITY;
         let x1 = Number.NEGATIVE_INFINITY;
         let y1 = Number.NEGATIVE_INFINITY;
         for (const [u, v] of [
-          [0.09, 0.07],
-          [0.25, 0.07],
-          [0.09, 0.3],
-          [0.25, 0.3],
+          [u0, v0],
+          [u1, v0],
+          [u0, v1],
+          [u1, v1],
         ]) {
           corner.set((u - 0.5) * PANEL.w, (v - 0.5) * PANEL.h, 0);
           p.localToWorld(corner).project(state.camera);
@@ -258,8 +305,12 @@ export function HoloMap() {
           y0 = Math.min(y0, y);
           y1 = Math.max(y1, y);
         }
-        Object.assign(mb, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
-      }
+        Object.assign(target, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+      };
+      onScreen(ride.mapBack, arrived && open > 0.95, 0.09, 0.25, 0.07, 0.3);
+      const nu = next ? next.x / 360 : 0;
+      const nv = next ? 1 - next.y / 260 : 0;
+      onScreen(ride.mapOn, onward && open > 0.95, nu - 0.11, nu + 0.11, nv - 0.15, nv + 0.15);
     }
   });
 
