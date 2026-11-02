@@ -76,10 +76,18 @@ export function cityRoadAt(u: number) {
   if (path) {
     const { x, y, step } = path;
     const last = x.length - 1;
-    const f = Math.min(Math.max(u / step, 0), last);
-    const i = Math.min(Math.floor(f), last - 1);
-    const t = f - i;
-    return { x: x[i] + (x[i + 1] - x[i]) * t, y: y[i] + (y[i + 1] - y[i]) * t, heading: Math.atan2(y[i + 1] - y[i], x[i + 1] - x[i]) };
+    const at = (v: number) => {
+      const f = Math.min(Math.max(v / step, 0), last);
+      const i = Math.min(Math.floor(f), last - 1);
+      const t = f - i;
+      return [x[i] + (x[i + 1] - x[i]) * t, y[i] + (y[i + 1] - y[i]) * t];
+    };
+    const [px, py] = at(u);
+    // (Heading from points a few metres either side, not the 2 m segment underfoot: that turned in steps, a jolt to the
+    // bike, and the camera riding on it, every segment.)
+    const [ax, ay] = at(u - 4);
+    const [bx, by] = at(u + 4);
+    return { x: px, y: py, heading: Math.atan2(by - ay, bx - ax) };
   }
   const { straight, radius, tail } = FALLBACK;
   const arc = (Math.PI / 2) * radius;

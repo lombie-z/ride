@@ -349,6 +349,7 @@ export function Bike() {
   }, [scene, env]);
 
   const last = useRef(0);
+  const rise = useRef(0);
   // (Before the camera, -1, which rides on the bike: otherwise it trails a frame behind it.)
   useFrame((state) => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
@@ -366,8 +367,9 @@ export function Bike() {
         const p = cityRoadAt(s - tr.at);
         cityLocal.set(p.x, 0, -p.y).applyAxisAngle(UP, road.yaw);
         b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, tr.at).add(cityLocal);
-        // (Riding up over the slicks of ooze.)
-        b.position.y += muckUnder(s - tr.at);
+        // (Riding up over the slicks of ooze: eased, the suspension taking the edge off.)
+        rise.current += (muckUnder(s - tr.at) - rise.current) * 0.12;
+        b.position.y += rise.current;
         b.rotation.y = road.yaw + p.heading;
         // Leaning into the bend as it takes it.
         // (Into a right-hand bend it leans right: its +x roll, as the yaw is applied first.)
