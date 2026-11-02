@@ -84,8 +84,9 @@ export const LOOKS: (Look | null)[] = [
     top: new Color('#b8753e'),
     horizon: new Color('#f2c27a'),
     glow: new Color('#fff2c8').multiplyScalar(2.2),
-    cloudLit: new Color('#ffd8a0'),
-    cloudShade: new Color('#7a4a2a'),
+    // (Dust, not cloud: its clouds hardly show against the haze.)
+    cloudLit: new Color('#efc488'),
+    cloudShade: new Color('#d29a5e'),
     haze: new Color('#d9a061'),
     light: new Color('#fff0d0'),
     lightIntensity: 3.8,

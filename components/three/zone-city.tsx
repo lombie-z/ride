@@ -79,6 +79,13 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     scene.traverse((o) => {
       const m = (o as Mesh).material as Material | undefined;
       if (!(o as Mesh).isMesh || m?.name !== `${prefix}Sun`) return;
+      // (Its light's own direction where the city gives one, Blender's frame: a sun seen kilometres off over the
+      // horizon can still be a noon sun overhead.)
+      const own = (o.userData.SUN_LIGHT_DIR ?? o.parent?.userData.SUN_LIGHT_DIR) as number[] | undefined;
+      if (own) {
+        leg.sun = new Vector3(own[0], own[2], -own[1]).normalize();
+        return;
+      }
       const g = (o as Mesh).geometry;
       if (!g.boundingSphere) g.computeBoundingSphere();
       leg.sun = (g.boundingSphere as { center: Vector3 }).center.clone().applyMatrix4(o.matrixWorld).normalize();
