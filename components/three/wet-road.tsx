@@ -2,7 +2,7 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
-import { type Camera, Color, PlaneGeometry, Vector3 } from 'three';
+import { type Camera, Color, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER } from '@/lib/journey';
 import { ride, road as street } from '@/lib/ride';
@@ -92,6 +92,29 @@ const RoadShader = {
 /** Riding on: the travelling mirror's in charge of the wet road. */
 const riding = () => ride.mount > 0.5 && ride.drive.s > 1;
 
+/**
+ * A mirror's reflection is a whole second render of the scene. While the camera's still (the landing, mostly) it's
+ * refreshed only every third frame (what it shows changes slowly: the rain and mist aren't in it, its ripples are in the
+ * road's own shader); the moment the camera moves it's refreshed every frame.
+ */
+const AMORTISE_EVERY = 3;
+function amortise(mirror: Reflector) {
+  const render = mirror.onBeforeRender;
+  const seen = { position: new Vector3(), quaternion: new Quaternion(), fov: 0, tick: 0, primed: false };
+  mirror.onBeforeRender = function (renderer, scene, camera, geometry, material, group) {
+    const c = camera as PerspectiveCamera;
+    const moved =
+      !seen.primed || seen.position.distanceToSquared(c.position) > 1e-6 || 1 - Math.abs(seen.quaternion.dot(c.quaternion)) > 1e-8 || seen.fov !== c.fov;
+    seen.tick = (seen.tick + 1) % AMORTISE_EVERY;
+    if (!moved && seen.tick !== 0) return;
+    seen.position.copy(c.position);
+    seen.quaternion.copy(c.quaternion);
+    seen.fov = c.fov;
+    seen.primed = true;
+    render.call(this, renderer, scene, camera, geometry, material, group);
+  };
+}
+
 export type DeckPlacement = { position: readonly [number, number, number]; heading: number; length: number; width: number };
 
 export function WetRoad({ deck }: { deck: DeckPlacement }) {
@@ -107,6 +130,7 @@ export function WetRoad({ deck }: { deck: DeckPlacement }) {
     mirror.name = 'WetRoad';
     mirror.position.set(...deck.position);
     mirror.rotation.set(-Math.PI / 2, 0, deck.heading);
+    amortise(mirror);
     return mirror;
   }, [deck]);
   useEffect(() => () => road.dispose(), [road]);
