@@ -2,10 +2,11 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
-import { type Camera, Color, PlaneGeometry } from 'three';
+import { type Camera, Color, PlaneGeometry, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER } from '@/lib/journey';
 import { ride, road as street } from '@/lib/ride';
+import { AT } from './bike';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
 // up the way rain on asphalt does: sharp in the puddles, smeared into long streaks toward the camera on the wet tarmac
@@ -18,6 +19,10 @@ const RoadShader = {
     textureMatrix: { value: null },
     uTime: { value: 0 },
     uAsphalt: { value: new Color('#070908') },
+    // The bike's headlight on the road ahead (riding only): where it is, which way it points, how bright.
+    uLamp: { value: new Vector3() },
+    uLampDir: { value: new Vector3(1, 0, 0) },
+    uLampOn: { value: 0 },
   },
   vertexShader: /* glsl */ `
     uniform mat4 textureMatrix;
@@ -32,6 +37,9 @@ const RoadShader = {
     uniform sampler2D tDiffuse;
     uniform float uTime;
     uniform vec3 uAsphalt;
+    uniform vec3 uLamp;
+    uniform vec3 uLampDir;
+    uniform float uLampOn;
     varying vec4 vUv;
     varying vec3 vWorld;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -67,11 +75,22 @@ const RoadShader = {
       vec3 col = mix(uAsphalt, reflection, fresnel * mix(0.75, 1.0, puddle));
       // Grit: the dry crowns of the aggregate catch nothing.
       col *= mix(1.0, 0.75 + 0.25 * hash(floor(p * 40.0)), 1.0 - puddle);
+      // The headlight's pool: a cone widening down the road ahead of the bike, brightest in the puddles.
+      if (uLampOn > 0.0) {
+        vec2 d = vWorld.xz - uLamp.xz;
+        float along = dot(d, uLampDir.xz);
+        float side = dot(d, vec2(-uLampDir.z, uLampDir.x));
+        float pool = exp(-pow(side / (0.4 + along * 0.32), 2.0)) * smoothstep(1.0, 5.0, along) * exp(-along / 22.0);
+        col += vec3(0.75, 0.9, 0.7) * pool * uLampOn * mix(0.25, 0.6, puddle);
+      }
       gl_FragColor = vec4(col, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
     }`,
 };
+
+/** Riding on: the travelling mirror's in charge of the wet road. */
+const riding = () => ride.mount > 0.5 && ride.drive.s > 1;
 
 export type DeckPlacement = { position: readonly [number, number, number]; heading: number; length: number; width: number };
 
@@ -96,11 +115,51 @@ export function WetRoad({ deck }: { deck: DeckPlacement }) {
     (road.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
     // A mirror renders the whole scene again: only while the deck's actually in view (arriving at the landing, at it,
     // and riding along it), not on the way down or once the ride's left it behind.
-    road.visible = landingAt(journey.frame) > 0.15 && ride.drive.s < street.end + 25;
+    // (While riding, the mirror that travels with the bike takes over: RideMirror.)
+    road.visible = landingAt(journey.frame) > 0.15 && !riding();
     // Its camera is a clone of the main one, layers and all: leave out the rain and mist (a full redraw of each, for
     // nothing the ripples would show).
     (road as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
   });
 
   return <primitive object={road} />;
+}
+
+// The wet road down the endless street: a strip of the same mirror that travels with the bike, from a little behind it
+// to well ahead, along the road's centre line (its puddles and ripples are in world space, so they stay put on the road
+// as the strip slides along under them).
+const STRIP = { behind: 40, ahead: 420 };
+const ahead = new Vector3();
+export function RideMirror() {
+  const mirror = useMemo(() => {
+    const light = isLightDevice();
+    const m = new Reflector(new PlaneGeometry(STRIP.behind + STRIP.ahead, street.width - 1.1), {
+      textureWidth: light ? 384 : 768,
+      textureHeight: light ? 216 : 432,
+      clipBias: 0.003,
+      shader: RoadShader,
+    });
+    m.name = 'RideMirror';
+    m.visible = false;
+    return m;
+  }, []);
+  useEffect(() => () => mirror.dispose(), [mirror]);
+
+  useFrame((state) => {
+    mirror.visible = street.known && riding();
+    if (!mirror.visible) return;
+    (mirror.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
+    (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
+    // Centred on the road line, abreast of the bike (how far it is past the deck's end; negative while still on it).
+    const past = ride.drive.s - street.end;
+    ahead.copy(street.endCentre).addScaledVector(street.ahead, past + (STRIP.ahead - STRIP.behind) / 2);
+    mirror.position.set(ahead.x, -11 + 0.03, ahead.z);
+    mirror.rotation.set(-Math.PI / 2, 0, street.yaw);
+    const u = (mirror.material as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
+    (u.uLamp.value as Vector3).set(AT[0], AT[1], AT[2]).addScaledVector(street.ahead, ride.drive.s + 1);
+    (u.uLampDir.value as Vector3).copy(street.ahead);
+    u.uLampOn.value = Math.min(1, ride.drive.speed / 3 + (ride.drive.cruise ? 0.3 : 0));
+  });
+
+  return <primitive object={mirror} />;
 }

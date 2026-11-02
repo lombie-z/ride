@@ -9,6 +9,8 @@ import { ride, road } from '@/lib/ride';
 import { AT } from './bike';
 import { DRACO_PATH } from './biome';
 import { CITY_URL, WINDOW, WINDOW_WARM } from './city';
+import { weathered } from './weathered';
+import { RideMirror } from './wet-road';
 
 // The endless street the bike rides into: past the far end of the city's freeway deck, the road carries on in tiles that
 // are recycled ahead of the bike as it goes, each with its slab and pier, barriers and rails both sides, a lamp, and
@@ -130,8 +132,18 @@ export function DriveStreet() {
     };
     return {
       asphalt: make(box, new MeshStandardMaterial({ color: new Color(0.035, 0.04, 0.037), roughness: 0.32, metalness: 0.1 }), tiles, 'DriveAsphalt'),
-      concrete: make(box, new MeshStandardMaterial({ color: new Color(0.05, 0.055, 0.052), roughness: 0.9 }), tiles * 3 + 8, 'DriveConcrete'),
-      steel: make(box, new MeshStandardMaterial({ color: new Color(0.08, 0.085, 0.08), roughness: 0.4, metalness: 0.85 }), tiles * 3 + 8, 'DriveSteel'),
+      concrete: make(
+        box,
+        weathered(new MeshStandardMaterial({ color: new Color(0.09, 0.095, 0.09), roughness: 0.9 }), 'concrete'),
+        tiles * 3 + 8,
+        'DriveConcrete'
+      ),
+      steel: make(
+        box,
+        weathered(new MeshStandardMaterial({ color: new Color(0.1, 0.105, 0.1), roughness: 0.4, metalness: 0.85 }), 'steel'),
+        tiles * 3 + 8,
+        'DriveSteel'
+      ),
       lamps: make(
         box,
         new MeshStandardMaterial({ color: new Color(0.8, 1, 0.7), emissive: new Color(0.75, 1, 0.55), emissiveIntensity: 7, toneMapped: false }),
@@ -224,11 +236,14 @@ export function DriveStreet() {
   });
 
   return (
-    <group ref={group} visible={false}>
-      {Object.values(parts).map((mesh) => (
-        <primitive key={mesh.name} object={mesh} />
-      ))}
-    </group>
+    <>
+      <group ref={group} visible={false}>
+        {Object.values(parts).map((mesh) => (
+          <primitive key={mesh.name} object={mesh} />
+        ))}
+      </group>
+      <RideMirror />
+    </>
   );
 }
 

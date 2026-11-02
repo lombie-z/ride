@@ -56,7 +56,7 @@ def draw(strokes, value, im):
 # The sky is smooth and shades from blue-violet overhead to pink-orange at the sun. A reference colour per row is taken
 # from a clean strip of it (SKY_STRIPS), and sky = close to its row's colour (Lab) and untextured. Clouds and the flying
 # car (non-sky blobs that don't reach down into the city) are folded back into the sky. Below SKY_FLOOR it's all city.
-SKY_STRIPS = {(0, 200): (705, 785), (200, 330): (745, 770)}
+SKY_STRIPS = {(0, 200): (705, 785), (200, 280): (698, 716), (280, 330): (698, 716)}
 SKY_FLOOR = 330
 SKY_COLS = (400, 965)  # left of it the terraces fill the frame, right of it the billboard and its building
 
@@ -87,7 +87,8 @@ def sky_mask():
 
 
 def skyline_from(sky):
-    notsky = ~sky
+    # Towers are tall, cloud streaks are flat: keep only non-sky runs at least 15 px tall.
+    notsky = morphology.opening(~sky, np.ones((15, 1), bool))
     has = notsky.any(axis=0)
     return np.where(has, np.argmax(notsky, axis=0), H)
 
@@ -209,9 +210,14 @@ def water_line():
 
 def main():
     sky = sky_mask()
+    sun, sun_m = sun_circle()
+    # The sun's disc is sky (the skyline is what stands against it): its upper part, down to just below its centre
+    # (lower down the towers cross it).
+    if sun:
+        yy, xx = np.mgrid[0:H, 0:W]
+        sky |= (np.hypot(xx - sun[0], yy - sun[1]) < sun[2] + 1.5) & (yy < sun[1] + 0.3 * sun[2]) & ~(GS < 0.45)
     save_mask(sky, 'concept-sky-mask.png')
     skyline = skyline_from(sky)
-    sun, sun_m = sun_circle()
     quad, scr_m = screen_quad()
     save_mask(scr_m, 'concept-screen-mask.png')
     dome, dome_pts = dome_ellipse()

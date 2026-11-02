@@ -1,0 +1,30 @@
+{
+ "r1": {
+  "skyline_mae_px": 24.016,
+  "sun_px": 24.739,
+  "sun_r_px": 23.6,
+  "screen_px": 16.215,
+  "dome_px": 3.551,
+  "dome_r_px": 3.3,
+  "monorail_px": 6.286,
+  "monorail_cover": 1.0,
+  "water_px": 5.0,
+  "horizon_px": 2.132,
+  "bike_iou": 0.918,
+  "total": 73.688
+ },
+ "r2": {
+  "skyline_mae_px": 23.12,
+  "sun_px": 6.835,
+  "sun_r_px": 5.7,
+  "screen_px": 16.215,
+  "dome_px": 3.245,
+  "dome_r_px": 3.1,
+  "monorail_px": 6.299,
+  "monorail_cover": 1.0,
+  "water_px": 5.0,
+  "horizon_px": 2.132,
+  "bike_iou": 0.918,
+  "total": 54.649
+ }
+}

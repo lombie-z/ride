@@ -19,6 +19,7 @@ import {
 } from 'three';
 import { BEATS, belowVisible, devFlag, journey, smoothstep } from '@/lib/journey';
 import { DRACO_PATH } from './biome';
+import { weathered } from './weathered';
 import { type DeckPlacement, WetRoad } from './wet-road';
 
 export const CITY_URL = '/models/city.glb';
@@ -143,15 +144,20 @@ export function City() {
   useMemo(() => {
     const black = ooze();
     const facades = new Map<Material, Material>();
+    const weatheredOnce = new Set<Material>();
     scene.traverse((child) => {
       const mesh = child as Mesh;
       if (!mesh.isMesh) return;
       const own = mesh.material as MeshStandardMaterial;
       if (own.name === 'CityTower' || own.name === 'CitySpire' || own.name === 'CityConcrete') {
-        if (!facades.has(own)) facades.set(own, own.name === 'CityConcrete' ? own : facade(own, own.name === 'CitySpire'));
+        if (!facades.has(own)) facades.set(own, own.name === 'CityConcrete' ? weathered(own, 'concrete') : facade(own, own.name === 'CitySpire'));
         mesh.material = facades.get(own) as Material;
       } else if (own.name === 'CityOoze') mesh.material = black;
-      else if (own.name === 'CityLamp') {
+      // (The rails and steel up close at the landing: worn like the street's.)
+      else if ((own.name === 'CityRail' || own.name === 'CitySteel') && !weatheredOnce.has(own)) {
+        weatheredOnce.add(own);
+        weathered(own, 'steel');
+      } else if (own.name === 'CityLamp') {
         own.emissiveIntensity = 8;
         own.toneMapped = false;
       }
