@@ -89,7 +89,12 @@ float driveHash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 4
   return material;
 }
 
-type Parts = Record<'asphalt' | 'concrete' | 'steel' | 'lamps' | 'towers' | 'spikes', InstancedMesh>;
+type Parts = Record<'asphalt' | 'concrete' | 'steel' | 'lamps' | 'towers' | 'spikes' | 'pearl' | 'strip', InstancedMesh>;
+
+// Nearing the second city (from this far before its road begins, where its sunset has mostly come in) the street's
+// railings turn to its kind: a rounded pearl kerb topped with a lit strip (art/build-city2.py City2.RoadKerb, RoadStrip),
+// with no lamp posts or gantries; so the edge is one kind or the other, never both.
+const CHROME_RAILS_BEFORE = 150;
 
 export function DriveStreet() {
   const { scene } = useGLTF(CITY_URL, DRACO_PATH);
@@ -144,6 +149,13 @@ export function DriveStreet() {
         tiles * 3 + 8,
         'DriveSteel'
       ),
+      pearl: make(box, new MeshStandardMaterial({ color: new Color(0.93, 0.9, 0.96), roughness: 0.8, metalness: 0 }), tiles * 2, 'DrivePearlKerb'),
+      strip: make(
+        box,
+        new MeshStandardMaterial({ color: new Color(1, 0.95, 0.9), emissive: new Color(1, 0.86, 0.72), emissiveIntensity: 5, toneMapped: false }),
+        tiles * 2,
+        'DriveKerbStrip'
+      ),
       lamps: make(
         box,
         new MeshStandardMaterial({ color: new Color(0.8, 1, 0.7), emissive: new Color(0.75, 1, 0.55), emissiveIntensity: 7, toneMapped: false }),
@@ -188,7 +200,7 @@ export function DriveStreet() {
     last.current = key;
 
     side.set(-road.ahead.z, 0, road.ahead.x);
-    const counts: Record<keyof Parts, number> = { asphalt: 0, concrete: 0, steel: 0, lamps: 0, towers: 0, spikes: 0 };
+    const counts: Record<keyof Parts, number> = { asphalt: 0, concrete: 0, steel: 0, lamps: 0, towers: 0, spikes: 0, pearl: 0, strip: 0 };
     const put = (part: keyof Parts, along: number, across: number, y: number, sx: number, sy: number, sz: number, turn = 0) => {
       at.copy(road.endCentre).addScaledVector(road.ahead, along).addScaledVector(side, across);
       o.position.set(at.x, y, at.z);
@@ -219,18 +231,25 @@ export function DriveStreet() {
       // The slab (a hair longer than its tile, so there's no seam), its pier, the jersey barriers and rails.
       put('asphalt', a, 0, DECK_Y - SLAB.depth, TILE + 0.05, SLAB.depth, SLAB.width);
       put('concrete', a, 0, GROUND_Y, 2.4, DECK_Y - SLAB.depth - GROUND_Y, 2.4);
-      for (const s of [-1, 1]) {
-        put('concrete', a, s * (half - 0.25), DECK_Y, TILE + 0.05, 0.9, 0.5);
-        put('steel', a, s * (half - 0.25), DECK_Y + 1.1, TILE + 0.05, 0.12, 0.08);
-      }
-      // A lamp post, alternating sides, its head leaning out over the road.
-      const ls = k % 2 ? 1 : -1;
-      put('steel', a, ls * (half - 0.25), DECK_Y + 0.9, 0.18, 7, 0.18);
-      put('lamps', a, ls * (half - 1.1), DECK_Y + 7.8, 0.5, 0.22, 1.6);
-      // Now and then a gantry over the road.
-      if (k % GANTRY_EVERY === 5) {
-        for (const s of [-1, 1]) put('concrete', a, s * (half + 0.6), DECK_Y, 0.7, 7.5, 0.7);
-        put('steel', a, 0, DECK_Y + 6.6, 1.2, 0.9, SLAB.width + 2.4);
+      if ((k + 1) * TILE > cityAt - CHROME_RAILS_BEFORE) {
+        for (const s of [-1, 1]) {
+          put('pearl', a, s * (half - 0.25), DECK_Y + 0.25, TILE + 0.05, 0.6, 0.5);
+          put('strip', a, s * (half - 0.25), DECK_Y + 0.84, TILE + 0.05, 0.06, 0.52);
+        }
+      } else {
+        for (const s of [-1, 1]) {
+          put('concrete', a, s * (half - 0.25), DECK_Y, TILE + 0.05, 0.9, 0.5);
+          put('steel', a, s * (half - 0.25), DECK_Y + 1.1, TILE + 0.05, 0.12, 0.08);
+        }
+        // A lamp post, alternating sides, its head leaning out over the road.
+        const ls = k % 2 ? 1 : -1;
+        put('steel', a, ls * (half - 0.25), DECK_Y + 0.9, 0.18, 7, 0.18);
+        put('lamps', a, ls * (half - 1.1), DECK_Y + 7.8, 0.5, 0.22, 1.6);
+        // Now and then a gantry over the road.
+        if (k % GANTRY_EVERY === 5) {
+          for (const s of [-1, 1]) put('concrete', a, s * (half + 0.6), DECK_Y, 0.7, 7.5, 0.7);
+          put('steel', a, 0, DECK_Y + 6.6, 1.2, 0.9, SLAB.width + 2.4);
+        }
       }
       // Towers either side, set back off the road, rising from the city floor: a body and a setback crown, some with a
       // spire on top.
