@@ -272,6 +272,12 @@ function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; button
         m.emissiveIntensity = BIKE_GLOWS[kind];
         m.toneMapped = false;
       }
+      // (The bone bike's bone is old bone, not plastic: warmer, a little darker, satin rather than gloss.)
+      if (m.name === 'Bike3Bone') {
+        m.color.multiply(new Color(0.88, 0.8, 0.7));
+        m.roughness = Math.max(m.roughness, 0.55);
+        m.envMapIntensity = 0.6;
+      }
       // Its button takes over as the throttle's: lit by components/three/ride.tsx with the black bike's.
       if (kind === 'Button' || kind === 'ButtonGlyph') {
         m.emissiveIntensity = 0;

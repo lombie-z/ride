@@ -1,0 +1,22 @@
+{
+ "_": "The same bike in art/reference/concept-hive-plaza.webp (1672x941), traced for a second camera fit and check: rear three-quarter from the +Y side, kickstand down, the whole bike in frame.",
+ "size": [1672, 941],
+ "polygons": {
+  "tail": [[1290,560],[1330,535],[1400,522],[1470,520],[1500,540],[1480,560],[1440,565],[1380,575],[1320,585]]
+ },
+ "ellipses": {
+  "front tyre": [1165, 700, 60, 88],
+  "rear tyre": [1500, 720, 118, 147]
+ },
+ "lines": {
+  "stand": [[1290,740],[1270,800],[1258,830]]
+ },
+ "points": {
+  "front contact": [1178, 786],
+  "rear contact": [1530, 866],
+  "rear axle": [1436, 728],
+  "stand foot": [1258, 832],
+  "tail light": [1440, 550]
+ },
+ "horizon": 660
+}
