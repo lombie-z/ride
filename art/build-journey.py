@@ -36,12 +36,12 @@ SHOTS = [
     # (art/build-city.py), turning east to the city as it lands beside the bike, the planter receding into the haze above.
     (460, Vector((-7.0, -7.5, -5.5)), Vector((0.0, 0.0, -3.5)), 42.0),
     (620, Vector((4.0, -12.5, -8.6)), Vector((40.0, -6.0, -9.0)), 42.0),
-    # The landing (art/build-city.py EYE, LOOK, FOV: fitted to art/reference/concept-guides.json): handlebar height
-    # beside the bike, looking across the road to the city.
-    (760, Vector((11.5, -7.71, -10.02)), Vector((71.18, -10.84, -15.33)), 42.0),
+    # The landing (art/build-city.py EYE, LOOK, FOV: fitted to the concept by art/align): low beside the bike, looking
+    # across the road to the city.
+    (760, Vector((12.0005, -7.9659, -10.4121)), Vector((71.9123, -5.3405, -8.4911)), 42.98),
     # Then hold on it (a barely-there drift, so it stays alive).
-    (840, Vector((11.42, -7.76, -10.02)), Vector((71.18, -10.84, -15.33)), 41.7),
-    (920, Vector((11.35, -7.8, -10.02)), Vector((71.18, -10.84, -15.33)), 41.4),
+    (840, Vector((11.92, -8.01, -10.4121)), Vector((71.9123, -5.3405, -8.4911)), 42.68),
+    (920, Vector((11.85, -8.05, -10.4121)), Vector((71.9123, -5.3405, -8.4911)), 42.38),
 ]
 # Sun, warm light and rainbow come in below the clouds.
 F_SUN_IN, F_SUN_FULL = 275, 380

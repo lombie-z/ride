@@ -200,11 +200,11 @@ def export():
     # (lateral, z) of each line, from build-city.py's profiles; verified below against the meshes' vertices.
     LINES = {
         'kerb foot': ('City.DeckBeams', -0.85, 0.0),  # where the deck meets the kerb's inner face
-        'kerb inner top': ('City.DeckBeams', -0.85, 0.12),
-        'kerb top': ('City.DeckBeams', -0.95, 0.22),  # the kerb's flat top, inner edge
-        'kerb outer top': ('City.DeckBeams', -1.25, 0.22),
-        'kerb rail top': ('City.Rails', -1.08, 0.44),  # the low W-beam rail on stubby posts (centre 0.36)
-        'kerb rail bottom': ('City.Rails', -1.08, 0.28),
+        'kerb inner top': ('City.DeckBeams', -0.85, 0.066),  # the ledge at the kerb's foot
+        'kerb top': ('City.DeckBeams', -0.95, 0.2),  # the parapet's top, inner edge
+        'kerb outer top': ('City.DeckBeams', -1.25, 0.18),
+        'kerb rail top': ('City.Rails', -1.05, 0.25),  # the low rail on the cap (centre 0.2225)
+        'kerb rail bottom': ('City.Rails', -1.05, 0.195),
         'deck outer bottom': ('City.Deck', -1.25, -1.2),
         'fw2 barrier top': ('City.Freeway2', -4.9, -4.65 + 0.9),
         'fw2 barrier top inner': ('City.Freeway2', -5.1, -4.65 + 0.9),

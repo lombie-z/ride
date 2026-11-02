@@ -27,11 +27,11 @@ import { RideControl, RideHalo, RideStreaks } from './ride';
 const URL = '/models/bike.glb';
 // Where it parks on the deck (art/build-city.py BIKE_AT, BIKE_YAW, fitted to the concept's framing; Blender's (x, y, z) is
 // three's (x, z, -y)).
-const AT = [14.46, -11, 6.85] as const;
+const AT = [14.6317, -11, 6.9347] as const;
 // The lamp under the gantry (top left of the shot), warm against the green, picking out the chrome and the carapace.
-const LAMP = [12.96, -7.2, 2.75] as const;
+const LAMP = [13.13, -7.2, 2.83] as const;
 const GLOW = 0.7;
-const YAW = (-115.33 * Math.PI) / 180;
+const YAW = (-113.658 * Math.PI) / 180;
 
 let night: Texture | null = null;
 /**

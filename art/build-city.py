@@ -758,17 +758,17 @@ HEROES = [
     (1250, 72, 330, 30, 'flat'),  # the right tower, off the right edge
     (450, 124, 420, 50, 'crenel'),  # the dark lit blocks left of centre
     (522, 137, 580, 44, 'crenel'),
-    (598, 86, 540, 40, 'crenel'),
-    (628, 66, 580, 36, 'flat'),
+    (598, 76, 540, 40, 'crenel'),
+    (628, 58, 580, 36, 'flat'),
     (650, 30, 600, 50, 'crenel'),  # the tall one left of the spire
     (692, 77, 660, 28, 'needle'),
-    (742, 85, 640, 32, 'crenel'),
+    (742, 76, 640, 32, 'crenel'),
     (955, 112, 760, 30, 'flat'),
     (990, 121, 560, 44, 'crenel'),
     (1022, 130, 600, 34, 'cluster'),
     (1085, 179, 700, 30, 'flat'),
-    (1150, 196, 760, 28, 'flat'),
-    (1180, 190, 700, 26, 'flat'),
+    (1150, 208, 760, 28, 'flat'),
+    (1180, 202, 700, 26, 'flat'),
     (395, 190, 760, 34, 'cluster'),  # behind the gantry
     (300, 225, 680, 30, 'antenna'),
     (232, 200, 720, 30, 'needle'),
@@ -778,7 +778,7 @@ HEROES = [
     (930, 104, 930, 24, 'needle'),
     (905, 91, 960, 22, 'needle'),
     (778, 87, 940, 28, 'crenel'),
-    (762, 86, 880, 30, 'flat'),
+    (762, 78, 880, 30, 'flat'),
 ]
 for sx, top, depth, width, crown in HEROES:
     # Forced past the spacing check, but kept off the roads and the viaduct: nudged sideways until clear.
