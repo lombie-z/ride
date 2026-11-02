@@ -25,6 +25,7 @@ import {
 import { belowVisible, journey, smoothstep } from '@/lib/journey';
 import { anchors, CRUISE, cityRoadAt, cityRoadCurve, muckUnder, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
+import { dashDisplay } from './dash';
 import { RideControl, RideHalo, RideStreaks } from './ride';
 
 const URL = '/models/bike.glb';
@@ -157,6 +158,7 @@ totalEmissiveRadiance += vec3(0.85, 0.75, 1.0) * exp(-abs(vBikeX - uChromeEdge) 
 /** The liquid-chrome bike (art/build-bike2.py), revealed behind the morph's seam; its heart beats once it's arrived. */
 function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] }; black: Object3D }) {
   const { scene } = useGLTF(URL2, DRACO_PATH);
+  const dash = useMemo(dashDisplay, []);
   const parts = useRef<{ heart: Object3D | null; arteries: Object3D | null; front: Object3D | null; rear: Object3D | null }>({
     heart: null,
     arteries: null,
@@ -180,7 +182,16 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
         m.transparent = true;
         m.opacity = m.name === 'Bike2Glass' ? 0.28 : 0.55;
       }
-      const glowing: Record<string, number> = { Bike2Vein: 2.2, Bike2Led: 7, Bike2Tail: 4, Bike2Dash: 1.6 };
+      const glowing: Record<string, number> = { Bike2Vein: 2.2, Bike2Led: 7, Bike2Tail: 4 };
+      // The dash shows the speed and the logo (components/three/dash.ts).
+      if (m.name === 'Bike2Dash') {
+        m.map = dash.texture;
+        m.emissiveMap = dash.texture;
+        m.emissive.setRGB(1, 1, 1);
+        m.emissiveIntensity = 1.2;
+        m.color.setRGB(1, 1, 1);
+        m.toneMapped = false;
+      }
       if (m.name in glowing) {
         m.emissiveIntensity = glowing[m.name];
         m.toneMapped = false;
@@ -210,7 +221,7 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
       black.visible = true;
       buttonMaterials.current = buttonMaterials.current.filter((m) => !mine.includes(m));
     };
-  }, [scene, env, buttonMaterials, black]);
+  }, [scene, env, buttonMaterials, black, dash]);
 
   const last = useRef(0);
   useFrame((state) => {
@@ -228,6 +239,7 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
     const beat = Math.exp(-(((f - 0.08) / 0.05) ** 2)) + 0.65 * Math.exp(-(((f - 0.3) / 0.06) ** 2));
     const strength = ride.transition.arrived ? 1 : 0.35;
     if (heart) heart.scale.setScalar(1 + 0.07 * beat * strength);
+    dash.draw(ride.drive.speed * 3.6);
     if (arteries) arteries.scale.setScalar(1 + 0.035 * beat * strength);
   });
 

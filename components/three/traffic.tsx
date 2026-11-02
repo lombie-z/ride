@@ -37,12 +37,12 @@ function carGeometry() {
   const nose = new CylinderGeometry(0.0, 0.55, 1.4, 6).rotateZ(-Math.PI / 2).translate(3.0, 0, 0);
   const fins = new BoxGeometry(1.6, 0.12, 3.4).translate(-1.0, -0.1, 0);
   const fin = new BoxGeometry(1.0, 0.9, 0.1).translate(-2.0, 0.6, 0);
-  return (mergeGeometries([hull, nose, fins, fin].map((g) => g.toNonIndexed())) as BufferGeometry).scale(2.2, 2.2, 2.2);
+  return (mergeGeometries([hull, nose, fins, fin].map((g) => g.toNonIndexed())) as BufferGeometry).scale(3.2, 3.2, 3.2);
 }
 function carLightsGeometry() {
   const band = new BoxGeometry(2.4, 0.12, 1.74).translate(0.4, 0.25, 0);
   const tail = new BoxGeometry(0.1, 0.35, 1.5).translate(-2.32, 0, 0);
-  return (mergeGeometries([band, tail].map((g) => g.toNonIndexed())) as BufferGeometry).scale(2.2, 2.2, 2.2);
+  return (mergeGeometries([band, tail].map((g) => g.toNonIndexed())) as BufferGeometry).scale(3.2, 3.2, 3.2);
 }
 
 type Flyer = { centre: Vector3; rx: number; rz: number; height: number; speed: number; phase: number; bob: number };
@@ -63,7 +63,8 @@ export function Traffic({ env }: { env: Texture }) {
         centre: new Vector3(i % 3 === 0 ? -150 + r(1) * 300 : PLAZA.x - 150 + r(1) * 300, 0, PLAZA.z - 200 + r(2) * 300),
         rx: 120 + r(3) * 380,
         rz: 90 + r(4) * 260,
-        height: 14 + r(5) ** 1.6 * 90,
+        // (Low enough over the road and the water to be seen from the bike, a few up among the towers' tops.)
+        height: 10 + r(5) ** 2 * 70,
         speed: (r(6) > 0.5 ? 1 : -1) * (14 + r(7) * 22),
         phase: r(8) * Math.PI * 2,
         bob: r(9) * 10,
