@@ -7,6 +7,7 @@ import type { Group, Material, Mesh, MeshStandardMaterial, Texture } from 'three
 import { ride, road } from '@/lib/ride';
 import { AT, sunsetEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
+import { Muck } from './muck';
 
 // The second city (art/build-city2.py), loaded during the ride: it's downloaded once the visitor gets on the bike,
 // its shaders compiled and textures uploaded off to the side, and only then marked ready, which is what sets the bike's
@@ -38,6 +39,14 @@ function CityTwo({ src }: { src: string }) {
         m.toneMapped = false;
       }
       if (m.name === 'City2Sun') m.fog = false;
+      // The rounded pearl forms (terraces, platforms, the bubble pods round the plaza) are matte: chalky, not glossy.
+      if (m.name === 'City2Pearl') {
+        m.roughness = 0.82;
+        m.metalness = 0;
+        m.envMapIntensity = 0.12;
+      }
+      // (Glossy, not a mirror: the lamps' reflections sat on it as bright blobs.)
+      if (m.name === 'City2Floor') m.roughness = Math.max(m.roughness, 0.22);
       m.needsUpdate = true;
     });
   }, [scene, gl]);
@@ -82,6 +91,7 @@ function CityTwo({ src }: { src: string }) {
   return (
     <group ref={group} visible={false}>
       <primitive object={scene} />
+      <Muck />
     </group>
   );
 }

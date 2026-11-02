@@ -40,5 +40,19 @@
   "horizon_px": 2.132,
   "bike_iou": 0.918,
   "total": 39.243
+ },
+ "r4": {
+  "skyline_mae_px": 18.703,
+  "sun_px": 8.438,
+  "sun_r_px": 7.2,
+  "screen_px": 2.943,
+  "dome_px": 3.384,
+  "dome_r_px": 3.1,
+  "monorail_px": 0.459,
+  "monorail_cover": 1.0,
+  "water_px": 5.0,
+  "horizon_px": 2.132,
+  "bike_iou": 0.918,
+  "total": 39.377
  }
 }

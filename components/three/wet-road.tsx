@@ -201,7 +201,7 @@ export function RideMirror() {
     const u = (mirror.material as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     (u.uLamp.value as Vector3).set(AT[0], AT[1], AT[2]).addScaledVector(street.ahead, ride.drive.s + 1);
     (u.uLampDir.value as Vector3).copy(street.ahead);
-    u.uLampOn.value = Math.min(1, ride.drive.speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (1 - 0.7 * smoothstep(0.3, 0.65, tr.t));
+    u.uLampOn.value = Math.min(1, ride.drive.speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (1 - smoothstep(0.3, 0.65, tr.t));
     // The road turns to the second city's pure mirror as that city comes to fill the view.
     u.uMirror.value = smoothstep(0.3, 0.65, tr.t);
   });

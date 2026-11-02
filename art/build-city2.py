@@ -45,11 +45,17 @@ rnd = random.Random(7)
 
 # --- Layout ------------------------------------------------------------------------------------------------------------
 ROAD_W = 11.8              # the site's deck width (components/three/drive.tsx SLAB)
-ROAD_STRAIGHT = 480.0      # RoadIn -> the start of the bend
+# The road (see ROAD_SEQ below): a lagoon straight, then a loop south through the towers, weaving in gentle S-curves,
+# that comes back up to BEND_START heading +X; from there the final right-hand bend into the plaza is as it always was.
+LAGOON_STRAIGHT = 120.0
+WEAVE_R = 120.0            # every weave radius (the site rides up to ~32 m/s)
+WEAVE_ANG = 30.0           # each S-curve's two opposite arcs
+WEAVE_LEG = 50.0           # straight run before and after the loop's U-turn
+BEND_START = Vector((480.0, 0.0, 0.0))
 BEND_R = 140.0             # the bend's radius (right, through 90 deg)
 ROAD_TAIL = 30.0           # after the bend, heading -Y, to the bike
 WATER_Z = -0.7
-BIKE_AT = Vector((ROAD_STRAIGHT + BEND_R, -BEND_R - ROAD_TAIL, 0.0))
+BIKE_AT = Vector((BEND_START.x + BEND_R, -BEND_R - ROAD_TAIL, 0.0))  # (620, -170)
 BIKE_YAW = -90.0           # the bike's front, degrees about z
 BIKE_M = Matrix.Translation(BIKE_AT) @ Matrix.Rotation(math.radians(BIKE_YAW), 4, 'Z')
 
@@ -64,8 +70,9 @@ TAN_V = math.tan(math.radians(FOV / 2))
 TAN_H = TAN_V * RES[0] / RES[1]
 FPX = RES[1] / 2 / TAN_V   # focal length in px
 
-# The approach: the rider ~1.4 m over the road's right lane, ~420 m short of the plaza, looking a touch right.
-APP_EYE = Vector((200.0, -2.6, 1.4))
+# The approach: the rider ~1.4 m over the road's right lane on the lagoon straight, ~580 m from the plaza, the road
+# bending right just ahead into the towers, looking a touch right.
+APP_EYE = Vector((60.0, -2.6, 1.4))
 APP_LOOK = APP_EYE + Vector((math.cos(math.radians(-14)), math.sin(math.radians(-14)), -0.03)) * 100
 APP_FOV = 50.0
 
@@ -387,11 +394,79 @@ def saucer_tower(name, centre, radius, levels, core_r, parent, band='band', palm
 
 
 # =========================================================================================================================
-# The road: RoadIn -> straight -> right bend -> plaza.
+# The road: RoadIn -> the lagoon straight -> a loop south through the towers (S-curves, a U-turn, S-curves) -> back up to
+# BEND_START heading +X -> the final right-hand bend into the plaza -> the bike. Straights and arcs only (radii >= 120).
 # =========================================================================================================================
+S_MID = (60.0 - 2 * WEAVE_R * (1 - math.cos(math.radians(WEAVE_ANG)))) / math.sin(math.radians(WEAVE_ANG))
+ROAD_SEQ = [  # ('S', length) | ('A', radius, degrees, + = left)
+    ('S', LAGOON_STRAIGHT),
+    ('A', WEAVE_R, -90),                                                    # off the straight, right, heading south
+    ('A', WEAVE_R, -WEAVE_ANG), ('S', S_MID), ('A', WEAVE_R, WEAVE_ANG),   # S-curve: 60 m west
+    ('S', WEAVE_LEG),
+    ('A', WEAVE_R, 180),                                                    # the U-turn, round to heading north
+    ('S', WEAVE_LEG),
+    ('A', WEAVE_R, WEAVE_ANG), ('S', S_MID), ('A', WEAVE_R, -WEAVE_ANG),   # S-curve: 60 m west
+    ('A', WEAVE_R, -90),                                                    # right, onto heading +X at BEND_START
+    ('A', BEND_R, -90),                                                     # the final bend (unchanged)
+    ('S', ROAD_TAIL),                                                       # into the plaza, to the bike
+]
+
+
+def trace(seq, step):
+    """Dense points along a straights-and-arcs sequence from RoadIn (the origin, heading +X), ~`step` m apart (each
+    segment divided evenly, its end points exact)."""
+    x, y, h = 0.0, 0.0, 0.0
+    pts = [Vector((0, 0, 0))]
+    for sg in seq:
+        if sg[0] == 'S':
+            n = max(1, round(sg[1] / step))
+            for i in range(1, n + 1):
+                pts.append(Vector((x + math.cos(h) * sg[1] * i / n, y + math.sin(h) * sg[1] * i / n, 0)))
+        else:
+            R, d = sg[1], math.radians(sg[2])
+            side = 1 if d > 0 else -1
+            cx, cy = x - side * R * math.sin(h), y + side * R * math.cos(h)
+            a0 = h - side * math.pi / 2
+            n = max(2, round(abs(d) * R / step))
+            for i in range(1, n + 1):
+                a = a0 + d * i / n
+                pts.append(Vector((cx + R * math.cos(a), cy + R * math.sin(a), 0)))
+            h += d
+        x, y = pts[-1].x, pts[-1].y
+    return pts
+
+
+def resample_exact(pts, step):
+    """Points every `step` m of arc length along a polyline, plus its exact end."""
+    out, acc = [pts[0]], 0.0
+    for a, b in zip(pts, pts[1:]):
+        seg = (b - a).length
+        t0 = 0.0
+        while acc + (seg - t0) >= step - 1e-9:
+            t0 += step - acc
+            out.append(a.lerp(b, t0 / seg))
+            acc = 0.0
+        acc += seg - t0
+    if (out[-1] - pts[-1]).length > 1e-3:
+        out.append(pts[-1])
+    return out
+
+
+_line = trace(ROAD_SEQ, 0.5)
+assert (_line[-1] - BIKE_AT).length < 1e-3, _line[-1]
+_line[-1] = BIKE_AT.copy()
+ROAD_LINE = resample_exact(_line, 2.0)       # the bike's line, RoadIn -> BikeMark, every 2 m (City2.RoadPath)
+ROAD_LEN = sum((b - a).length for a, b in zip(_line, _line[1:]))
+_bi = min(range(len(_line)), key=lambda i: (_line[i] - BEND_START).length)
+assert (_line[_bi] - BEND_START).length < 1e-3, _line[_bi]
+print('road', round(ROAD_LEN, 1), 'm,', len(ROAD_LINE), 'path points')
+
+
 def road_path(step=6.0):
-    pts = [Vector((x, 0, 0)) for x in frange(0, ROAD_STRAIGHT, step)]
-    c = Vector((ROAD_STRAIGHT, -BEND_R, 0))
+    """The deck's sweep path: the new loop up to BEND_START, then the final bend and tail exactly as before."""
+    loop = [p for p in resample_exact(_line[:_bi + 1], step)]
+    pts = loop[:-1]
+    c = Vector((BEND_START.x, -BEND_R, 0))
     n = int(BEND_R * math.pi / 2 / step)
     for i in range(n + 1):
         a = math.pi / 2 - (math.pi / 2) * i / n
@@ -814,7 +889,7 @@ for k in range(22):  # the arcade: pylons round the base under the first slab
 # The lagoon: one water sheet under everything (south of the road, and east of the bend).
 # =========================================================================================================================
 bm = bmesh.new()
-outline = [(100, -ROAD_W / 2 - 1), (ROAD_STRAIGHT, -ROAD_W / 2 - 1), (ROAD_STRAIGHT + 60, 120), (2600, 120),
+outline = [(100, -ROAD_W / 2 - 1), (LAGOON_STRAIGHT - 2, -ROAD_W / 2 - 1), (LAGOON_STRAIGHT + 30, 120), (2600, 120),
            (2600, -2200), (100, -2200)]
 polygon_slab(bm, outline, WATER_Z, 0.1)
 me = mesh_from('City2.WaterSurface', bm, MAT['water'], smooth=False)
@@ -859,12 +934,124 @@ def approach_bearing(c):
     return math.degrees(math.atan2(v.y, v.x))
 
 
+# --- The weave: towers close either side of the loop, skybridges and a monorail across it ------------------------------
+LINE2 = [Vector((p.x, p.y, 0)) for p in ROAD_LINE]
+S_BEND = ROAD_LEN - BEND_R * math.pi / 2 - ROAD_TAIL  # arc length at BEND_START
+
+
+def road_frame(s_at):
+    i = max(0, min(int(s_at / 2.0), len(LINE2) - 2))
+    p, t = LINE2[i], (LINE2[i + 1] - LINE2[i]).normalized()
+    return p, t, Vector((-t.y, t.x, 0))  # point, tangent, left normal
+
+
+def road_dist(c):
+    c = Vector((c.x, c.y, 0))
+    return min((c - q).length for q in LINE2[::2])
+
+
+placed = []
+OBST = []  # other things towers keep clear of: (point, radius)
+
+
+def free(c, r, clear=14.0):
+    if road_dist(c) < ROAD_W / 2 + clear + r:
+        return False
+    if any((Vector((c.x, c.y, 0)) - q).length < r + qr + 8 for q, qr in placed + OBST):
+        return False
+    return True
+
+
+def glass_tower(c, r, h, parent):
+    inst('core', (c.x, c.y, WATER_Z), (r, r, h - WATER_Z), parent=parent)
+    z = rnd.uniform(4, 10)
+    while z < h - 8:
+        inst('band', (c.x, c.y, z), (r * 1.04, r * 1.04, rnd.uniform(3, 6)), parent=parent)
+        inst('slab', (c.x, c.y, z + rnd.uniform(6, 9)), r * rnd.uniform(1.3, 1.7), parent=parent)
+        z += rnd.uniform(12, 20)
+    inst('bulb', (c.x, c.y, h - r * 3), (r * 0.8, r * 0.8, r * 3 + 6), parent=parent)
+
+
+def weave_tower(c, r, h, style):
+    placed.append((Vector((c.x, c.y, 0)), r))
+    if style == 'saucer':
+        lv, z = [], rnd.uniform(6, 12)
+        while z < h:
+            lv.append((z, r * rnd.uniform(1.4, 2.0)))
+            z += rnd.uniform(9, 15)
+        saucer_tower(f'Weave{len(placed):02d}', c, r, lv, r * 0.55, G['Weave'], palms=True, top_core=5)
+    elif style == 'glass':
+        glass_tower(c, r, h, G['Weave'])
+    else:
+        inst('needle', (c.x, c.y, WATER_Z), (r, r, h), parent=G['Weave'])
+        inst('band', (c.x, c.y, h * 0.12), (r * 0.9, r * 0.9, h * 0.4), parent=G['Weave'])
+        inst('slab', (c.x, c.y, h * 0.6), r * 1.7, parent=G['Weave'])
+
+
+G['Weave'] = group('City2.Weave')
+
+# A monorail line across the loop (over both legs), on chrome pylons clear of the deck, a short train on it.
+MONO2_Y, MONO2_Z = -322.0, 21.0
+m2 = [Vector((x, MONO2_Y, MONO2_Z)) for x in frange(30, 560, 4)]
+m2 = [p for p in m2 if hidden_from_arrival(Vector((p.x, p.y, 0)), 2.0, MONO2_Z + 2)]
+bm = bmesh.new()
+sweep(bm, [p + Vector((0, 0, 1.6)) for p in m2], rounded_rect_profile(2.4, 1.6, 0.5))
+obj('City2.MonorailCross', mesh_from('City2.MonorailCross', bm, MAT['pearl']), G['Weave'])
+for p in m2[::10]:
+    if road_dist(p) > ROAD_W / 2 + 4:
+        inst('pylon', (p.x, p.y, WATER_Z), (1.0, 1.0, MONO2_Z - WATER_Z), parent=G['Weave'])
+for k in range(3):
+    pos = Vector((300 + k * 10.6, MONO2_Y, MONO2_Z + 1.6 + 0.3 + 1.5 * 1.15))
+    inst('car', pos, 1.0, parent=G['Weave'])
+    inst('carwin', pos + Vector((0, 0, 0.35)), 1.0, parent=G['Weave'])
+OBST += [(Vector((p.x, p.y, 0)), 3.0) for p in m2[::3]]
+
+# Skybridges: a tower each side of the road, close, joined overhead by a glazed tube.
+for s_at, hb in ((300.0, 19.0), (700.0, 24.0), (1120.0, 17.0)):
+    p, t, n = road_frame(s_at)
+    ends = []
+    for side in (1, -1):
+        for _ in range(30):
+            r = rnd.uniform(9, 14)
+            c = p + n * side * (ROAD_W / 2 + rnd.uniform(15, 24) + r) + t * rnd.uniform(-10, 10)
+            h = rnd.uniform(hb + 18, hb + 60)
+            if free(c, r, clear=14.5) and hidden_from_arrival(c, r * 1.3, h):
+                weave_tower(c, r, h, rnd.choice(('glass', 'saucer')))
+                ends.append((c, r))
+                break
+    if len(ends) == 2:
+        (a, ra), (b, rb) = ends
+        d = (b - a).normalized()
+        path = [a + d * ra * 0.8 + (b - a - d * (ra + rb) * 0.8) * (i / 12) for i in range(13)]
+        path = [Vector((q.x, q.y, hb + 1.5 * math.sin(math.pi * i / 12))) for i, q in enumerate(path)]
+        bm = bmesh.new()
+        sweep(bm, path, rounded_rect_profile(4.0, 3.2, 1.4))
+        obj('City2.Skybridge', mesh_from('City2.Skybridge', bm, MAT['pearl']), G['Weave'])
+        bm = bmesh.new()
+        sweep(bm, [q + Vector((0, 0, -0.9)) for q in path], rounded_rect_profile(4.08, 1.0, 0.3))
+        obj('City2.SkybridgeGlass', mesh_from('City2.SkybridgeGlass', bm, MAT['glass']), G['Weave'])
+        print('skybridge at s', s_at, 'span', round((b - a).length, 1))
+
+# Then the rest of the weave, alternating sides down the loop, 15-30 m off the deck.
+side = 1
+for s_at in frange(160.0, S_BEND - 40, 34.0):
+    p, t, n = road_frame(s_at + rnd.uniform(-8, 8))
+    side = -side if rnd.random() < 0.8 else side
+    for _ in range(12):
+        style = rnd.choice(('saucer', 'glass', 'glass', 'needle'))
+        r = rnd.uniform(6, 9) if style == 'needle' else rnd.uniform(9, 17)
+        h = rnd.uniform(70, 160) if style == 'needle' else rnd.uniform(30, 95)
+        c = p + n * side * (ROAD_W / 2 + rnd.uniform(15, 30) + r)
+        if free(c, r) and hidden_from_arrival(c, r * 1.3, h):
+            weave_tower(c, r, h, style)
+            break
+print('weave towers', len(placed))
+
 ZONES = [  # (x range, y range, radius range, height range, count, style)
     ((470, 720), (-230, -460), (14, 30), (40, 110), 7, 'saucer'),
     ((850, 1400), (-30, -170), (10, 22), (90, 260), 9, 'spire'),
     ((780, 1300), (-420, -700), (16, 32), (50, 140), 6, 'saucer'),
 ]
-placed = []
 for (xr, yr, rr, hr, n, style) in ZONES:
     got, tries = 0, 0
     while got < n and tries < 400:
@@ -926,8 +1113,14 @@ empty('City2.ApproachCam', APP_EYE, (APP_LOOK - APP_EYE).to_track_quat('-Z', 'Y'
       props={'EYE': r4(APP_EYE), 'LOOK': r4(APP_LOOK), 'FOV': APP_FOV})
 empty('City2.BikeMark', BIKE_AT, yaw=BIKE_YAW, props={'YAW': BIKE_YAW, 'note': 'bike front along local +X'})
 empty('City2.RoadIn', Vector((0, 0, 0)), yaw=0.0,
-      props={'note': 'the road hands over here heading local +X, deck top z 0; width 11.8',
-             'ROAD_STRAIGHT': ROAD_STRAIGHT, 'BEND_R': BEND_R, 'ROAD_TAIL': ROAD_TAIL})
+      props={'note': 'the road hands over here heading local +X, deck top z 0; width 11.8; its line is City2.RoadPath',
+             'LENGTH': round(ROAD_LEN, 2)})
+empty('City2.RoadPath', Vector((0, 0, 0)),
+      props={'points': [[round(p.x, 3), round(p.y, 3)] for p in ROAD_LINE], 'length': round(ROAD_LEN, 2),
+             'step': 2.0, 'width': ROAD_W,
+             'note': 'the bike line, RoadIn (0,0) -> BikeMark (620,-170), [x, y] in City2 local Blender frame '
+                     '(z up; three: x, -y as z), every 2 m of arc length (last step shorter); the deck top is z 0 '
+                     'on this line, ROAD_W wide'})
 
 # --- Stats, save, export -----------------------------------------------------------------------------------------------
 meshes = [o for o in root.children_recursive if o.type == 'MESH']
@@ -1099,6 +1292,63 @@ if os.environ.get('CITY2_NO_EEVEE') != '1':
         set_cam(APP_EYE, APP_LOOK, APP_FOV)
         scene.render.filepath = os.path.join(RENDERS, 'city2-approach.png')
         bpy.ops.render.render(write_still=True)
+
+# 3. The plan: straight down, orthographic, the road's line, BikeMark, RoadIn and the cameras drawn over it.
+if os.environ.get('CITY2_PLAN', '1') == '1':
+    for o in bike_objs:
+        o.hide_render = True
+    bpy.data.objects['City2.Sun'].hide_render = True
+    PLAN_C, PLAN_S, PLAN_PX = Vector((560.0, -280.0)), 1500.0, 1400
+    cam.data.type = 'ORTHO'
+    cam.data.ortho_scale = PLAN_S
+    cam.data.sensor_fit = 'AUTO'
+    cam.location = (PLAN_C.x, PLAN_C.y, 1200)
+    cam.rotation_mode = 'XYZ'
+    cam.rotation_euler = (0, 0, 0)
+    scene.render.resolution_x = scene.render.resolution_y = PLAN_PX
+    scene.render.engine = 'BLENDER_WORKBENCH'
+    scene.display.shading.light = 'STUDIO'
+    scene.display.shading.color_type = 'MATERIAL'
+    scene.view_settings.view_transform = 'Standard'
+    scene.view_settings.look = 'None'
+    scene.view_settings.exposure = 0
+    plan = os.path.join(RENDERS, 'city2-plan.png')
+    scene.render.filepath = plan
+    bpy.ops.render.render(write_still=True)
+
+    def px(v):
+        return [round((v[0] - PLAN_C.x) / PLAN_S * PLAN_PX + PLAN_PX / 2, 1),
+                round(PLAN_PX / 2 - (v[1] - PLAN_C.y) / PLAN_S * PLAN_PX, 1)]
+
+    marks = {'line': [px(p) for p in ROAD_LINE], 'bike': px(BIKE_AT), 'roadin': px((0, 0)), 'arrival': px(EYE),
+             'arrival_look': px(EYE + (LOOK - EYE).normalized() * 60), 'approach': px(APP_EYE),
+             'approach_look': px(APP_EYE + (APP_LOOK - APP_EYE).normalized() * 60),
+             'title': f'City2 plan: road {ROAD_LEN:.0f} m, {len(ROAD_LINE)} path points (every 2 m), 1 px = '
+                      f'{PLAN_S / PLAN_PX:.2f} m'}
+    draw = """
+import json, sys
+from PIL import Image, ImageDraw
+m = json.load(open(sys.argv[2]))
+im = Image.open(sys.argv[1]).convert('RGB')
+d = ImageDraw.Draw(im)
+d.line([tuple(p) for p in m['line']], fill=(255, 40, 40), width=2)
+for k, col in (('arrival', (0, 255, 255)), ('approach', (255, 255, 0))):
+    d.line([tuple(m[k]), tuple(m[k + '_look'])], fill=col, width=3)
+    d.ellipse([m[k][0] - 5, m[k][1] - 5, m[k][0] + 5, m[k][1] + 5], outline=col, width=2)
+for k, col in (('bike', (255, 0, 255)), ('roadin', (0, 255, 0))):
+    d.ellipse([m[k][0] - 7, m[k][1] - 7, m[k][0] + 7, m[k][1] + 7], fill=col)
+d.rectangle([0, 0, 1400, 26], fill=(0, 0, 0))
+d.text((8, 7), m['title'] + '   red: RoadPath  green: RoadIn  magenta: BikeMark  cyan: ArrivalCam  yellow: ApproachCam',
+       fill=(255, 255, 255))
+im.save(sys.argv[1])
+"""
+    mj = os.path.join(ALIGN, 'out', 'plan-marks.json')
+    with open(mj, 'w') as f:
+        json.dump(marks, f)
+    try:
+        subprocess.run(['python3', '-c', draw, plan, mj], check=True)
+    except Exception as exc:
+        print('plan overlay skipped:', exc)
 
 try:
     subprocess.run(['python3', os.path.join(ALIGN, 'score.py'), ROUND], check=True, cwd=ALIGN)

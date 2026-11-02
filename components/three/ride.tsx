@@ -26,6 +26,7 @@ import {
   CRUISE,
   cityRoadLength,
   MORPH_AFTER,
+  muckUnder,
   ride,
   SETTLED_FRAME,
   TRANSITION_LEAD,
@@ -42,6 +43,9 @@ const STREAKS = 48;
 const SEGMENTS = 14; // per streak's trail
 const TRAIL = 0.32; // trail length, as a share of the flight
 const MOUNT_SECONDS = 2.2;
+// Through the ooze: the speed it bogs down to (m/s) and how hard it drags (m/s²).
+const MUCK_SPEED = 5;
+const MUCK_DRAG = 26;
 
 const target = new Vector3();
 const edge = new Vector3();
@@ -151,6 +155,11 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       if (tr.placed) {
         const left = tr.at + cityRoadLength() - drive.s;
         want = Math.min(want, Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)));
+        // Through a slick of ooze it bogs down, as in muck.
+        if (drive.s > tr.at && muckUnder(drive.s - tr.at) > 0.01) {
+          want = Math.min(want, MUCK_SPEED);
+          if (drive.speed > MUCK_SPEED) drive.speed = Math.max(MUCK_SPEED, drive.speed - MUCK_DRAG * dt);
+        }
         // (And takes the bend at a speed it can lean into: about 25° over.)
         const intoBend = drive.s - tr.at - CITY_ROAD.straight;
         if (intoBend > -120 && intoBend < (Math.PI / 2) * CITY_ROAD.radius) want = Math.min(want, Math.sqrt(9.8 * Math.tan(0.44) * CITY_ROAD.radius));

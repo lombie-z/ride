@@ -72,6 +72,47 @@ export function cityRoadAt(u: number) {
  */
 export const ARRIVAL = { eye: [617.7743, 0.5002, 169.5642], look: [627.1305, 1.9546, 172.7805], fov: 50.635 } as const;
 
+/**
+ * Slicks of black ooze on the second city's road, thickening toward the plaza (the billboard's ooze has run): placed by
+ * a hash along the road's last stretch, each an ellipse (along and across the road, m) with a height. Riding through one
+ * the bike slows, as through muck (components/three/ride.tsx), and rides up on it.
+ */
+export type Slick = { u: number; across: number; along: number; wide: number; height: number; turn: number };
+let slicks: Slick[] | null = null;
+export function muckSlicks() {
+  if (slicks) return slicks;
+  const end = cityRoadLength();
+  const hash = (i: number, n: number) => {
+    const h = Math.sin(i * 127.1 + n * 311.7) * 43758.5453;
+    return h - Math.floor(h);
+  };
+  slicks = [];
+  for (let i = 0; i < 46; i++) {
+    // Denser toward the end: squared spacing back from the bike's spot.
+    const u = end - 6 - hash(i, 1) ** 1.8 * 330;
+    slicks.push({
+      u,
+      across: (hash(i, 2) - 0.5) * 8,
+      along: 1.2 + hash(i, 3) * 3.4,
+      wide: 0.9 + hash(i, 4) * 2.2,
+      height: 0.06 + hash(i, 5) * 0.16,
+      turn: (hash(i, 6) - 0.5) * 1.2,
+    });
+  }
+  return slicks;
+}
+/** How high the ooze is under the bike u metres along the second city's road (on its line): 0 off any slick. */
+export function muckUnder(u: number) {
+  let h = 0;
+  for (const s of muckSlicks()) {
+    const a = (u - s.u) / s.along;
+    const c = s.across / s.wide;
+    const r = a * a + c * c;
+    if (r < 1) h = Math.max(h, s.height * Math.sqrt(1 - r));
+  }
+  return h;
+}
+
 /** How far ahead of the bike the second city's road is placed when the change begins (m): the approach. */
 export const TRANSITION_LEAD = 320;
 /** Seconds for the chrome seam to sweep the bike. */

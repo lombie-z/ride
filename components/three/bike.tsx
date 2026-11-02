@@ -23,7 +23,7 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { belowVisible, journey, smoothstep } from '@/lib/journey';
-import { anchors, CITY_ROAD, CRUISE, cityRoadAt, ride, road } from '@/lib/ride';
+import { anchors, CITY_ROAD, CRUISE, cityRoadAt, muckUnder, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { RideControl, RideHalo, RideStreaks } from './ride';
 
@@ -236,6 +236,8 @@ export function Bike() {
         const p = cityRoadAt(s - tr.at);
         cityLocal.set(p.x, 0, -p.y).applyAxisAngle(UP, road.yaw);
         b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, tr.at).add(cityLocal);
+        // (Riding up over the slicks of ooze.)
+        b.position.y += muckUnder(s - tr.at);
         b.rotation.y = road.yaw + p.heading;
         // Leaning into the bend as it takes it.
         const bending = p.heading < 0 && p.heading > -Math.PI / 2 + 1e-3;
@@ -263,7 +265,9 @@ export function Bike() {
       }
     }
     // Its own headlight on the road ahead once it's moving.
-    if (headlight.current) headlight.current.intensity = 240 * Math.min(1, speed / 3 + (ride.drive.cruise ? 0.3 : 0));
+    // (Off in the second city's sunset, where its pool on the mirror road read as a glowing blob.)
+    if (headlight.current)
+      headlight.current.intensity = 240 * Math.min(1, speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (1 - smoothstep(0.3, 0.65, ride.transition.t));
   }, -2);
 
   return (
