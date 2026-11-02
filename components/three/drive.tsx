@@ -177,9 +177,14 @@ export function DriveStreet() {
     if (!g.visible) return;
     // Rebuild the instances whenever the first tile in range changes (every TILE metres of riding).
     const past = ride.drive.s - road.end;
-    const first = Math.max(0, Math.floor((past - BEHIND) / TILE));
-    if (first === last.current) return;
-    last.current = first;
+    // On the bike, the street's barriers and rails also line the city's own deck back to the bike's spot (the deck
+    // keeps only the landing shot's low kerb); from the landing they're left off, so the shot's unchanged.
+    const seated = ride.mount > 0.5;
+    const first = seated ? Math.floor(-road.end / TILE) - 1 : Math.max(0, Math.floor((past - BEHIND) / TILE));
+    const from = Math.max(first, Math.floor((past - BEHIND) / TILE));
+    const key = from * 2 + (seated ? 1 : 0);
+    if (key === last.current) return;
+    last.current = key;
 
     side.set(-road.ahead.z, 0, road.ahead.x);
     const counts: Record<keyof Parts, number> = { asphalt: 0, concrete: 0, steel: 0, lamps: 0, towers: 0, spikes: 0 };
@@ -193,8 +198,19 @@ export function DriveStreet() {
     };
 
     const half = SLAB.width / 2;
-    for (let k = first; k < first + tiles; k++) {
+    for (let k = from; k < from + tiles; k++) {
       const a = (k + 0.5) * TILE;
+      if (k < 0) {
+        // Alongside the deck: barriers, rails and lamps only.
+        for (const s of [-1, 1]) {
+          put('concrete', a, s * (half - 0.25), DECK_Y, TILE + 0.05, 0.9, 0.5);
+          put('steel', a, s * (half - 0.25), DECK_Y + 1.1, TILE + 0.05, 0.12, 0.08);
+        }
+        const ds = k % 2 ? 1 : -1;
+        put('steel', a, ds * (half - 0.25), DECK_Y + 0.9, 0.18, 7, 0.18);
+        put('lamps', a, ds * (half - 1.1), DECK_Y + 7.8, 0.5, 0.22, 1.6);
+        continue;
+      }
       // The slab (a hair longer than its tile, so there's no seam), its pier, the jersey barriers and rails.
       put('asphalt', a, 0, DECK_Y - SLAB.depth, TILE + 0.05, SLAB.depth, SLAB.width);
       put('concrete', a, 0, GROUND_Y, 2.4, DECK_Y - SLAB.depth - GROUND_Y, 2.4);

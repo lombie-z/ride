@@ -1,25 +1,25 @@
 {
  "metrics": {
-  "skyline_mae_px": 23.12,
-  "sun_px": 6.835,
-  "sun_r_px": 5.7,
-  "screen_px": 16.215,
-  "dome_px": 3.245,
-  "dome_r_px": 3.1,
-  "monorail_px": 6.299,
+  "skyline_mae_px": 18.609,
+  "sun_px": 8.438,
+  "sun_r_px": 7.2,
+  "screen_px": 2.943,
+  "dome_px": 3.467,
+  "dome_r_px": 3.2,
+  "monorail_px": 6.286,
   "monorail_cover": 1.0,
   "water_px": 5.0,
   "horizon_px": 2.132,
   "bike_iou": 0.918,
-  "total": 54.649
+  "total": 45.202
  },
  "scene": {
   "sun": {
    "centre": [
-    779.9,
-    252.9
+    781.5,
+    250.9
    ],
-   "radius": 40.7
+   "radius": 39.2
   },
   "screen": {
    "quad": [
@@ -36,16 +36,16 @@
      248.0
     ],
     [
-     1028.0,
-     309.5
+     1003.0,
+     318.5
     ]
    ]
   },
   "dome": {
-   "cx": 920.6,
-   "cy": 293.3,
-   "half_w": 52.1,
-   "half_h": 52.1
+   "cx": 920.7,
+   "cy": 293.5,
+   "half_w": 52.2,
+   "half_h": 52.2
   },
   "monorail": {
    "points": [
@@ -631,7 +631,7 @@
     ],
     [
      802,
-     316.0
+     315.0
     ],
     [
      806,
@@ -651,7 +651,7 @@
     ],
     [
      822,
-     319.0
+     318.0
     ],
     [
      826,

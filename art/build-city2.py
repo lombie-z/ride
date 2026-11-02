@@ -137,7 +137,7 @@ MAT = {
     'screen': material('City2Screen', (0.12, 0.08, 0.4), 0.3, 0.0, emission=(0.28, 0.16, 0.95), strength=0.8),
     'palm': material('City2Palm', (0.05, 0.12, 0.06), 0.7, 0.0),
     'lamp': material('City2Lamp', (1.0, 0.92, 0.8), 0.4, 0.0, emission=(1.0, 0.88, 0.7), strength=12.0),
-    'sun': material('City2Sun', (1.0, 0.75, 0.55), 1.0, 0.0, emission=(1.0, 0.72, 0.5), strength=6.0),
+    'sun': material('City2Sun', (1.0, 0.6, 0.4), 1.0, 0.0, emission=(1.0, 0.5, 0.3), strength=4.0),
     'dome': material('City2DomeGlass', (0.8, 0.75, 0.95), 0.05, 0.0, alpha=0.35, emission=(0.55, 0.35, 1.0),
                      strength=0.8),
 }
@@ -540,7 +540,7 @@ for s in range(70):
     tail.append(p.copy())
 MONO = head + mpts + tail
 bm = bmesh.new()
-sweep(bm, [p + Vector((0, 0, 0.8)) for p in MONO], rounded_rect_profile(2.4, 1.6, 0.5))
+sweep(bm, [p + Vector((0, 0, 1.6)) for p in MONO], rounded_rect_profile(2.4, 1.6, 0.5))  # underside at MONO_Z
 obj('City2.MonorailBeam', mesh_from('City2.MonorailBeam', bm, MAT['pearl']), G['Monorail'])
 for p in MONO[::12]:
     inst('pylon', (p.x, p.y, WATER_Z), (1.0, 1.0, MONO_Z - WATER_Z), parent=G['Monorail'])
@@ -585,7 +585,7 @@ for k in range(3):
     centre = MONO[j]
     tdir = (MONO[min(j + 1, len(MONO) - 1)] - MONO[max(j - 1, 0)]).normalized()
     yaw = math.atan2(tdir.y, tdir.x)
-    pos = centre + Vector((0, 0, 1.6 + 0.8 + 0.7))
+    pos = centre + Vector((0, 0, 1.6 + 0.3 + 1.5 * 1.15))
     inst('car', pos, 1.0, rot_z=yaw, parent=G['Monorail'])
     print('car', k, [round(v) for v in to_screen(pos)[0]], round(to_screen(pos)[1]))
     inst('carwin', pos + Vector((0, 0, 0.35)), 1.0, rot_z=yaw, parent=G['Monorail'])
@@ -669,6 +669,13 @@ for x0 in range(470, 962, SKY_WIN):
         occ = [x0 + i for i, r in enumerate(win) if r <= top + 10]
         kind, wpx, depth = 'bulb', max(6, len(occ)) * 1.1, rnd.uniform(260, 440)
         xc = sum(occ) / len(occ)
+    # The window's body: a round-crowned block up to its median row, behind the tip (the concept's skyline is
+    # plateaus between the peaks, not bare needles).
+    med = sorted(win)[len(win) // 2]
+    if med < 330 and med - top > 6:
+        bt = screen_point(x0 + SKY_WIN / 2, med + 2, depth + 25)
+        br_ = px_to_m(SKY_WIN * 0.65, depth + 25)
+        inst('bulb', (bt.x, bt.y, WATER_Z), (br_, br_, bt.z - WATER_Z), parent=G['Spires'])
     tip = screen_point(xc, top + (0 if kind != 'ring' else 6), depth)
     base = Vector((tip.x, tip.y, WATER_Z))
     hgt = tip.z - WATER_Z
@@ -707,11 +714,12 @@ for k in range(14):
 
 # The far shore at the water line (concept y 440-475): low pearl blocks with lit strips.
 for x in range(560, 1280, 70):
-    d = rnd.uniform(200, 280)
-    p = ray_at_z(x, 470, 0)
-    p = EYE + (p - EYE).normalized() * d
-    inst('core', (p.x, p.y, WATER_Z), (rnd.uniform(8, 18), rnd.uniform(8, 18), rnd.uniform(4, 10)), parent=G['Shore'])
-    inst('lamp', (p.x, p.y, 4.0), 6.0, parent=G['Shore'])
+    d = rnd.uniform(380, 520)
+    dirn = screen_point(x, 474, 1.0) - EYE  # forward, level with the water line
+    dirn.z = 0
+    p = EYE + dirn.normalized() * d
+    inst('core', (p.x, p.y, WATER_Z), (rnd.uniform(16, 32), rnd.uniform(16, 32), rnd.uniform(8, 18)), parent=G['Shore'])
+    inst('lamp', (p.x, p.y, 8.0), 12.0, parent=G['Shore'])
 
 # A flyer crossing the sky (concept x ~805, y ~170).
 fly = screen_point(805, 170, 140)
@@ -762,7 +770,7 @@ obj('City2.BillboardBack', mesh_from('City2.BillboardBack', bm, MAT['chrome'], s
 # Legs: two thick ooze-sheathed posts from the frame's foot to the floor (concept x ~1020 and ~1170).
 for sx in (1025, 1170):
     t = (sx - quad[3][0]) / (quad[2][0] - quad[3][0])
-    top = bl.lerp(br, t)
+    top = bl.lerp(br, t) - nrm * 0.45  # behind the screen: the posts carry it from the back
     foot = Vector((top.x, top.y, -0.4))
     bm = bmesh.new()
     path = [top.lerp(foot, k / 8) + Vector((0.08 * math.sin(k), 0, 0)) for k in range(9)]
@@ -818,6 +826,73 @@ for i in range(18):
     a = 2 * math.pi * i / 18
     r = 13.0 + 3.0 * math.cos(a - math.radians(20)) - 0.5
     inst('lamp', (PLAZA_C.x + r * math.cos(a), PLAZA_C.y + r * math.sin(a), 0.0), 1.0, parent=G['Lamps'])
+
+# =========================================================================================================================
+# Approach-only towers: the rider's view coming in (concept-transition.webp) wants the city big across the lagoon, ahead
+# and to the right. These stand where the arrival camera can't see them (outside its frame, or behind what it does see,
+# checked by ray casts), so they fill the approach without touching the arrival composition.
+# =========================================================================================================================
+bpy.context.view_layer.update()
+DG = bpy.context.evaluated_depsgraph_get()
+
+
+def hidden_from_arrival(c, r, h):
+    for z in (WATER_Z + 2, h * 0.5, h):
+        for a in range(0, 360, 45):
+            p = Vector((c.x + r * math.cos(math.radians(a)), c.y + r * math.sin(math.radians(a)), z))
+            (sx, sy), d = to_screen(p)
+            if d <= 0 or not (-30 < sx < RES[0] + 30 and -30 < sy < RES[1] + 30):
+                continue
+            ray = p - EYE
+            hit, loc, *_ = scene.ray_cast(DG, EYE, ray.normalized(), distance=ray.length - 1.0)
+            if not hit:
+                return False
+    return True
+
+
+def clear_of_road(c, r):
+    return min((Vector((c.x, c.y, 0)) - q).length for q in ROAD[::3]) > r + ROAD_W + 8
+
+
+def approach_bearing(c):
+    v = c - APP_EYE
+    return math.degrees(math.atan2(v.y, v.x))
+
+
+ZONES = [  # (x range, y range, radius range, height range, count, style)
+    ((470, 720), (-230, -460), (14, 30), (40, 110), 7, 'saucer'),
+    ((850, 1400), (-30, -170), (10, 22), (90, 260), 9, 'spire'),
+    ((780, 1300), (-420, -700), (16, 32), (50, 140), 6, 'saucer'),
+]
+placed = []
+for (xr, yr, rr, hr, n, style) in ZONES:
+    got, tries = 0, 0
+    while got < n and tries < 400:
+        tries += 1
+        c = Vector((rnd.uniform(*xr), rnd.uniform(*yr), 0))
+        r = rnd.uniform(*rr)
+        h = rnd.uniform(*hr)
+        if not clear_of_road(c, r) or any((c - q).length < r + qr + 6 for q, qr in placed):
+            continue
+        if not -48 < approach_bearing(c) < 20:
+            continue
+        if not hidden_from_arrival(c, r * 1.3, h):
+            continue
+        placed.append((c, r))
+        got += 1
+        if style == 'saucer':
+            lv, z = [], rnd.uniform(8, 16)
+            while z < h:
+                lv.append((z, r * rnd.uniform(1.2, 1.9)))
+                z += rnd.uniform(9, 16)
+            saucer_tower(f'Lagoon{len(placed):02d}', c, r, lv, r * 0.55, G['Towers'], palms=True, top_core=4)
+        else:
+            inst('needle', (c.x, c.y, WATER_Z), (r, r, h), parent=G['Spires'])
+            inst('band', (c.x, c.y, h * 0.15), (r * 0.9, r * 0.9, h * 0.45), parent=G['Spires'])
+            inst('slab', (c.x, c.y, h * 0.62), r * 1.6, parent=G['Spires'])
+            if rnd.random() < 0.4:
+                inst('ring', (c.x, c.y, h * 0.8), r * 1.3, parent=G['Spires'])
+    print('approach zone', style, got, 'placed in', tries, 'tries')
 
 # =========================================================================================================================
 # Markers.
