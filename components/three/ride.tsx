@@ -211,7 +211,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       const stop = tr.placed ? leg.at + inLength(leg) : Number.POSITIVE_INFINITY;
       if (tr.placed) {
         const left = stop - drive.s;
-        want = Math.min(want, Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)));
+        // (Gently over the last stretch; hard on the brakes before it, so a surge or a launch runs on until near the end.)
+        want = Math.min(want, Math.max(Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)), Math.sqrt(2 * BRAKE * Math.max(0, left - 150))));
         // Through a slick of ooze it bogs down, as in muck.
         const k = legIndexAt(drive.s);
         if (k > 0 && muckUnder(drive.s - course.legs[k].at, k) > 0.01) {
@@ -222,8 +223,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         if (drive.s > course.legs[1].at - 60) {
           let curve = 0;
           for (let ahead = 0; ahead <= 60 + drive.speed; ahead += 10) curve = Math.max(curve, Math.abs(courseCurve(drive.s + ahead)));
-          // (With the zone's feature going, it leans harder and takes them faster.)
-          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * kick)) / curve) * (1 + 0.5 * kick));
+          // (With the zone's feature going, it leans harder and takes them faster: the more its boost, the faster.)
+          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * kick)) / curve) * (1 + 0.43 * boostHere() * kick));
         }
         // (Only once its road's known: a zone still loading holds the ride at the end of the last one's way out.)
         if (left < 0.6 && drive.speed < 0.4 && !tr.arrived && leg.in) {
@@ -232,7 +233,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         }
       }
       drive.speed =
-        want > drive.speed ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump) * dt) : Math.max(want, drive.speed - BRAKE * dt);
+        want > drive.speed ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump + 8 * drive.surge) * dt) : Math.max(want, drive.speed - BRAKE * dt);
       drive.s = Math.min(drive.s + drive.speed * dt, stop);
       if (drive.speed > 0.5) drive.time += dt;
     } else {
