@@ -21,6 +21,8 @@ type Look = {
   sun: Vector3;
   fogNear: number;
   fogFar: number;
+  /** How much of the sky's cloud shows (1 all of it). */
+  clouds: number;
   tone: { shadow: Vector3; mid: Vector3; highlight: Vector3 };
   saturation: number;
   /** Added to the grade's exposure. */
@@ -50,6 +52,7 @@ export const LOOKS: (Look | null)[] = [
     sun: v3(2759, 691, 1400).normalize(),
     fogNear: 250,
     fogFar: 3800,
+    clouds: 1,
     tone: { shadow: v3(0.98, 0.9, 1.08), mid: v3(1.04, 0.97, 1.0), highlight: v3(1.06, 0.98, 0.9) },
     saturation: 1.2,
     exposure: 0.1,
@@ -71,6 +74,7 @@ export const LOOKS: (Look | null)[] = [
     sun: v3(1, 0.13, -0.62).normalize(),
     fogNear: 180,
     fogFar: 3200,
+    clouds: 0.8,
     tone: { shadow: v3(1.0, 0.9, 0.98), mid: v3(1.05, 0.97, 0.95), highlight: v3(1.08, 1.0, 0.88) },
     saturation: 1.15,
     exposure: 0.12,
@@ -93,6 +97,7 @@ export const LOOKS: (Look | null)[] = [
     sun: v3(0.55, 0.78, -0.3).normalize(),
     fogNear: 120,
     fogFar: 2600,
+    clouds: 0.12,
     tone: { shadow: v3(1.02, 0.95, 0.86), mid: v3(1.06, 0.99, 0.9), highlight: v3(1.08, 1.02, 0.9) },
     saturation: 1.05,
     exposure: 0.16,
@@ -119,6 +124,7 @@ export const look = {
   sun: new Vector3(1, 0.2, 0),
   fogNear: 0,
   fogFar: 0,
+  clouds: 1,
   tone: { shadow: new Vector3(), mid: new Vector3(), highlight: new Vector3() },
   saturation: 0.82,
   exposure: 0,
@@ -147,7 +153,7 @@ export function updateLook() {
   for (const key of ['top', 'horizon', 'glow', 'cloudLit', 'cloudShade', 'haze', 'light', 'hemiSky', 'hemiGround'] as const) {
     look[key].lerpColors(from[key], to[key], t);
   }
-  for (const key of ['lightIntensity', 'fogNear', 'fogFar', 'saturation', 'exposure', 'hemi'] as const) {
+  for (const key of ['lightIntensity', 'fogNear', 'fogFar', 'clouds', 'saturation', 'exposure', 'hemi'] as const) {
     look[key] = from[key] + (to[key] - from[key]) * t;
   }
   for (const key of ['shadow', 'mid', 'highlight'] as const) look.tone[key].lerpVectors(from.tone[key], to.tone[key], t);

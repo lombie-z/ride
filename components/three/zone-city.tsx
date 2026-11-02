@@ -122,7 +122,12 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
         m.envMapIntensity = kind === 'Bone' ? 0.25 : 0.12;
       }
       // (Glossy, not a mirror: the lamps' reflections sat on it as bright blobs.)
-      if (kind === 'Floor' || kind === 'Stone') m.roughness = Math.max(m.roughness, 0.22);
+      if (kind === 'Floor') m.roughness = Math.max(m.roughness, 0.22);
+      // The hive's polished stone: a sheen of the dawn sky.
+      if (kind === 'Stone') {
+        m.roughness = Math.min(Math.max(m.roughness, 0.12), 0.2);
+        m.envMapIntensity = 1.5;
+      }
       // The sandstorm's billboards and the hive's mist sheets: soft, unlit by the sun's glints, never writing depth.
       if (kind === 'Storm' || kind === 'Mist' || kind === 'Haze') {
         m.depthWrite = false;
@@ -273,8 +278,11 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
   );
 }
 
-/** How much of a mirror each city's road is: the chrome city's pure mirror, the hive's polished stone, the desert none. */
-const MIRROR = [0, 1, 0.55, 0];
+/**
+ * How much of a mirror each city's road is: the chrome city's pure mirror. (Not the hive's: reflecting that dense city
+ * a second time doubled the frame's cost, 6 to 23 ms; its polished stone catches the dawn from its environment instead.)
+ */
+const MIRROR = [0, 1, 0, 0];
 
 /**
  * Starts loading a city when the ride's on its way toward the one before (the chrome city once the visitor's on the

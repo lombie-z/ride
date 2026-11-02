@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react';
 import { BufferGeometry, type Camera, Color, Float32BufferAttribute, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { course, inLength, outLength, pathAt } from '@/lib/course';
-import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
+import { devFlag, isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
 import { ride, road as street, zoneRoad } from '@/lib/ride';
 import { AT } from './bike';
 
@@ -278,7 +278,7 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
   useFrame((state) => {
     const leg = course.legs[k];
     const s = ride.drive.s;
-    mirror.visible = leg.placed && s > leg.at - 300 && s < leg.at + inLength(leg) + outLength(leg) + 50;
+    mirror.visible = leg.placed && s > leg.at - 300 && s < leg.at + inLength(leg) + outLength(leg) + 50 && !devFlag('nocitymirror');
     if (!mirror.visible) return;
     (mirror.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
     (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);

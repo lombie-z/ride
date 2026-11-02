@@ -60,6 +60,8 @@ uniform vec3 uCloudLit;
 uniform vec3 uCloudShade;
 uniform vec3 uSun;
 uniform float uOpacity;
+// How much cloud there is (the desert's sky is dust, not cloud).
+uniform float uCloudAmount;
 uniform float uTime;
 uniform float uDebug;
 uniform sampler2D uPhotoSky;
@@ -113,7 +115,7 @@ void main() {
   cloud *= mix(1.0, 0.72, smoothstep(0.58, 0.78, body));
   float edge = 1.0 - smoothstep(0.5, 0.6, body);
   cloud += uGlow * (pow(toward, 4.0) * 0.35 + pow(toward, 16.0) * 1.0) * (0.3 + lit + edge * 1.5);
-  sky = mix(sky, cloud, c * smoothstep(0.0, 0.1, d.y));
+  sky = mix(sky, cloud, c * smoothstep(0.0, 0.1, d.y) * uCloudAmount);
   // At the landing, a photographed sky (Poly Haven's evening_road_01_puresky, CC0) takes over: real heaped cumulus
   // where noise can only approximate them. It's turned so its low sun sits behind ours, and regraded from its blue
   // evening into the reference's palette: lavender gaps, rose-mauve cloud bodies, peach and gold where they're lit.
@@ -177,6 +179,7 @@ export function Sky({ sun }: { sun: Mesh | null }) {
         vertexShader,
         fragmentShader,
         uniforms: {
+          uCloudAmount: { value: 1 },
           // (Copies: the change to the second city's sunset blends them.)
           uTop: { value: SKY_TOP.clone() },
           uHorizon: { value: SKY_HORIZON.clone() },
@@ -250,6 +253,7 @@ export function Sky({ sun }: { sun: Mesh | null }) {
     (u.uCloudLit.value as Color).lerpColors(CLOUD_LIT, look.cloudLit, dusk);
     (u.uCloudShade.value as Color).lerpColors(CLOUD_SHADE, look.cloudShade, dusk);
     (u.uSun.value as Vector3).copy(MOON).lerp(look.sun, dusk).normalize();
+    u.uCloudAmount.value = lerp(1, look.clouds, dusk);
     fog.color.lerp(look.haze, dusk);
     fog.near = lerp(fog.near, look.fogNear, dusk);
     fog.far = lerp(fog.far, look.fogFar, dusk);
