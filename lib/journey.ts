@@ -81,7 +81,7 @@ export const ledgeIn = (frame: number) => smoothstep(BEATS.open + 12, 220, frame
 export const landingAt = (frame: number) => smoothstep(BEATS.fogOut[0], BEATS.fogOut[1], frame);
 
 /**
- * The pull-back: the planter (the clay toy) recedes into the haze above as the camera draws back across the lake, and
- * its streams come to pour out of the sky. 1 while it's there, 0 once it's gone.
+ * The planter stays in view all the way down: the landing faces it (art/build-city.py), its falls pouring into the city
+ * between the road and the towers. (Was a fade-out into the haze; kept as a hook.)
  */
-export const toyPresence = (frame: number) => 1 - smoothstep(380, 560, frame);
+export const toyPresence = (_frame: number) => 1;

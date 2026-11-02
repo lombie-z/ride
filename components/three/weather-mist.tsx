@@ -11,7 +11,7 @@ import { Color, CylinderGeometry, DataTexture, DoubleSide, LinearFilter, RepeatW
 // texture, sampled twice and drifted, rather than noise evaluated per pixel.
 
 /** The landing camera (build-city.py EYE), the shells' centre. */
-const EYE = { x: 12.0, z: 7.966 };
+const EYE = { x: -37.16, z: 40.55 };
 /** The towers' ground (build-city.py GROUND_Z). */
 const GROUND_Y = -80;
 // The arc the city fills, seen from the deck (build-city.py spreads the towers over +-62 degrees east).

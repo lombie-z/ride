@@ -17,7 +17,7 @@ import {
   ShaderMaterial,
   Vector3,
 } from 'three';
-import { belowVisible, journey } from '@/lib/journey';
+import { BEATS, belowVisible, journey, smoothstep } from '@/lib/journey';
 import { DRACO_PATH } from './biome';
 import { type DeckPlacement, WetRoad } from './wet-road';
 
@@ -95,13 +95,13 @@ ${
 
 /** Shafts of green light standing out of the city into the cloud, as in the concept: soft-edged, fading at both ends. */
 const BEAMS = [
-  [420, -90, 2.2],
-  [560, 120, 1.6],
-  [700, -260, 2.8],
-  [880, 40, 2.0],
-  [980, 330, 2.6],
-  [640, 420, 1.4],
-  [1100, -180, 3.0],
+  [198, -307, 2.2],
+  [443, -247, 1.6],
+  [289, -622, 2.8],
+  [625, -522, 2.0],
+  [894, -376, 2.6],
+  [704, -80, 1.4],
+  [638, -833, 3.0],
 ] as const;
 function beamMaterial() {
   return new ShaderMaterial({
@@ -181,6 +181,8 @@ export function City() {
 
   useFrame(() => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
+    // The shafts ignore the fog, so they come in as the haze clears rather than standing in the hero's plaster.
+    beam.material.uniforms.uOpacity.value = smoothstep(BEATS.fogIn, 300, journey.frame);
   });
 
   return (

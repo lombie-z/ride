@@ -6,9 +6,9 @@ The path is a few composed shots joined by one smooth curve (Catmull-Rom through
 through the look-at points), so the camera never lurches. One crane move:
   0-80     Open up: from the blog's near-orthographic hero, a dolly zoom (lens widens as the camera closes in, so the
            biome holds its size).
-  80-300   Drop just below the planter's lip beside the falls and tilt up: the water pours down from the floating toy.
-  300-760  Swing out round the falls and down out of the night onto the freeway, landing at handlebar height beside the
-           bike (the planter recedes into the haze above).
+  80-300   Drop just below the planter's lip beside the falls and tilt up: the oil pours down from the floating toy.
+  300-760  Pull straight back and down from the planter to the freeway, levelling out low beside the bike (the planter
+           and its falls stay in view ahead, between the road and the city).
   760-920  Hold on the landing (the shot matched to art/reference/concept-green-city).
 """
 import math
@@ -28,20 +28,21 @@ OPEN_TARGET = Vector((0, 0, 0.45))
 # (frame, eye, look-at, vertical FOV) for each composed shot after the opening beat. Pool surface is at z -11; the
 # main falls leave the planter at A (0.17, -0.5), B (-0.5, 0.14), C (0.5, -0.24) and braid from z -2.1 to -7.
 SHOTS = [
-    # Drop just below the planter's lip beside the falls and tilt up: the water pours down at you from the floating
-    # toy, against the sky.
-    (200, Vector((-2.5, -1.4, -1.5)), Vector((0.0, 0.0, 0.4)), 46.0),
-    (300, Vector((-3.2, -1.2, -2.6)), Vector((0.0, 0.2, 0.0)), 46.0),
-    # Then swing out round the south of the falls and down out of the night sky onto the freeway deck
-    # (art/build-city.py), turning east to the city as it lands beside the bike, the planter receding into the haze above.
-    (460, Vector((-7.0, -7.5, -5.5)), Vector((0.0, 0.0, -3.5)), 42.0),
-    (620, Vector((4.0, -12.5, -8.6)), Vector((40.0, -6.0, -9.0)), 42.0),
+    # Drop just below the planter's lip beside the falls (on the side the hero looks from), tilting up: the black oil
+    # pours down at you from the floating toy.
+    (200, Vector((-2.297, -2.507, -1.5)), Vector((0.0, 0.0, 0.3)), 46.0),
+    (300, Vector((-3.783, -4.129, -2.8)), Vector((0.0, 0.0, -0.6)), 45.0),
+    # Then one straight pull back and down along the line from the planter to the landing (art/build-city.py places the
+    # landing so it faces the planter), levelling out at the bike: the planter and its falls stay ahead, between the
+    # road and the city.
+    (460, Vector((-10.134, -11.059, -4.6)), Vector((0.787, 0.278, -3.399)), 44.0),
+    (620, Vector((-24.321, -26.542, -8.4)), Vector((2.886, 1.02, -6.695)), 43.5),
     # The landing (art/build-city.py EYE, LOOK, FOV: fitted to the concept by art/align): low beside the bike, looking
     # across the road to the city.
-    (760, Vector((12.0005, -7.9659, -10.4121)), Vector((71.9123, -5.3405, -8.4911)), 42.98),
-    # Then hold on it (a barely-there drift, so it stays alive).
-    (840, Vector((11.92, -8.01, -10.4121)), Vector((71.9123, -5.3405, -8.4911)), 42.68),
-    (920, Vector((11.85, -8.05, -10.4121)), Vector((71.9123, -5.3405, -8.4911)), 42.38),
+    (760, Vector((-37.1575, -40.5503, -10.4121)), Vector((5.2472, 1.8544, -8.4911)), 42.98),
+    # Then hold on it (a barely-there drift back, so it stays alive).
+    (840, Vector((-37.225, -40.624, -10.4121)), Vector((5.2472, 1.8544, -8.4911)), 42.68),
+    (920, Vector((-37.279, -40.683, -10.4121)), Vector((5.2472, 1.8544, -8.4911)), 42.38),
 ]
 # Sun, warm light and rainbow come in below the clouds.
 F_SUN_IN, F_SUN_FULL = 275, 380

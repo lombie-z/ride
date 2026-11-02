@@ -55,7 +55,24 @@ BIKE_YAW = -113.658  # degrees about z (the bike's front is its +x)
 ROAD_ORIGIN = Vector((14.46, -6.85, DECK_Z))
 ROAD_HEADING = math.radians(64.67)
 _bf = Vector((math.cos(math.radians(BIKE_YAW)), math.sin(math.radians(BIKE_YAW)), 0))
-print('LANDING', 'EYE', tuple(EYE), 'LOOK', tuple(LOOK), 'FOV', LANDING_FOV, 'BIKE_AT', tuple(BIKE_AT), 'BIKE_YAW', BIKE_YAW)
+
+# --- Where the landing stands in the world ------------------------------------------------------------------------------
+# Everything here is built in the landing's own frame (the values above), then turned and moved as one (LANDING_M) so the
+# planter's column (the world's origin, where its falls drop to the city floor) stands in the landing view: PLANTER_DIST
+# metres out from the camera, PLANTER_LEFT degrees left of the view's centre, between the road and the city. The journey
+# camera then pulls straight back and down from the planter to the landing. The landing is turned so its view heads
+# north-east (VIEW_HEADING), the way the hero camera looks at the planter, so the opening barely swings. The shot
+# relative to the bike, road and city is unchanged.
+VIEW_HEADING = 45.0  # degrees about z, in the world
+PLANTER_DIST, PLANTER_LEFT = 55.0, 2.5
+_view = LOOK - EYE
+_yaw = math.atan2(_view.y, _view.x)
+LANDING_ROT = math.radians(VIEW_HEADING) - _yaw
+_a = _yaw + math.radians(PLANTER_LEFT)
+COLUMN_LOCAL = Vector((EYE.x + math.cos(_a) * PLANTER_DIST, EYE.y + math.sin(_a) * PLANTER_DIST, 0.0))
+LANDING_M = Matrix.Rotation(LANDING_ROT, 4, 'Z') @ Matrix.Translation(-COLUMN_LOCAL)
+WORLD_OFFSET = (LANDING_M @ Vector((0, 0, 0))).xy
+print('landing placed: turned', round(math.degrees(LANDING_ROT), 3), 'deg about z, then offset', tuple(round(c, 4) for c in WORLD_OFFSET))
 
 rnd = random.Random(11)
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -273,7 +290,7 @@ deck_top.location = road(ROAD_MID_S, DRIVE_L)
 deck_top.rotation_euler = (0, 0, ROAD_HEADING)
 deck_top['length'] = round(ROAD_LEN, 3)
 deck_top['width'] = round(DRIVE_W, 3)
-print('DeckTop', tuple(round(c, 3) for c in deck_top.location), 'heading', round(math.degrees(ROAD_HEADING), 2),
+print('DeckTop (landing frame)', tuple(round(c, 3) for c in deck_top.location), 'heading', round(math.degrees(ROAD_HEADING), 2),
       'length', deck_top['length'], 'width', deck_top['width'])
 
 # A jersey barrier's cross-section (a across, to the right of travel; up): outer face at a = 0, safety slope toward -a.
@@ -689,9 +706,8 @@ def horizontal(p):
 
 
 def clear_of_view(x, y, radius=0.0):
-    """Keep a channel open around the falls and the deck (nothing built right in front of the overlook), and keep the
-    freeways and the viaduct clear."""
-    if x < 25 + radius and -40 - radius < y < 40 + radius:
+    """Keep clear of the planter's falls (the world's origin: COLUMN_LOCAL in this frame), the freeways and the viaduct."""
+    if (Vector((x, y, 0)) - COLUMN_LOCAL).length < radius + 12:
         return False
     for line in KEEP_CLEAR:
         for a, b in zip(line, line[1:]):
@@ -970,6 +986,41 @@ mark.parent = root
 mark.location = BIKE_AT
 mark.rotation_euler = (0, 0, math.radians(BIKE_YAW))
 
+# Into the world: turn and move the whole landing (meshes baked, markers moved), and the landing's values with it.
+for o in root.children:
+    if o.type == 'MESH':
+        o.data.transform(LANDING_M)
+    else:
+        o.matrix_basis = LANDING_M @ o.matrix_basis  # (parented to the root, which stays at the identity)
+bpy.context.view_layer.update()
+EYE_LOCAL, BIKE_LOCAL = EYE.copy(), BIKE_AT.copy()
+EYE = LANDING_M @ EYE
+LOOK = LANDING_M @ LOOK
+BIKE_AT = LANDING_M @ BIKE_AT
+BIKE_YAW = BIKE_YAW + math.degrees(LANDING_ROT)
+_bf = Vector((math.cos(math.radians(BIKE_YAW)), math.sin(math.radians(BIKE_YAW)), 0))
+print('LANDING', 'EYE', tuple(round(c, 4) for c in EYE), 'LOOK', tuple(round(c, 4) for c in LOOK), 'FOV', LANDING_FOV,
+      'BIKE_AT', tuple(round(c, 4) for c in BIKE_AT), 'BIKE_YAW', round(BIKE_YAW, 3))
+_dt = bpy.data.objects['City.DeckTop']
+print('DeckTop', tuple(round(c, 3) for c in _dt.matrix_world.translation), 'heading', round(math.degrees(_dt.matrix_world.to_euler().z), 3),
+      'length', _dt['length'], 'width', _dt['width'])
+
+# Checks: nothing within 4 m of the falls' column (z -80 .. +3), and the straight flight from the planter (0, 0, 0.5)
+# to the landing eye clear by 1 m.
+from mathutils.bvhtree import BVHTree  # noqa: E402
+_dg = bpy.context.evaluated_depsgraph_get()
+_trees = {o.name: BVHTree.FromObject(o, _dg) for o in root.children if o.type == 'MESH'}
+for _name, _tree in _trees.items():
+    _hit = [z for z in range(-80, 4) if _tree.find_nearest(Vector((0, 0, z)), 4.0)[0] is not None]
+    if _hit:
+        print('COLUMN CLASH', _name, 'z', _hit[0], '..', _hit[-1])
+    _p0, _p1 = Vector((0, 0, 0.5)), EYE
+    _fl = [k for k in range(101) if _tree.find_nearest(_p0.lerp(_p1, k / 100), 1.0)[0] is not None]
+    if _fl:
+        print('FLIGHT CLASH', _name, 'at', _fl[0], '..', _fl[-1], '% of the way to the eye')
+print('planter on the landing screen', [round(c) for c in (lambda v, d: (640 * (1 + v.dot((LOOK - EYE).normalized().cross(Vector((0, 0, 1))).normalized()) / (d * TAN_H)), 360 * (1 - v.dot((LOOK - EYE).normalized().cross(Vector((0, 0, 1))).normalized().cross((LOOK - EYE).normalized())) / (d * TAN_V))))(Vector((0, 0, 0.5)) - EYE, (Vector((0, 0, 0.5)) - EYE).dot((LOOK - EYE).normalized()))],
+      'at', round((Vector((0, 0, 0.5)) - EYE).length, 1), 'm')
+
 for o in root.children:
     if o.type == 'MESH':
         print(f'{o.name:22s} {sum(len(p.vertices) - 2 for p in o.data.polygons):8d} tris')
@@ -1182,11 +1233,20 @@ if os.environ.get('CITY_NO_EEVEE') != '1':
             lo.rotation_euler = rot
         return lo
 
-    light('Moon', 'SUN', (0, 0, 0), 0.6, (0.55, 1.0, 0.6), rot=(math.radians(70), 0, math.radians(-95)))
-    light('UnderGantry', 'POINT', g(_sl_t + 3.0, 1.25, GANTRY_U - 0.8), 1500, (1.0, 0.85, 0.55), size=1.0)
+    light('Moon', 'SUN', (0, 0, 0), 0.6, (0.55, 1.0, 0.6), rot=(math.radians(70), 0, math.radians(-95) + LANDING_ROT))
+    light('UnderGantry', 'POINT', LANDING_M @ g(_sl_t + 3.0, 1.25, GANTRY_U - 0.8), 1500, (1.0, 0.85, 0.55), size=1.0)
+    # Stand-ins for the planter (a clay block over the origin) and its black falls (a column down to the city floor), to
+    # see where they land in the shot; not part of the city.
+    _bm = bmesh.new()
+    box(_bm, Vector((0, 0, 0.9)), Vector((3.2, 3.2, 1.8)))
+    mesh_object('PlanterStandIn', _bm, material('StandInClay', (0.55, 0.5, 0.45), 0.8), parent=None)
+    _bm = bmesh.new()
+    _r = bmesh.ops.create_cone(_bm, cap_ends=True, segments=16, radius1=1.15, radius2=1.15, depth=80.0)
+    bmesh.ops.translate(_bm, vec=Vector((0, 0, -40.0)), verts=_r['verts'])
+    mesh_object('FallsStandIn', _bm, MATS['ooze'], parent=None)
     light('DeckFill', 'POINT', BIKE_AT + Vector((0, 0, 6)), 300, (0.5, 1.0, 0.55), size=3.0)
     light('BikeKey', 'AREA', EYE + Vector((0, 0, 2.5)) - _bf * 1.0, 120, (0.7, 1.0, 0.75), size=3.0)
-    light('KerbGlow', 'POINT', road(-7.0, -4.0, 3.0), 250, (0.6, 1.0, 0.65), size=2.0)
+    light('KerbGlow', 'POINT', LANDING_M @ road(-7.0, -4.0, 3.0), 250, (0.6, 1.0, 0.65), size=2.0)
     bpy.ops.render.render(write_still=True)
     # And once without the stand-in, to judge the city behind it.
     guides(RENDER_EEVEE, RENDER_EEVEE.replace('.png', '-guides.png'))

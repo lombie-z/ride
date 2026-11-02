@@ -36,7 +36,7 @@ const CLOUD_SHADE = new Color('#1c2520');
 const WARM_LIGHT = new Color('#cfe8d4');
 /** Where the sun sits (art/build-sky.py), in three.js space (y up). */
 export const SUN_POSITION = new Vector3(47.6, 7.4, -47.4);
-const LANDING_LIGHT = new Vector3(-1.53, 14, -16.72);
+const LANDING_LIGHT = new Vector3(-63.81, 14, 31.48);
 
 /** 0 above the clouds, 1 once the sun is fully out. */
 export const bloomAt = (frame: number) => smoothstep(BEATS.sunIn, BEATS.sunFull, frame);
@@ -267,7 +267,7 @@ export function Sky({ sun }: { sun: Mesh | null }) {
         shadow-camera-near={1}
         shadow-camera-far={160}
       >
-        <object3D attach="target" position={[14.6317, -11, 6.9347]} />
+        <object3D attach="target" position={[-35.9138, -11, 38.0126]} />
       </directionalLight>
     </>
   );
