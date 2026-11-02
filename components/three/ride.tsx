@@ -106,13 +106,15 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       const { x0, y0, x1, y1 } = ride.bike;
       if (ride.pointer.x > x0 && ride.pointer.x < x1 && ride.pointer.y > y0 && ride.pointer.y < y1) near = Math.max(near, 0.6);
     } else near = 0.25 + 0.25 * Math.sin(state.clock.elapsedTime * 1.6);
+    // (On the bike it stays lit and breathes: it's the control for riding on.)
+    if (ride.mount > 0.5) near = 0.3 + 0.2 * Math.sin(state.clock.elapsedTime * 1.6);
     // (Eased, so it swells rather than snaps.)
     ride.near += (near - ride.near) * Math.min(1, dt * 8);
     // (Pixel mode draws the scene at a quarter of the resolution: the small button needs more light to survive it.)
     const boost = state.gl.getPixelRatio() < 1 ? 2 : 1;
     for (const m of buttonMaterials.current) {
       const glyph = m.name === 'BikeButtonGlyph';
-      m.emissiveIntensity = ride.appear * (glyph ? 1.4 + 4.5 * ride.near : 0.5 + 3.2 * ride.near) * (1 - ride.mount) * boost;
+      m.emissiveIntensity = ride.appear * (glyph ? 1.8 + 5 * ride.near : 0.2 + 1.4 * ride.near) * boost;
     }
 
     // Getting on: an eased glide there and back.

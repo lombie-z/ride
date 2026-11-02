@@ -841,13 +841,12 @@ def add_drops(M, n=320, seed=5):
 
 # ---------------------------------------------------------------- the "get on" button
 BUTTON_X, BUTTON_LEN, BUTTON_WID = 0.405, 0.24, 0.11  # centre (bike-local x) and size of the pill on the dome
-FONT = os.path.join(HERE, 'fonts', 'Overpass-Bold.ttf')
 ANCHORS = {}
 
 
 def build_button(M):
     """BikeButton: a pill with a raised lip on top of the dome between the grips, conformed to the carapace;
-    BikeButtonGlyph: RIDE lying on it, reading from the seat; ButtonCentre and RiderEye empties.
+    BikeButtonGlyph: three forward chevrons lying on it; ButtonCentre and RiderEye empties.
     Returns the new objects (not part of the joined Bike mesh)."""
     import numpy as np
     from mathutils.bvhtree import BVHTree
@@ -933,35 +932,31 @@ def build_button(M):
     if sum(p.normal.z for p in me.polygons) < 0:
         me.flip_normals()
 
-    # RIDE, reading left to right from the seat (baseline along -y, letters' up toward +x)
-    cu = bpy.data.curves.new('BikeButtonGlyph', 'FONT')
-    cu.body = 'RIDE'
-    cu.font = bpy.data.fonts.load(FONT)
-    cu.align_x, cu.align_y = 'CENTER', 'CENTER'
-    cu.size = 0.05
-    cu.space_character = 1.05
-    cu.extrude = 0.0006
-    cu.resolution_u = 4
-    tob = bpy.data.objects.new('GlyphTmp', cu)
-    bpy.context.scene.collection.objects.link(tob)
-    dg = bpy.context.evaluated_depsgraph_get()
-    gme = bpy.data.meshes.new_from_object(tob.evaluated_get(dg))
-    bpy.data.objects.remove(tob)
-    xs_ = [v.co.x for v in gme.vertices]
-    ys_ = [v.co.y for v in gme.vertices]
-    w, h = max(xs_) - min(xs_), max(ys_) - min(ys_)
-    sc = min((BUTTON_WID - 0.022) / w, (BUTTON_LEN - 0.06) / h)
-    cx, cy = (max(xs_) + min(xs_)) / 2, (max(ys_) + min(ys_)) / 2
+    # three nested chevrons pointing forward (+x), centred on the pill; flat 0.6 mm plates, conformed like the face
+    W_, L_, STROKE, PITCH = 0.036, 0.030, 0.0062, 0.031  # arm half-span, arm length along x, stroke (perpendicular), spacing
+    d_ = STROKE * math.hypot(L_, W_) / W_  # stroke measured along x
+    span = 2 * PITCH + L_ + d_
+    bm = bmesh.new()
+    for k in range(3):
+        tip = BUTTON_X + span / 2 - k * PITCH
+        outline = [(tip, 0), (tip - L_, W_), (tip - L_ - d_, W_), (tip - d_, 0), (tip - L_ - d_, -W_), (tip - L_, -W_)]
+        face = bm.faces.new([bm.verts.new((u, v, 0.0)) for u, v in outline])
+        ext = bmesh.ops.extrude_face_region(bm, geom=[face])
+        bmesh.ops.translate(bm, verts=[e for e in ext['geom'] if isinstance(e, bmesh.types.BMVert)], vec=(0, 0, 0.0006))
+    bmesh.ops.triangulate(bm, faces=bm.faces, quad_method='BEAUTY', ngon_method='BEAUTY')
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    gme = bpy.data.meshes.new('BikeButtonGlyph')
+    bm.to_mesh(gme)
+    bm.free()
     for v in gme.vertices:
-        tx, ty, tz = (v.co.x - cx) * sc, (v.co.y - cy) * sc, v.co.z
-        x, y = BUTTON_X + ty, -tx  # rotate -90 deg about z: text x -> -y, text up -> +x
+        x, y, tz = v.co.x, v.co.y, v.co.z
         p, n = base(x, y)
         v.co = p + n * (FACE_H + 0.0015 + tz)
     gme.materials.append(M['glyph'])
     gme.shade_flat()
     glyph = bpy.data.objects.new('BikeButtonGlyph', gme)
     bpy.context.scene.collection.objects.link(glyph)
-    print('BUTTON glyph size (m): width', round(w * sc, 4), 'cap height', round(h * sc, 4))
+    print('BUTTON chevrons: span along x', round(span, 4), 'width', 2 * W_, 'stroke', STROKE)
 
     # anchors. Blender axes: ButtonCentre +Z = surface normal (glTF/three: +Y). RiderEye +Y = view direction, +Z = up
     # (glTF/three: -Z view, +Y up, so its world transform can be copied straight onto a camera).

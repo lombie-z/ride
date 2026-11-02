@@ -39,28 +39,22 @@ BIKE_GLB = os.path.join(ROOT_DIR, 'public', 'models', 'bike.glb')
 DECK_Z = -11.0
 GROUND_Z = -80.0
 RES = (1280, 720)
-# The landing shot, fitted to the concept's traced features (art/reference/concept-guides.json: the bike's wheels,
-# headlight, bars and outline, the barrier rail and road edge) with the real bike's geometry (art/build-bike.py: axles
-# at x +-0.78, headlight at x 1.03 z 0.785). The camera stands on the bike's right side at about handlebar height,
-# looking across the road at the bike three-quarter from the front and on over the city, a touch down. The road runs
-# along the bike, away to the left (its vanishing point far off the left of the frame); the bike is parked at its far
-# kerb, the city falling away beyond. The world is placed so the camera looks east over the city with the planter's
-# falls (the origin) behind it, FALLS_CLEAR metres off the bike's right.
-LANDING_FOV = 42.0  # vertical, degrees
-VIEW_YAW = -3.0  # degrees about z: the camera looks east
-CAM_IN_BIKE = Vector((2.041, -2.307, 0.975))  # the camera in the bike's frame (x forward, y left, z up off the deck)
-CAM_YAW_IN_BIKE = 112.33  # the camera's heading relative to the bike's
-CAM_PITCH = -5.08
-FALLS_CLEAR = 16.0
-BIKE_YAW = round(VIEW_YAW - CAM_YAW_IN_BIKE, 2)
+# The landing shot, fitted to the concept by art/align/ (concept-features.json extracted from the concept; optimise.py
+# scored the bike's silhouette, headlight and wheels, the kerb and rail lines and the skyline against renders of this
+# scene). The camera stands on the bike's right at about knee height, looking across the road at the bike three-quarter
+# from the front and on over the city, a touch up. The road runs along the bike, away to the left of the frame (its
+# vanishing point far off the left); the bike is parked at its far kerb, the city falling away beyond. The world is
+# placed so the camera looks east with the planter's falls (the origin) behind it, 16 m off the road's line.
+EYE = Vector((12.0005, -7.9659, -10.4121))
+LOOK = Vector((71.9123, -5.3405, -8.4911))
+LANDING_FOV = 42.979  # vertical, degrees
+BIKE_AT = Vector((14.6317, -6.9347, DECK_Z))
+BIKE_YAW = -113.658  # degrees about z (the bike's front is its +x)
+# The road's frame: its line (abreast the bike, where the build first parked it) and heading, fixed in the world; the
+# bike stands 0.19 m off that line toward the kerb, turned 1.67 deg off the road's line.
+ROAD_ORIGIN = Vector((14.46, -6.85, DECK_Z))
+ROAD_HEADING = math.radians(64.67)
 _bf = Vector((math.cos(math.radians(BIKE_YAW)), math.sin(math.radians(BIKE_YAW)), 0))
-_bl = Vector((-_bf.y, _bf.x, 0))
-BIKE_AT = Vector((round(_bl.x * FALLS_CLEAR, 2), round(_bl.y * FALLS_CLEAR, 2), DECK_Z))
-_e = BIKE_AT + _bf * CAM_IN_BIKE.x + _bl * CAM_IN_BIKE.y
-EYE = Vector((round(_e.x, 2), round(_e.y, 2), round(DECK_Z + CAM_IN_BIKE.z, 2)))
-_v = Vector((math.cos(math.radians(CAM_PITCH)) * math.cos(math.radians(VIEW_YAW)),
-             math.cos(math.radians(CAM_PITCH)) * math.sin(math.radians(VIEW_YAW)), math.sin(math.radians(CAM_PITCH))))
-LOOK = Vector(tuple(round(c, 2) for c in EYE + _v * 60))
 print('LANDING', 'EYE', tuple(EYE), 'LOOK', tuple(LOOK), 'FOV', LANDING_FOV, 'BIKE_AT', tuple(BIKE_AT), 'BIKE_YAW', BIKE_YAW)
 
 rnd = random.Random(11)
@@ -247,7 +241,6 @@ def offset(x, y, dx, dy, rot):
 # where the deck ends over the drop; the camera stands in the lane beside it. A jersey barrier and rail line the near
 # edge, behind the camera. Built in the road's frame: s along it from abreast the bike, lateral to its left (toward
 # the camera; negative is the kerb, the city side).
-ROAD_HEADING = math.radians(BIKE_YAW + 180.0)
 RD = Vector((math.cos(ROAD_HEADING), math.sin(ROAD_HEADING), 0))  # along the road, away to the left of the shot
 RL = Vector((-RD.y, RD.x, 0))  # to its left: the bike's right, the camera's side
 KERB = -0.85  # the kerb's inner face, from the bike's centre line
@@ -262,8 +255,8 @@ ROAD_MID_L = (ROAD_NEAR + KERB - KERB_W) / 2
 
 
 def road(s, lateral=0.0, z=0.0):
-    """A point s metres along the deck from abreast the bike, `lateral` metres left of the bike's line."""
-    return Vector((BIKE_AT.x, BIKE_AT.y, DECK_Z)) + RD * s + RL * lateral + Vector((0, 0, z))
+    """A point s metres along the deck from ROAD_ORIGIN, `lateral` metres left of the road's line (toward the camera)."""
+    return Vector((ROAD_ORIGIN.x, ROAD_ORIGIN.y, DECK_Z)) + RD * s + RL * lateral + Vector((0, 0, z))
 
 
 bm = bmesh.new()
@@ -287,8 +280,11 @@ print('DeckTop', tuple(round(c, 3) for c in deck_top.location), 'heading', round
 JERSEY = [(0.0, -0.02), (0.0, 0.9), (-0.2, 0.9), (-0.32, 0.36), (-0.55, 0.1), (-0.6, -0.02)]
 bm = bmesh.new()
 # The kerb on the far edge (its outer face is the deck's edge) and the barrier on the near edge.
+# (The concept's proportions, measured by art/align: a ledge at its foot 0.066 m high, a parapet wall 0.20 m with a
+# rounded cap, a rail just over it at 0.25 m.)
 sweep(bm, [road(-ROAD_BACK, KERB - KERB_W), road(ROAD_AHEAD, KERB - KERB_W)],
-      [(0.0, -0.02), (0.0, 0.22), (-0.3, 0.22), (-KERB_W, 0.12), (-KERB_W, -0.02)])
+      [(0.0, -0.02), (0.0, 0.18), (-0.03, 0.2), (-0.27, 0.2), (-0.3, 0.18), (-0.3, 0.066), (-KERB_W, 0.066),
+       (-KERB_W, -0.02)])
 sweep(bm, [road(-ROAD_BACK, ROAD_NEAR), road(ROAD_AHEAD, ROAD_NEAR)], [(-a, u) for a, u in JERSEY])
 # The box girder under the slab, and piers on cross-heads down into the dark.
 box(bm, road(ROAD_MID_S, ROAD_MID_L, -2.4), Vector((ROAD_LEN - 2, ROAD_W - 4, 2.4)), ROAD_HEADING)
@@ -301,14 +297,14 @@ while s < ROAD_AHEAD - 4:
     s += 32.0
 mesh_object('City.DeckBeams', bm, MATS['concrete'])
 
-# Steel guard rail on posts along the near barrier, and a low W-beam rail on stubby posts along the kerb (the
+# Steel guard rail on posts along the near barrier, and a low rail on short stubs along the kerb's cap (the
 # concept's rail, in its proportions: it sits low).
 bm = bmesh.new()
-lat = KERB - KERB_W + 0.12
-sweep(bm, [road(-ROAD_BACK, lat, 0.36), road(ROAD_AHEAD, lat, 0.36)], [(-0.05, -0.08), (0.04, -0.1), (0.04, 0.1), (-0.05, 0.08)])
+lat = KERB - KERB_W + 0.15
+sweep(bm, [road(-ROAD_BACK, lat, 0.22), road(ROAD_AHEAD, lat, 0.22)], [(-0.05, -0.025), (0.05, -0.025), (0.05, 0.03), (-0.05, 0.03)])
 s = -ROAD_BACK + 0.5
 while s < ROAD_AHEAD:
-    box(bm, road(s, lat, 0.3), Vector((0.1, 0.1, 0.18)), ROAD_HEADING)
+    box(bm, road(s, lat, 0.21), Vector((0.06, 0.06, 0.03)), ROAD_HEADING)
     s += 2.0
 lat = ROAD_NEAR - 0.1
 for zr in (1.12, 1.42):
@@ -388,11 +384,12 @@ mesh_object('City.Freeway2Rails', bm, MATS['rail'])
 # A heavy steel deck over the lower carriageway beyond the kerb, looming in the top left: its front edge faces the
 # camera (a fascia of arch-topped rusted plates over a heavy bottom flange), girders and strip lights beneath, a truss
 # and a lattice mast on top, a massive concrete pier under its left. Black ooze pours over the fascia and hangs from it
-# in long strands. Placed from the concept's traces: the fascia's underside runs from (0, 165) to (400, 140) on screen,
-# the pier stands at x 110, the ooze tips run (150, 300) -> (380, 260), a strip light at (40, 178). Built in its own
+# in long strands. Placed from the concept's extracted lines (art/align/concept-features.json): the fascia's underside
+# falls ~10 deg to its right corner at (398, 177), its soffit barely showing behind; the pier stands at x 110, the ooze
+# tips run (150, 300) -> (380, 260), a strip light at (40, 178); nothing of it stands right of x ~400. Built in its own
 # frame: t along the front edge (0 at its right end, negative off to the left), l back into the deck, away from us.
 FASCIA_LOW = DECK_Z + 3.5  # the fascia's underside
-_gl, _gr = ray_at_z(0, 165, FASCIA_LOW), ray_at_z(400, 140, FASCIA_LOW)
+_gl, _gr = ray_at_z(0, 104.6, FASCIA_LOW), ray_at_z(398, 177.2, FASCIA_LOW)
 GE = _gr - _gl
 GE.z = 0
 _edge = GE.length
@@ -401,10 +398,10 @@ GANTRY_HEADING = math.atan2(GE.y, GE.x)
 GL = Vector((-GE.y, GE.x, 0))
 if GL.dot(_gr - EYE) < 0:
     GL = -GL
-GANTRY_F = Vector((_gr.x, _gr.y, 0)) + GE * 0.6
+GANTRY_F = Vector((_gr.x, _gr.y, 0))
 GANTRY_T = (-(_edge + 18.0), 0.0)  # t extent (on out of frame to the left)
-GANTRY_D = 6.0  # l depth
-GANTRY_U = FASCIA_LOW + 0.35  # underside of the slab
+GANTRY_D = 2.5  # l depth (a walkway: its soffit barely shows behind the fascia, as in the concept)
+GANTRY_U = FASCIA_LOW + 1.0  # underside of the slab (everything under it stops at the flange's foot, FASCIA_LOW)
 GANTRY_TOP = GANTRY_U + 0.6
 FASCIA_L = -0.15  # the fascia plates' plane, a little proud of the slab's edge
 FASCIA_HIGH = GANTRY_TOP + 1.0
@@ -419,21 +416,30 @@ def gbox(bm, t, l, z, size, bare=False):
     box(bm, g(t, l, z), size, GANTRY_HEADING, bare)
 
 
+def t_at_screen_x(sx, l=0.0, z=FASCIA_LOW):
+    lo, hi = GANTRY_T[0], GANTRY_T[1]
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        if to_screen(g(mid, l, z))[0] < sx:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
 gt_mid = (GANTRY_T[0] + GANTRY_T[1]) / 2
 gt_len = GANTRY_T[1] - GANTRY_T[0]
 bm = bmesh.new()
-# Slab, cross I-beams (across the edge) and girders along it.
+# Slab, cross beams (across the edge) and girders along it: shallow, so the soffit reads above the fascia's foot.
 gbox(bm, gt_mid, GANTRY_D / 2, GANTRY_U + 0.3, Vector((gt_len, GANTRY_D, 0.6)))
 t = GANTRY_T[0] + 1.0
 while t < GANTRY_T[1]:
-    gbox(bm, t, GANTRY_D / 2, GANTRY_U - 0.4, Vector((0.3, GANTRY_D - 0.4, 0.8)))
-    gbox(bm, t, GANTRY_D / 2, GANTRY_U - 0.78, Vector((0.7, GANTRY_D - 0.4, 0.08)))
+    gbox(bm, t, GANTRY_D / 2, GANTRY_U - 0.15, Vector((0.3, GANTRY_D - 0.4, 0.3)))
     t += 3.0
-for l in (0.5, 3.0, 5.5):
-    gbox(bm, gt_mid, l, GANTRY_U - 0.55, Vector((gt_len, 0.4, 1.1)))
-    gbox(bm, gt_mid, l, GANTRY_U - 1.1, Vector((gt_len, 0.9, 0.1)))
+for l in (0.4, 1.3, 2.2):
+    gbox(bm, gt_mid, l, GANTRY_U - 0.15, Vector((gt_len, 0.3, 0.3)))
 # The fascia's frame: a heavy bottom flange, a cap rail, stiffener posts between the plates.
-gbox(bm, gt_mid, FASCIA_L + 0.05, FASCIA_LOW - 0.2, Vector((gt_len, 0.7, 0.45)))
+gbox(bm, gt_mid, FASCIA_L + 0.05, FASCIA_LOW + 0.225, Vector((gt_len, 0.7, 0.45)))
 gbox(bm, gt_mid, FASCIA_L + 0.3, FASCIA_HIGH, Vector((gt_len, 0.3, 0.25)))
 PANEL = 2.4
 t = GANTRY_T[0]
@@ -441,7 +447,7 @@ while t <= GANTRY_T[1] + 0.01:
     gbox(bm, t, FASCIA_L + 0.05, (FASCIA_LOW + FASCIA_HIGH) / 2, Vector((0.28, 0.4, FASCIA_HIGH - FASCIA_LOW)))
     t += PANEL
 # A lattice mast standing near the far end, up out of frame.
-MAST = g(-2.5, 3.5, GANTRY_TOP)
+MAST = g(t_at_screen_x(290, 1.25), 1.25, GANTRY_TOP)  # left of x ~400 even at its top
 for dx in (-1.2, 1.2):
     for dy in (-1.2, 1.2):
         beam(bm, MAST + Vector((dx, dy, 0)), MAST + Vector((dx * 0.6, dy * 0.6, 22)), 0.28)
@@ -464,11 +470,11 @@ mesh_object('City.Gantry', bm, MATS['steel'])
 # Rusted plates on the fascia: arch-topped, set between the stiffeners.
 bm = bmesh.new()
 r_top = PANEL / 2 - 0.16
-h_plate = FASCIA_HIGH - FASCIA_LOW - r_top - 0.15
+h_plate = FASCIA_HIGH - FASCIA_LOW - 0.45 - r_top - 0.15
 arch = [(-r_top, 0.0), (r_top, 0.0)] + [(math.cos(math.pi * k / 8) * r_top, h_plate + math.sin(math.pi * k / 8) * r_top) for k in range(9)]
 t = GANTRY_T[0] + PANEL / 2
 while t < GANTRY_T[1]:
-    prism(bm, arch, g(t, FASCIA_L, FASCIA_LOW), GE, GL, 0.18)
+    prism(bm, arch, g(t, FASCIA_L, FASCIA_LOW + 0.45), GE, GL, 0.18)
     t += PANEL
 mesh_object('City.GantryPanels', bm, MATS['rust'])
 
@@ -476,27 +482,15 @@ mesh_object('City.GantryPanels', bm, MATS['rust'])
 # down to the ground.
 
 
-def t_at_screen_x(sx, l=0.0, z=FASCIA_LOW):
-    lo, hi = GANTRY_T[0], GANTRY_T[1]
-    for _ in range(40):
-        mid = (lo + hi) / 2
-        if to_screen(g(mid, l, z))[0] < sx:
-            lo = mid
-        else:
-            hi = mid
-    return (lo + hi) / 2
 
-
-PIER_T = t_at_screen_x(110, 1.4)
+PIER_T = t_at_screen_x(110, 1.25)
 bm = bmesh.new()
-gbox(bm, PIER_T, 1.4, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((2.6, 2.6, GANTRY_U - 1.1 - GROUND_Z)))
-gbox(bm, PIER_T, 1.4, GANTRY_U - 1.7, Vector((3.4, 3.4, 1.2)))
+gbox(bm, PIER_T, 1.25, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((2.6, 2.6, GANTRY_U - 1.1 - GROUND_Z)))
+gbox(bm, PIER_T, 1.25, GANTRY_U - 1.7, Vector((3.4, 3.4, 1.2)))
 for z in range(int(GROUND_Z) + 6, int(GANTRY_U) - 3, 7):
-    gbox(bm, PIER_T, 1.4, z, Vector((2.9, 2.9, 0.5)), bare=True)
+    gbox(bm, PIER_T, 1.25, z, Vector((2.9, 2.9, 0.5)), bare=True)
 for t in (PIER_T - 10.0, PIER_T - 20.0):
-    for l in (1.4, GANTRY_D - 1.5):
-        gbox(bm, t, l, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((1.6, 1.6, GANTRY_U - 1.1 - GROUND_Z)))
-gbox(bm, PIER_T, GANTRY_D - 1.5, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((1.6, 1.6, GANTRY_U - 1.1 - GROUND_Z)))
+    gbox(bm, t, 1.25, (GROUND_Z + GANTRY_U - 1.1) / 2, Vector((1.6, 1.6, GANTRY_U - 1.1 - GROUND_Z)))
 mesh_object('City.GantryPiers', bm, MATS['concrete'])
 
 bm = bmesh.new()
@@ -505,7 +499,7 @@ _sl = ray_at_z(40, 178, GANTRY_U - 0.15)
 _sl_t = (Vector((_sl.x, _sl.y, 0)) - GANTRY_F).dot(GE)
 _sl_l = (Vector((_sl.x, _sl.y, 0)) - GANTRY_F).dot(GL)
 for dt in (0.0, -6.0, -12.0):
-    gbox(bm, _sl_t + dt, max(0.8, _sl_l), GANTRY_U - 0.12, Vector((3.0, 0.3, 0.12)))
+    gbox(bm, _sl_t + dt, min(GANTRY_D - 0.3, max(0.3, _sl_l)), GANTRY_U - 0.12, Vector((3.0, 0.3, 0.12)))
 mesh_object('City.GantryLamps', bm, MATS['lamp'])
 
 
@@ -563,7 +557,7 @@ for i in range(30):
     strand(bm, top, length, 0.08 + rnd.random() ** 2 * 0.2, sway=-GL * 0.15 * rnd.random())
 # Strands from the girders under the slab.
 for i in range(6):
-    strand(bm, g(rnd.uniform(T_LEFT, -1.0), rnd.choice((0.5, 3.0)), GANTRY_U - 1.1), 0.6 + rnd.random() ** 2 * 3.0,
+    strand(bm, g(rnd.uniform(T_LEFT, -1.0), rnd.choice((0.4, 1.3, 2.2)), GANTRY_U - 0.3), 0.6 + rnd.random() ** 2 * 3.0,
            0.04 + rnd.random() * 0.04)
 # A thick roll of ooze along the fascia's cap, where it spills over.
 lip = [g(GANTRY_T[0] + i * 1.0, FASCIA_L - 0.05, FASCIA_HIGH + 0.05 * math.sin(i * 1.7)) for i in range(int(gt_len) + 1)]
@@ -678,6 +672,11 @@ def tower(bm, x, y, w, d, height, rot, detail, dist, crown=None):
     elif crown == 'antenna':
         box(bm, Vector((x, y, z + m * 0.2)), Vector((m * 0.5, m * 0.5, m * 0.4)), rot)
         antenna(bm, x, y, z + m * 0.4, height * rnd.uniform(0.2, 0.35), thin * 1.4)
+    elif crown == 'flat':  # just the last tier's parapet, a few short pinnacles
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                px, py = offset(x, y, sx * w * 0.45, sy * d * 0.45, rot)
+                spike(bm, px, py, z + merlon * 1.4, max(0.6, merlon * 0.6), merlon * rnd.uniform(2, 4), rot)
     else:  # stepped
         h1 = m * 0.6
         box(bm, Vector((x, y, z + h1 / 2)), Vector((m * 0.6, m * 0.6, h1)), rot)
@@ -746,37 +745,40 @@ def tower_at(sx, top_sy, depth, width, crown=None, aspect=None, force=False):
     radius = max(width, d) / 2
     if not force and (not clear_of_view(p.x, p.y, radius) or not free_spot(p.x, p.y, radius)):
         return False
-    height = (p.z - GROUND_Z) * (0.86 if crown in (None, 'needle', 'cluster', 'antenna') else 0.97)  # the crown makes up the rest
+    height = (p.z - GROUND_Z) * (0.86 if crown in (None, 'needle', 'cluster', 'antenna') else 0.97 if crown == 'crenel' else 0.99)  # the crown makes up the rest
     band = band_of(r)
     tower(band_bm[band], p.x, p.y, width, d, height, rnd.uniform(-0.3, 0.3), DETAIL[band], r, crown)
     placed.append((p.x, p.y, radius))
     return True
 
 
-# Heroes, where the concept has them: (screen x, top y, depth along the view, width m, crown).
+# Heroes, where the concept has them (tops from art/align's extracted skyline): (screen x, top y, depth along the
+# view, width m, crown).
 HEROES = [
-    (1250, 70, 330, 30, 'crenel'),  # the right tower, off the right edge
-    (450, 140, 420, 50, 'crenel'),  # the dark lit blocks left of centre
-    (522, 140, 440, 44, 'crenel'),
-    (598, 150, 470, 40, 'cluster'),
-    (650, 40, 600, 50, 'crenel'),  # the tall one left of the spire
-    (692, 20, 660, 28, 'needle'),
-    (742, 170, 640, 22, 'needle'),
-    (990, 130, 560, 44, 'crenel'),
-    (1022, 120, 600, 34, 'cluster'),
-    (1085, 170, 700, 30, 'needle'),
-    (1150, 210, 760, 28, 'antenna'),
-    (1180, 190, 700, 26, 'needle'),
+    (1250, 72, 330, 30, 'flat'),  # the right tower, off the right edge
+    (450, 124, 420, 50, 'crenel'),  # the dark lit blocks left of centre
+    (522, 137, 580, 44, 'crenel'),
+    (598, 86, 540, 40, 'crenel'),
+    (628, 66, 580, 36, 'flat'),
+    (650, 30, 600, 50, 'crenel'),  # the tall one left of the spire
+    (692, 77, 660, 28, 'needle'),
+    (742, 85, 640, 32, 'crenel'),
+    (955, 112, 760, 30, 'flat'),
+    (990, 121, 560, 44, 'crenel'),
+    (1022, 130, 600, 34, 'cluster'),
+    (1085, 179, 700, 30, 'flat'),
+    (1150, 196, 760, 28, 'flat'),
+    (1180, 190, 700, 26, 'flat'),
     (395, 190, 760, 34, 'cluster'),  # behind the gantry
     (300, 225, 680, 30, 'antenna'),
     (232, 200, 720, 30, 'needle'),
     (160, 240, 620, 28, 'crenel'),
     (60, 190, 520, 40, 'crenel'),
     # The spire's attendant needles.
-    (930, 70, 930, 24, 'needle'),
-    (905, 50, 960, 22, 'needle'),
-    (775, 80, 940, 22, 'needle'),
-    (757, 130, 900, 20, 'cluster'),
+    (930, 104, 930, 24, 'needle'),
+    (905, 91, 960, 22, 'needle'),
+    (778, 87, 940, 28, 'crenel'),
+    (762, 86, 880, 30, 'flat'),
 ]
 for sx, top, depth, width, crown in HEROES:
     # Forced past the spacing check, but kept off the roads and the viaduct: nudged sideways until clear.
@@ -784,15 +786,18 @@ for sx, top, depth, width, crown in HEROES:
         p = screen_point(sx + dsx, top, depth)
         if clear_of_view(p.x, p.y, width / 2):
             tower_at(sx + dsx, top, depth, width, crown, force=True)
+            if dsx:
+                print('hero nudged', sx, 'by', dsx)
             break
     else:
         print('hero skipped', sx, top, depth)
 
 # The great spire: right of centre, far off, rising out of frame. A cathedral: a stepped core ringed with pinnacles on
 # every setback, corner towers and flanking spires climbing its shoulders, a needle out of the top. Lit ribs (site).
+SPIRE_K = 0.54  # its width (art/align: the concept's spire is 0.54 as wide at this distance)
 spire_at = screen_point(840, 360, 920)
 SPIRE = Vector((spire_at.x, spire_at.y))
-placed.append((SPIRE.x, SPIRE.y, 150))
+placed.append((SPIRE.x, SPIRE.y, 150 * SPIRE_K))
 bm = bmesh.new()
 
 
@@ -810,13 +815,14 @@ def pinnacle_ring(bm, cx, cy, w, d, z, step, tall):
 
 
 z = GROUND_Z
-TIERS = ((200, 150, 200), (172, 126, 160), (146, 106, 140), (122, 88, 120), (100, 72, 110), (80, 58, 100), (60, 44, 90), (40, 30, 80))
+TIERS = tuple((w * SPIRE_K, d * SPIRE_K, h) for w, d, h in
+              ((200, 150, 200), (172, 126, 160), (146, 106, 140), (122, 88, 120), (100, 72, 110), (80, 58, 100), (60, 44, 90), (40, 30, 80)))
 for t, (w, d, h) in enumerate(TIERS):
     box(bm, Vector((SPIRE.x, SPIRE.y, z + h / 2)), Vector((w, d, h)))
     # Front buttress fins (the vertical ribs facing the camera) and the corner towers, taller than the tier.
     for k in (-0.3, -0.1, 0.1, 0.3):
         box(bm, Vector((SPIRE.x - w / 2 - 1.5, SPIRE.y + k * d, z + h * 0.52)), Vector((3.0, 3.2, h * 1.04)))
-    ct = max(6.0, w * 0.13)
+    ct = max(4.0, w * 0.13)
     for sx in (-1, 1):
         for sy in (-1, 1):
             cx, cy = SPIRE.x + sx * (w / 2 - ct * 0.2), SPIRE.y + sy * (d / 2 - ct * 0.2)
@@ -828,14 +834,14 @@ for t, (w, d, h) in enumerate(TIERS):
     # Flanking spires climbing the shoulders on the tiers low down.
     if t < 4:
         for sy in (-1, 1):
-            fy = SPIRE.y + sy * (d / 2 + 10)
-            fw = 18 - t * 2
+            fy = SPIRE.y + sy * (d / 2 + 10 * SPIRE_K)
+            fw = (18 - t * 2) * SPIRE_K
             fh = h * rnd.uniform(1.3, 1.8)
             box(bm, Vector((SPIRE.x - w * 0.15, fy, z + fh / 2)), Vector((fw, fw, fh)))
             pinnacle_ring(bm, SPIRE.x - w * 0.15, fy, fw, fw, z + fh, fw / 2, 4.0)
             spike(bm, SPIRE.x - w * 0.15, fy, z + fh, fw * 0.45, fh * rnd.uniform(0.4, 0.7))
     z += h
-spike(bm, SPIRE.x, SPIRE.y, z, 14.0, 300)
+spike(bm, SPIRE.x, SPIRE.y, z, 14.0 * SPIRE_K, 300)
 wall_uvs(bm)
 mesh_object('City.Spire', bm, MATS['spire'])
 
@@ -843,6 +849,14 @@ mesh_object('City.Spire', bm, MATS['spire'])
 CLUSTERS = [60, 232, 395, 450, 522, 650, 840, 990, 1085, 1150, 1250]
 FILL = {'Near': (50, 230, 380, 240, 420), 'Mid': (100, 380, 650, 200, 380), 'Far': (150, 650, 1000, 180, 330),
         'Back': (170, 1000, 1700, 170, 290)}
+# The concept's skyline, extracted per column by art/align/extract_concept.py: filler towers stay under it, so only the
+# heroes and the spire make the silhouette.
+try:
+    CONCEPT_SKY = __import__('json').load(open(os.path.join(ROOT_DIR, 'art', 'align', 'concept-features.json')))['skyline']['rows']
+except (OSError, KeyError, ValueError):
+    CONCEPT_SKY = None
+rnd_city = rnd
+rnd = random.Random(23)  # the filler draws from its own stream, so changes elsewhere don't reshuffle it
 for band, (count, d0, d1, sy0, sy1) in FILL.items():
     made = 0
     for _ in range(count * 30):
@@ -857,6 +871,11 @@ for band, (count, d0, d1, sy0, sy1) in FILL.items():
         depth = rnd.uniform(d0, d1)
         width_px = rnd.uniform(26, 75) if band in ('Near', 'Mid') else rnd.uniform(22, 60)
         width = min(75.0, max(14.0, width_px * TAN_H / 640 * depth))
+        if CONCEPT_SKY and 420 <= sx < RES[0]:
+            half_px = width / (TAN_H / (RES[0] / 2) * depth) / 2
+            span = CONCEPT_SKY[max(420, int(sx - half_px)):min(RES[0], int(sx + half_px) + 1)]
+            if span:
+                top = max(top, max(span) + 10)
         if tower_at(sx, top, depth, width):
             made += 1
 
@@ -1164,7 +1183,7 @@ if os.environ.get('CITY_NO_EEVEE') != '1':
         return lo
 
     light('Moon', 'SUN', (0, 0, 0), 0.6, (0.55, 1.0, 0.6), rot=(math.radians(70), 0, math.radians(-95)))
-    light('UnderGantry', 'POINT', g(_sl_t + 3.0, max(0.8, _sl_l), GANTRY_U - 0.8), 1500, (1.0, 0.85, 0.55), size=1.0)
+    light('UnderGantry', 'POINT', g(_sl_t + 3.0, 1.25, GANTRY_U - 0.8), 1500, (1.0, 0.85, 0.55), size=1.0)
     light('DeckFill', 'POINT', BIKE_AT + Vector((0, 0, 6)), 300, (0.5, 1.0, 0.55), size=3.0)
     light('BikeKey', 'AREA', EYE + Vector((0, 0, 2.5)) - _bf * 1.0, 120, (0.7, 1.0, 0.75), size=3.0)
     light('KerbGlow', 'POINT', road(-7.0, -4.0, 3.0), 250, (0.6, 1.0, 0.65), size=2.0)
