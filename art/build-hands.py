@@ -44,7 +44,7 @@ NO_EXPORT = '--no-export' in ARGS
 TAG = arg('--tag', '')
 VIEWS = arg('--views', ['pov', 'lowered'], lambda s: s.split(','))
 SAMPLES = arg('--samples', 64, int)
-VOXEL = arg('--voxel', 0.10, float)  # cm
+VOXEL = arg('--voxel', 0.15, float)  # cm
 OUT_DIR = arg('--out', RENDER_DIR)
 RES = arg('--res', (1600, 900), lambda s: tuple(int(v) for v in s.split('x')))
 HAND_TRIS = arg('--hand-tris', 15500, int)  # per hand, the glove surface (welts and chrome come on top)
@@ -287,7 +287,7 @@ class Hand:
                     break
             if hit is None:
                 prev = [self.curl[n] for n in FINGER_ORDER if self.curl.get(n) is not None]
-                hit = cmax if not prev else min(cmax, max(prev[-1] + 0.10, 0.55))
+                hit = cmax if not prev else min(cmax, max(prev[-1] + 0.12, 0.84))
                 info.append(f'{name}: free c={hit:.2f}')
             else:
                 info.append(f'{name}: touch c={hit:.2f}')
@@ -365,8 +365,8 @@ class Hand:
         d = smin(d, sd_ellipsoid(P, (2.55, 3.4, -0.65), (1.25, 2.6, 1.05)), 0.8)
         d_palm = d
         # wrist: palm base -> joint -> along the forearm
-        w0 = sd_aniso_cone(P, (0.0, 1.9, -0.15), (0, 0, 0), 2.42, 2.34, Z, 1.30, 0.84)
-        w1 = sd_aniso_cone(P, (0, 0, 0), v * 5.2, 2.34, 2.24, Z, 1.30, 0.84)
+        w0 = sd_aniso_cone(P, (0.0, 1.9, -0.15), (0, 0, 0), 2.52, 2.48, Z, 1.28, 0.86)
+        w1 = sd_aniso_cone(P, (0, 0, 0), v * 5.2, 2.48, 2.42, Z, 1.28, 0.86)
         d = smin(d, smin(w0, w1, 1.0), 1.5)
         # thumb: metacarpal inside the thenar, then the free thumb
         TJ, TF, TR = self.tch
@@ -383,14 +383,15 @@ class Hand:
         m_quilt = np.zeros(len(P), F32)
         for name in FINGER_ORDER:
             J, F, R = self.fch[name]
-            df = sd_aniso_cone(P, J[0] - F[0][:, 1] * 0.8, J[1], R[0] * 1.02, R[1], F[0][:, 2], 1.0, FINGER_ZS)
+            fr = 1.05
+            df = sd_aniso_cone(P, J[0] - F[0][:, 1] * 0.8, J[1], R[0] * 1.02 * fr, R[1] * fr, F[0][:, 2], 1.0, FINGER_ZS)
             for i in (1, 2):
-                di = sd_aniso_cone(P, J[i], J[i + 1], R[i], R[i + 1], F[i][:, 2], 1.0, FINGER_ZS)
+                di = sd_aniso_cone(P, J[i], J[i + 1], R[i] * fr, R[i + 1] * fr, F[i][:, 2], 1.0, FINGER_ZS)
                 df = smin(df, di, 0.22)
             k = (0.18 + 0.75 * sstep(1.8, -0.2, d_palm)).astype(F32)
             d = smin(d, df, k)
             # padded segments on the backs of the proximal and middle phalanges
-            for i, (h, y0, y1) in enumerate(((0.17, 0.85, -0.55), (0.12, 0.45, -0.40))):
+            for i, (h, y0, y1) in enumerate(((0.26, 0.85, -0.55), (0.18, 0.45, -0.40))):
                 Q = local(P, J[i], F[i])
                 L = FINGERS[name]['L'][i]
                 rr = R[i]
@@ -404,8 +405,8 @@ class Hand:
             kd = nrm(np.array([0, 0, 1.0]) + math.sin(fl) * np.array([0, 1.0, 0]) * 0.9)
             K = J[0] + kd * R[0] * 0.88 + np.array([0, 0.15, 0])
             dist = np.linalg.norm(P - K.astype(F32), axis=1)
-            m = sstep(1.38, 0.62, dist)
-            pad = np.maximum(pad, 0.36 * m * m * (3 - 2 * m) ** 0.0)
+            m = sstep(1.5, 0.6, dist)
+            pad = np.maximum(pad, 0.52 * m)
             m_quilt = np.maximum(m_quilt, sstep(0.3, 0.6, m))
         # thumb: padded back of the proximal phalanx
         Q = local(P, TJ[1], TF[1])
@@ -413,7 +414,7 @@ class Hand:
         m = (sstep(0.45, 0.85, Q[:, 1]) * sstep(THUMB['L'][1] - 0.15, THUMB['L'][1] - 0.55, Q[:, 1])
              * sstep(0.15, 0.55, Q[:, 2] / rr) * sstep(0.95 * rr, 0.6 * rr, np.abs(Q[:, 0]))
              * sstep(rr + 0.9, rr + 0.3, np.sqrt(Q[:, 0] ** 2 + Q[:, 2] ** 2)))
-        pad = np.maximum(pad, 0.18 * m)
+        pad = np.maximum(pad, 0.26 * m)
         m_quilt = np.maximum(m_quilt, m)
         # back of the hand: a diamond-quilted panel
         e = ((P[:, 0] - 0.30) / 3.05) ** 2 + ((P[:, 1] - 4.75) / 2.85) ** 2
@@ -421,19 +422,20 @@ class Hand:
         u = (P[:, 0] + P[:, 1]) / 1.55
         w = (P[:, 0] - P[:, 1]) / 1.55
         g = np.maximum(groove(u, 0.11), groove(w, 0.11))
-        pad = np.maximum(pad, m_back * (0.27 - 0.17 * g))
+        pad = np.maximum(pad, m_back * (0.40 - 0.26 * g))
         m_quilt = np.maximum(m_quilt, m_back)
         # palm heel patch (slightly raised reinforcement)
-        e2 = ((P[:, 0] - 1.2) / 2.3) ** 2 + ((P[:, 1] - 2.9) / 1.9) ** 2
-        m_heel = sstep(1.0, 0.7, e2) * sstep(-0.2, -0.8, P[:, 2])
-        pad = np.maximum(pad, 0.12 * m_heel)
+        e2 = ((P[:, 0] - 0.9) / 2.7) ** 2 + ((P[:, 1] - 3.2) / 2.2) ** 2
+        m_heel = sstep(1.0, 0.72, e2) * sstep(-0.2, -0.8, P[:, 2])
+        u2 = P[:, 1] / 1.1
+        pad = np.maximum(pad, m_heel * (0.24 - 0.14 * groove(u2, 0.1)))
         m_quilt = np.maximum(m_quilt, m_heel)
         d_glove = d - pad
         # wrist strap: a band with square edges
-        d_strap, _ = sd_tube(P, v * 1.7, v * 3.9, 2.50, 2.48, Z, 1.30, 0.86, rnd=0.12)
+        d_strap, _ = sd_tube(P, v * 1.7, v * 3.9, 2.70, 2.66, Z, 1.28, 0.88, rnd=0.12)
         # gauntlet: flared, diamond quilted, runs well off the bottom of the frame
-        L_g = 24.0
-        d_g, Qg = sd_tube(P, v * 5.05, v * (5.05 + L_g), 2.52, 3.45, Z, 1.20, 0.95, rnd=0.25)
+        L_g = 15.0
+        d_g, Qg = sd_tube(P, v * 5.05, v * (5.05 + L_g), 2.72, 3.6, Z, 1.20, 0.95, rnd=0.25)
         theta = np.arctan2(Qg[:, 2] / 0.95, Qg[:, 0] / 1.20)
         S = TAU * 2.95 / 9
         ug = (theta * 2.95 + Qg[:, 1]) / S
@@ -625,8 +627,8 @@ def principled(name, base, metallic=0.0, rough=0.5, coat=0.0, coat_rough=0.03, e
 
 def make_materials():
     return {
-        'glove': principled('HandsGlove', srgb('#060507'), rough=0.45, coat=0.45, coat_rough=0.07, spec=0.5),
-        'quilt': principled('HandsQuilt', srgb('#121014'), rough=0.6, coat=0.15, coat_rough=0.25, spec=0.45,
+        'glove': principled('HandsGlove', srgb('#050406'), rough=0.45, coat=0.6, coat_rough=0.045, spec=0.35),
+        'quilt': principled('HandsQuilt', srgb('#100e12'), rough=0.6, coat=0.25, coat_rough=0.18, spec=0.4,
                             sheen=0.08, sheen_tint=srgb('#c9b8d8')),
         'chrome': principled('HandsChrome', (0.96, 0.96, 0.98), metallic=1.0, rough=0.06),
         'emit': principled('HandsEmitter', srgb('#7f9bff'), rough=0.2, emit=srgb('#86b4ff'), emit_strength=6.0),
@@ -753,11 +755,24 @@ def build_hand_mesh(hand, mats):
     # re-project the decimated verts onto the field, assign materials from the panel masks
     co = np.zeros(len(me2.vertices) * 3, F32)
     me2.vertices.foreach_get('co', co)
-    co = hand.project(co.reshape(-1, 3), iters=2)
+    co = co.reshape(-1, 3)
+    vn = np.zeros(len(me2.vertices) * 3, F32)
+    me2.vertex_normals.foreach_get('vector', vn)
+    vn = vn.reshape(-1, 3)
+    # pull verts back onto the field, but only along their own normal and only a little (a vert that would jump to
+    # a neighbouring finger stays put)
+    pr = hand.project(co, iters=2)
+    mv = pr - co
+    ok = (np.linalg.norm(mv, axis=1) < 0.12)
+    co = np.where(ok[:, None], pr, co).astype(F32)
     me2.vertices.foreach_set('co', co.ravel())
     me2.update()
+    me2.vertex_normals.foreach_get('vector', vn.ravel())
     gn = hand.grad(co)
     gn /= np.maximum(np.linalg.norm(gn, axis=1), 1e-6)[:, None]
+    agree = np.einsum('ij,ij->i', gn, vn) > 0.6
+    gn = np.where(agree[:, None], gn, vn)
+    print(f'  reprojected {ok.mean():.3f}, field normals used {agree.mean():.3f}')
     me2['surf_normals'] = gn.astype(np.float64).ravel().tolist()
     cen = np.zeros(len(me2.polygons) * 3, F32)
     me2.polygons.foreach_get('center', cen)
@@ -775,7 +790,7 @@ def build_hand_mesh(hand, mats):
     # wrist seam (glove edge under the strap) and the chrome ring at the gauntlet
     P, _ = ring_points(hand, 1.45, n=40, lift=0.03)
     tube_geom(bm, P, 0.07, sides=4, closed=True, mat=0)
-    P, M = ring_points(hand, 5.0, n=56, lift=0.32, r=3.4)
+    P, M = ring_points(hand, 5.0, n=56, lift=0.34, r=3.6)
     tube_geom(bm, P, 0.42, sides=10, closed=True, mat=2)
     # snap on the strap (dorsal)
     snap_c = hand.v * 2.8 + np.array([0, 0, 1.0]) * 3.0
@@ -785,6 +800,19 @@ def build_hand_mesh(hand, mats):
     rotq = nn.to_track_quat('Z', 'Y')
     for vv in res['verts']:
         vv.co = c + rotq @ vv.co + nn * 0.14
+    for f in {f for vv in res['verts'] for f in vv.link_faces}:
+        f.material_index = 2
+        f.smooth = True
+    # chrome palm slider (an oval puck on the heel of the palm)
+    P, g = surface_curve(hand, [(1.0, 2.9, -3.0)], lift=0.0)
+    c, nn = Vector(P[0]), Vector(g[0]).normalized()
+    res = bmesh.ops.create_uvsphere(bm, u_segments=20, v_segments=8, radius=1.0)
+    yax = Vector((0, 1, 0))
+    xax = yax.cross(nn).normalized()
+    yax = nn.cross(xax).normalized()
+    for vv in res['verts']:
+        p = vv.co
+        vv.co = c + xax * p.x * 1.05 + yax * p.y * 1.5 + nn * (p.z * 0.24 + 0.08)
     for f in {f for vv in res['verts'] for f in vv.link_faces}:
         f.material_index = 2
         f.smooth = True
@@ -933,7 +961,7 @@ def setup_render(scene):
     sun = bpy.data.objects.new('Sun', sd)
     sun.rotation_euler = Vector((0.25, -1.0, -0.25)).to_track_quat('-Z', 'Y').to_euler()
     col.objects.link(sun)
-    for name, loc, colr, energy, size in (('Key', (0.25, -0.15, 0.6), (1.0, 0.72, 0.85), 22.0, 0.6),
+    for name, loc, colr, energy, size in (('Key', (0.25, -0.15, 0.6), (1.0, 0.9, 0.95), 18.0, 0.35),
                                           ('Rim', (-0.9, 0.9, 0.1), (0.62, 0.5, 1.0), 40.0, 0.8),
                                           ('Rim2', (0.9, 0.8, 0.0), (1.0, 0.5, 0.7), 30.0, 0.8)):
         ld = bpy.data.lights.new(name, 'AREA')

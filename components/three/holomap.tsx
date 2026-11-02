@@ -214,7 +214,7 @@ export function HoloMap() {
     const open = smoothstep(0.68, 1, m);
     // (Lowered, they turn down about a point below the chest, out of view: art/build-hands.py's pivot.)
     if (holder.current) {
-      holder.current.rotation.x = -0.62 * (1 - raise);
+      holder.current.rotation.x = -0.78 * (1 - raise);
       holder.current.position.set(0, -0.6 + 0.004 * Math.sin(state.clock.elapsedTime * 1.3), 0);
     }
     material.uniforms.uTime.value = state.clock.elapsedTime;
@@ -264,9 +264,11 @@ export function HoloMap() {
   });
 
   return (
-    <group ref={rig} visible={false}>
+    // (Shrunk toward the eye, a viewmodel's trick: the same on screen, but in front of the bike's dash, not through it.)
+    <group ref={rig} visible={false} scale={0.55}>
       <group ref={holder}>
-        <group position={[0, 0.6, 0]}>
+        {/* (Up a little from where art/build-hands.py holds them, clear of the throttle and higher in the view.) */}
+        <group position={[0, 0.66, 0.02]}>
           {hands && (
             <Suspense fallback={null}>
               <Hands
