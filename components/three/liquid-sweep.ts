@@ -2,10 +2,10 @@ import { wrapEffect } from '@react-three/postprocessing';
 import { BlendFunction, Effect, EffectAttribute } from 'postprocessing';
 import { Uniform } from 'three';
 
-// Getting off after a ride: a sheet of liquid glass washes across the screen from the right (components/three/ride.tsx
+// Getting off after a ride: a sheet of black oil washes across the screen from the right (components/three/ride.tsx,
 // lib/ride.ts ride.wash), and while it covers everything the ride is put back, the bike at its spot and the camera at
-// the landing; then it drains away to the left. Behind its front the picture is seen through moving water: refracted,
-// split at the edges into colour, darkened a little, with a bright meniscus riding the front.
+// the landing; then it drains away to the left. Its front is glossy, the picture bending through it as it darkens;
+// behind, it's black with moving film grain.
 const fragmentShader = /* glsl */ `
 uniform float cover;
 uniform float leaving;
@@ -37,22 +37,22 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     outputColor = inputColor;
     return;
   }
-  // Refraction through the surface: its slope bends the view, strongest just behind the front where it's deepest.
+  // Just at the front the picture still bends through the thin oil, darkening fast; behind it the sheet is opaque.
   float e = 0.01;
   float h = surface(p);
   vec2 slope = vec2(surface(p + vec2(e, 0.0)) - h, surface(p + vec2(0.0, e)) - h) / e;
-  float depth = smoothstep(0.0, 0.18, x - edge);
-  vec2 bend = slope * 0.0045 * (0.4 + 0.6 * depth) + vec2(0.0, -0.006) * depth;
-  // Colour splits at the bends: red bent less, blue more.
-  vec3 c;
-  c.r = texture2D(inputBuffer, uv + bend * 0.8).r;
-  c.g = texture2D(inputBuffer, uv + bend).g;
-  c.b = texture2D(inputBuffer, uv + bend * 1.25).b;
-  // A cool tint and a glassy sheen where the surface faces up the screen.
-  c = c * vec3(0.82, 0.95, 0.9) + vec3(0.35, 0.6, 0.45) * pow(max(0.0, slope.y * 0.12 + 0.2), 3.0);
-  // The meniscus: a bright rim of light on the front.
-  float rim = exp(-abs(x - edge) * 140.0) + 0.4 * exp(-abs(x - edge - 0.02) * 40.0);
-  c += vec3(0.75, 1.0, 0.8) * rim * 0.9;
+  float depth = smoothstep(0.0, 0.06, x - edge);
+  vec3 seen = texture2D(inputBuffer, uv + slope * 0.004).rgb;
+  vec3 c = seen * (1.0 - depth) * 0.35;
+  // Film grain in the black: fine, moving, a touch green.
+  vec2 g = uv * resolution;
+  float grain = liquidHash(floor(g * 0.75) + floor(time * 24.0) * vec2(17.0, 31.0));
+  // (Linear light: small numbers, the output's encoding lifts them.)
+  c += vec3(0.85, 1.0, 0.9) * (grain * grain * grain) * 0.03 * depth;
+  // The oil's sheen: a glossy rim on the front and slow highlights where its surface faces up the screen.
+  float rim = exp(-abs(x - edge) * 160.0) * 0.55 + exp(-abs(x - edge - 0.012) * 50.0) * 0.12;
+  c += vec3(0.7, 0.85, 0.75) * rim;
+  c += vec3(0.25, 0.32, 0.28) * pow(max(0.0, slope.y * 0.1 + 0.1), 4.0) * 0.25 * depth;
   outputColor = vec4(mix(inputColor.rgb, c, inside), inputColor.a);
 }`;
 

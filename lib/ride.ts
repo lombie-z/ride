@@ -28,7 +28,7 @@ export const ride = {
    */
   drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1 },
   /**
-   * Getting off after a real ride: a sheet of liquid glass washes over the screen (components/three/liquid-sweep.ts) and,
+   * Getting off after a real ride: a sheet of black oil washes over the screen (components/three/liquid-sweep.ts) and,
    * while it covers it, the ride is put back; seconds since it began, or -1.
    */
   wash: -1,
