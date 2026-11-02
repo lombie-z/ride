@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-serif: var(--font-newsreader), Georgia, serif;
+  --font-sans: var(--font-instrument), ui-sans-serif, system-ui, sans-serif;
+  --color-plaster: var(--plaster);
+  --color-plaster-shade: var(--plaster-shade);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+}
+
+:root {
+  /* The blog's warm plaster (#f5f2ed), so arriving from it feels seamless. */
+  --plaster: oklch(0.962 0.008 82);
+  --plaster-shade: oklch(0.915 0.011 78);
+  --ink: oklch(0.24 0.012 60);
+  --muted: oklch(0.52 0.012 65);
+}
+
+@layer base {
+  html {
+    overscroll-behavior: none;
+    color-scheme: light;
+  }
+  body {
+    @apply bg-plaster font-sans text-ink antialiased;
+    overscroll-behavior: none;
+  }
+}
+
+/* Lenis owns smooth scrolling when active. */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis.lenis-smooth {
+  /* biome-ignore lint/complexity/noImportantStyles: Lenis's own stylesheet, so it wins over any scroll-behavior. */
+  scroll-behavior: auto !important;
+}

@@ -1,0 +1,51 @@
+{
+ "cols": 3,
+ "rows": 3,
+ "cells": [
+  {
+   "name": "island_tree_01_0",
+   "aspect": 0.959,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_01_1",
+   "aspect": 0.889,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_01_2",
+   "aspect": 0.957,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_01_pink_0",
+   "aspect": 0.959,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_01_pink_1",
+   "aspect": 0.889,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_01_pink_2",
+   "aspect": 0.957,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_02_0",
+   "aspect": 1.196,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_02_1",
+   "aspect": 1.151,
+   "fill": 1.0
+  },
+  {
+   "name": "island_tree_02_2",
+   "aspect": 1.28,
+   "fill": 1.0
+  }
+ ]
+}
