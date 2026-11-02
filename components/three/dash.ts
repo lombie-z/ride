@@ -36,6 +36,8 @@ export function dashDisplay() {
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
+  // (glTF's UVs run top-down: no flip, as for the model's own textures.)
+  texture.flipY = false;
   let shown = -1;
 
   const draw = (kmh: number) => {
