@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
 import { type Camera, Color, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
-import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER } from '@/lib/journey';
+import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
 import { CITY_ROAD, ride, road as street } from '@/lib/ride';
 import { AT } from './bike';
 
@@ -23,6 +23,8 @@ const RoadShader = {
     uLamp: { value: new Vector3() },
     uLampDir: { value: new Vector3(1, 0, 0) },
     uLampOn: { value: 0 },
+    // 0 the green city's wet asphalt, 1 the second city's road: a clean, unbroken mirror.
+    uMirror: { value: 0 },
   },
   vertexShader: /* glsl */ `
     uniform mat4 textureMatrix;
@@ -40,6 +42,7 @@ const RoadShader = {
     uniform vec3 uLamp;
     uniform vec3 uLampDir;
     uniform float uLampOn;
+    uniform float uMirror;
     varying vec4 vUv;
     varying vec3 vWorld;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -52,13 +55,13 @@ const RoadShader = {
       vec2 p = vWorld.xz;
       // Puddles: low spots in a soft noise field.
       float field = vnoise(p * 0.35) * 0.65 + vnoise(p * 1.3) * 0.35;
-      float puddle = smoothstep(0.5, 0.56, field);
+      float puddle = mix(smoothstep(0.5, 0.56, field), 1.0, uMirror);
       // Rain rings and the asphalt's grain shiver the reflection; on the tarmac it's smeared along the view (the long
       // streaks of light wet roads show), in the puddles barely touched.
       float grain = vnoise(p * vec2(18.0, 3.0) + uTime * 0.6) - 0.5;
       float rain = vnoise(p * 6.0 + uTime * 3.0) - 0.5;
       vec4 uv = vUv;
-      uv.x += (grain * 0.05 * (1.0 - puddle) + rain * 0.006) * uv.w;
+      uv.x += (grain * 0.05 * (1.0 - puddle) + rain * 0.006 * (1.0 - uMirror)) * uv.w;
       uv.y += (grain * 0.012 * (1.0 - puddle)) * uv.w;
       vec3 sharp = texture2DProj(tDiffuse, uv).rgb;
       // The tarmac's reflection, stretched: a few taps down the view.
@@ -70,11 +73,12 @@ const RoadShader = {
       }
       smear /= 5.0;
       vec3 v = normalize(cameraPosition - vWorld);
-      float fresnel = 0.04 + 0.96 * pow(1.0 - max(v.y, 0.0), 5.0);
+      float fresnel = mix(0.04 + 0.96 * pow(1.0 - max(v.y, 0.0), 5.0), 0.92, uMirror);
       vec3 reflection = mix(smear * 0.55, sharp * 1.05, puddle);
       vec3 col = mix(uAsphalt, reflection, fresnel * mix(0.75, 1.0, puddle));
       // Grit: the dry crowns of the aggregate catch nothing.
       col *= mix(1.0, 0.75 + 0.25 * hash(floor(p * 40.0)), 1.0 - puddle);
+      col = mix(col, sharp, uMirror * 0.85);
       // The headlight's pool: a cone widening down the road ahead of the bike, brightest in the puddles.
       if (uLampOn > 0.0) {
         vec2 d = vWorld.xz - uLamp.xz;
@@ -197,7 +201,9 @@ export function RideMirror() {
     const u = (mirror.material as unknown as { uniforms: Record<string, { value: unknown }> }).uniforms;
     (u.uLamp.value as Vector3).set(AT[0], AT[1], AT[2]).addScaledVector(street.ahead, ride.drive.s + 1);
     (u.uLampDir.value as Vector3).copy(street.ahead);
-    u.uLampOn.value = Math.min(1, ride.drive.speed / 3 + (ride.drive.cruise ? 0.3 : 0));
+    u.uLampOn.value = Math.min(1, ride.drive.speed / 3 + (ride.drive.cruise ? 0.3 : 0)) * (1 - 0.7 * smoothstep(0.3, 0.65, tr.t));
+    // The road turns to the second city's pure mirror as that city comes to fill the view.
+    u.uMirror.value = smoothstep(0.3, 0.65, tr.t);
   });
 
   return <primitive object={mirror} />;
