@@ -18,6 +18,7 @@ import {
   Vector3,
 } from 'three';
 import { BEATS, belowVisible, devFlag, journey, smoothstep } from '@/lib/journey';
+import { leftBehind } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { weathered } from './weathered';
 import { type DeckPlacement, WetRoad } from './wet-road';
@@ -183,7 +184,7 @@ export function City() {
   }, [scene]);
 
   useFrame(() => {
-    if (group.current) group.current.visible = belowVisible(journey.frame);
+    if (group.current) group.current.visible = belowVisible(journey.frame) && !leftBehind(0);
     // The shafts ignore the fog, so they come in as the haze clears rather than standing in the hero's plaster.
     beam.material.uniforms.uOpacity.value = smoothstep(BEATS.fogIn, 300, journey.frame);
   });

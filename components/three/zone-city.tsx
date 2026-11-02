@@ -17,7 +17,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { course, type Shot, ZONES } from '@/lib/course';
-import { MUCKY, ride, setZonePaths } from '@/lib/ride';
+import { leftBehind, MUCKY, ride, setZonePaths } from '@/lib/ride';
 import { sunsetEnvMap, zoneEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
@@ -246,7 +246,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     const g = group.current;
     const leg = course.legs[k];
     if (!g || !leg.ready) return;
-    g.visible = leg.placed && (k === ride.zone || k === ride.zone - 1);
+    g.visible = leg.placed && (k === ride.zone || k === ride.zone - 1) && !leftBehind(k);
     if (!g.visible) return;
     g.position.copy(leg.origin);
     g.rotation.set(0, leg.yaw, 0);

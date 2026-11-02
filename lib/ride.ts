@@ -152,6 +152,14 @@ export const cityRoadStraight = () => zoneRoadStraight(1);
  */
 export const ARRIVAL = { eye: [617.7743, 0.5002, 169.5642], look: [627.1305, 1.9546, 172.7805], fov: 50.635 } as const;
 
+/** How far into the next city's road a city is left behind (m): out of sight back there, so no longer drawn. */
+const LEFT_BEHIND = 400;
+/** Whether the ride's gone far enough into the city after zone `k` (0 the green city) that `k` needn't be drawn. */
+export function leftBehind(k: number) {
+  const next = course.legs[k + 1];
+  return !!next?.placed && ride.drive.s > next.at + LEFT_BEHIND;
+}
+
 /**
  * Slicks of black ooze on a city's road, thickening toward its plaza (the ooze has run): placed by a hash along the
  * road's last stretch, each an ellipse (along and across the road, m) with a height. Riding through one the bike slows,
