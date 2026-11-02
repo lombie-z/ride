@@ -3,6 +3,7 @@
 import { useFrame } from '@react-three/fiber';
 import { useMemo } from 'react';
 import { AdditiveBlending, BufferAttribute, BufferGeometry, Color, InstancedBufferAttribute, InstancedBufferGeometry, ShaderMaterial, Vector2 } from 'three';
+import { NO_MIRROR_LAYER } from '@/lib/journey';
 
 // Rain at the landing: fine streaks falling round the camera, and splash flecks on the deck in front of it.
 // The streaks are instanced quads, each a drop's motion blur: its head and tail projected and joined by a thin
@@ -225,9 +226,9 @@ export function Rain({ light, opacity }: { light: boolean; opacity: { current: n
   return (
     <>
       {layers.map(({ geometry, material }) => (
-        <mesh key={material.uuid} name="Rain" geometry={geometry} material={material} frustumCulled={false} renderOrder={10} />
+        <mesh key={material.uuid} name="Rain" geometry={geometry} material={material} frustumCulled={false} renderOrder={10} layers={NO_MIRROR_LAYER} />
       ))}
-      <points name="RainSplashes" geometry={flecks.geometry} material={flecks.material} frustumCulled={false} renderOrder={10} />
+      <points name="RainSplashes" geometry={flecks.geometry} material={flecks.material} frustumCulled={false} renderOrder={10} layers={NO_MIRROR_LAYER} />
     </>
   );
 }

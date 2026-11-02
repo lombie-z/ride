@@ -55,9 +55,12 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     if (process.env.NODE_ENV === 'development') (window as unknown as { __ride?: unknown }).__ride = { ride, anchors };
     const dt = Math.min(delta, 1 / 20);
     const settled = journey.frame >= SETTLED_FRAME;
-    // (Running back quickly when the visitor scrolls away, so it can play again.)
-    ride.since = settled ? Math.min(ride.since + dt, 10) : Math.max(0, ride.since - dt * 3);
+    // Counting up once settled on the landing; before the button's been lit it runs back when the visitor scrolls away,
+    // so the streaks play again on return. Once lit, it stays lit.
+    if (settled || ride.activated) ride.since = Math.min(ride.since + dt, 10);
+    else ride.since = Math.max(0, ride.since - dt * 3);
     ride.appear = smoothstep(LIT[0], LIT[1], ride.since);
+    if (ride.appear >= 1) ride.activated = true;
     if (!settled && ride.mounted) ride.mounted = false;
 
     // (The camera has moved this frame, but its matrices only update when it renders.)

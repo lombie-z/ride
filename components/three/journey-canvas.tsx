@@ -4,7 +4,8 @@ import { PerformanceMonitor, SoftShadows, useProgress } from '@react-three/drei'
 import { Canvas, useFrame } from '@react-three/fiber';
 import { type RefObject, Suspense, useEffect, useRef, useState } from 'react';
 import type { Mesh } from 'three';
-import { devFlag as flag, isLightDevice, journey, pixelSize } from '@/lib/journey';
+import { BEATS, devFlag as flag, isLightDevice, journey, landingAt, pixelSize } from '@/lib/journey';
+import { ride } from '@/lib/ride';
 import { Bike } from './bike';
 import { Biome } from './biome';
 import { City } from './city';
@@ -39,8 +40,13 @@ function ShadowBudget() {
     gl.shadowMap.autoUpdate = false;
     const moving = Math.abs(journey.frame - last.frame) > 0.05;
     last.frame = journey.frame;
-    last.tick = (last.tick + 1) % 4;
-    if (moving || last.tick === 0) gl.shadowMap.needsUpdate = true;
+    last.tick = (last.tick + 1) % 60;
+    // The hero's toy idles (its letters bob), so its small map redraws often; on the way down nothing near the camera
+    // casts a visible shadow, so a few times a second; at the landing everything in the sun's map stands still (the
+    // bike parked, the drips cast none), so once a second; riding, the bike leaves the map behind, so never.
+    const riding = ride.drive.s > 1 || ride.mount > 0.5;
+    const every = journey.frame < BEATS.open ? 4 : landingAt(journey.frame) < 0.99 ? (moving ? 6 : 30) : 60;
+    if (!riding && (last.tick % every === 0 || (moving && journey.frame < BEATS.open))) gl.shadowMap.needsUpdate = true;
   }, -2);
   return null;
 }

@@ -9,6 +9,8 @@ export const ride = {
   since: 0,
   /** 0 until the streaks have converged between the handlebars, then 1 once the button is lit. */
   appear: 0,
+  /** The streaks have lit the button: it stays lit from then on (no replay on coming back to the landing). */
+  activated: false,
   /** How close the pointer is to the button: 0 far off, 1 on it (or focused from the keyboard). */
   near: 0,
   /** The pointer in CSS px (null with no pointer yet, or on touch). */

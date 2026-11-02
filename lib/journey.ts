@@ -75,6 +75,9 @@ export const belowVisible = (frame: number) => frame > BEATS.open + 12;
 /** The render layer the rainbow lives on: the camera draws it, the lake's mirror doesn't. */
 export const RAINBOW_LAYER = 2;
 
+/** The render layer for what the wet road's mirror needn't draw again (rain, mist): the camera draws it, the mirror doesn't. */
+export const NO_MIRROR_LAYER = 3;
+
 /** The fall's rock ledge, its trees and the waterfall itself come in gradually as the haze opens (0 to 1). */
 export const ledgeIn = (frame: number) => smoothstep(BEATS.open + 12, 220, frame);
 

@@ -1,11 +1,11 @@
 import { wrapEffect } from '@react-three/postprocessing';
-import { BlendFunction, Effect, EffectAttribute } from 'postprocessing';
+import { BlendFunction, Effect } from 'postprocessing';
 import { Uniform } from 'three';
 
 // Getting off after a ride: a sheet of black oil washes across the screen from the right (components/three/ride.tsx,
 // lib/ride.ts ride.wash), and while it covers everything the ride is put back, the bike at its spot and the camera at
-// the landing; then it drains away to the left. Its front is glossy, the picture bending through it as it darkens;
-// behind, it's black with moving film grain.
+// the landing; then it drains away to the left. Its front is glossy, the picture darkening through it; behind, it's
+// black with moving film grain.
 const fragmentShader = /* glsl */ `
 uniform float cover;
 uniform float leaving;
@@ -37,13 +37,13 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     outputColor = inputColor;
     return;
   }
-  // Just at the front the picture still bends through the thin oil, darkening fast; behind it the sheet is opaque.
+  // Just at the front the picture shows dimly through the thin oil, darkening fast; behind it the sheet is opaque.
+  // (It reads only this pixel, so it shares a pass with the other effects rather than costing one of its own.)
   float e = 0.01;
   float h = surface(p);
   vec2 slope = vec2(surface(p + vec2(e, 0.0)) - h, surface(p + vec2(0.0, e)) - h) / e;
   float depth = smoothstep(0.0, 0.06, x - edge);
-  vec3 seen = texture2D(inputBuffer, uv + slope * 0.004).rgb;
-  vec3 c = seen * (1.0 - depth) * 0.35;
+  vec3 c = inputColor.rgb * (1.0 - depth) * 0.35;
   // Film grain in the black: fine, moving, a touch green.
   vec2 g = uv * resolution;
   float grain = liquidHash(floor(g * 0.75) + floor(time * 24.0) * vec2(17.0, 31.0));
@@ -60,7 +60,6 @@ export class LiquidSweepEffect extends Effect {
   constructor() {
     super('LiquidSweepEffect', fragmentShader, {
       blendFunction: BlendFunction.NORMAL,
-      attributes: EffectAttribute.CONVOLUTION,
       uniforms: new Map<string, Uniform>([
         ['cover', new Uniform(0)],
         ['leaving', new Uniform(0)],

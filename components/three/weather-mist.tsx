@@ -1,8 +1,9 @@
 'use client';
 
 import { useFrame } from '@react-three/fiber';
-import { useMemo } from 'react';
-import { Color, CylinderGeometry, DataTexture, DoubleSide, LinearFilter, RepeatWrapping, RGBAFormat, ShaderMaterial } from 'three';
+import { useMemo, useRef } from 'react';
+import { Color, CylinderGeometry, DataTexture, DoubleSide, type Group, LinearFilter, RepeatWrapping, RGBAFormat, ShaderMaterial } from 'three';
+import { NO_MIRROR_LAYER } from '@/lib/journey';
 
 // Mist and smog in the city below the deck, as in the concept: a green-grey pall pooled round the towers' feet, wisps
 // drifting among them higher up, and a thin haze over the far skyline so its towers stand apart in layers. Each layer
@@ -190,7 +191,10 @@ export function Mist({ light, opacity }: { light: boolean; opacity: { current: n
     });
   }, [light]);
 
+  const group = useRef<Group>(null);
   useFrame((state) => {
+    // (Six screen-filling layers of blended noise: not drawn at all once faded out.)
+    if (group.current) group.current.visible = opacity.current > 0.002;
     for (const { material } of shells) {
       material.uniforms.uTime.value = state.clock.elapsedTime;
       material.uniforms.uOpacity.value = opacity.current;
@@ -198,10 +202,19 @@ export function Mist({ light, opacity }: { light: boolean; opacity: { current: n
   });
 
   return (
-    <>
+    <group ref={group}>
       {shells.map(({ geometry, material, position, renderOrder }) => (
-        <mesh key={material.uuid} name="Mist" geometry={geometry} material={material} position={position} renderOrder={renderOrder} frustumCulled={false} />
+        <mesh
+          key={material.uuid}
+          name="Mist"
+          geometry={geometry}
+          material={material}
+          position={position}
+          renderOrder={renderOrder}
+          frustumCulled={false}
+          layers={NO_MIRROR_LAYER}
+        />
       ))}
-    </>
+    </group>
   );
 }

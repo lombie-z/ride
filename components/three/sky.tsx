@@ -73,7 +73,8 @@ float vnoise3(vec3 p) {
 }
 float fbm3(vec3 p) {
   float v = 0.0, a = 0.5;
-  for (int i = 0; i < 5; i++) { v += a * vnoise3(p); p = p * 2.07 + 5.3; a *= 0.5; }
+  // (Four octaves: a fifth is finer than a pixel at the dome's distance, and this runs for every pixel of sky.)
+  for (int i = 0; i < 4; i++) { v += a * vnoise3(p); p = p * 2.07 + 5.3; a *= 0.5; }
   return v;
 }
 // Clouds on a layer overhead, seen in perspective (shrinking and crowding toward the horizon, as real cloud fields do):
@@ -102,7 +103,8 @@ void main() {
   float soft = 0.07 * smoothstep(0.2, 0.7, d.y);
   float c = smoothstep(0.47 - soft, 0.505 + soft, body + 0.06 * smoothstep(0.05, 0.3, d.y) - 0.08 * smoothstep(0.6, 0.95, toward));
   vec2 toSun = normalize(uSun.xz + 1e-4);
-  float lit = clamp((body - clouds(q + toSun * 0.09)) * 5.0 + 0.45, 0.0, 1.0);
+  // (Lit from the base layer a step toward the moon, not the full warped field again: half the cost, much the same.)
+  float lit = clamp((body - fbm3(vec3(q + toSun * 0.09, 0.0) * 1.5)) * 5.0 + 0.45, 0.0, 1.0);
   vec3 cloud = mix(uCloudShade, uCloudLit, lit);
   // Thick cores darker, thin edges glowing where the sun is behind them.
   cloud *= mix(1.0, 0.72, smoothstep(0.58, 0.78, body));
@@ -206,6 +208,8 @@ export function Sky({ sun }: { sun: Mesh | null }) {
     const f = journey.frame;
     const bloom = bloomAt(f);
     material.uniforms.uOpacity.value = bloom;
+    // (Not drawn at all over the hero's plaster.)
+    if (dome.current) dome.current.visible = bloom > 0.001 && !devFlag('nosky');
     // (FogDrog's photographed sunset sky isn't this one's.)
     material.uniforms.uPhoto.value = 0;
     material.uniforms.uTime.value = state.clock.elapsedTime;

@@ -11,6 +11,7 @@ import {
   type Material,
   type Mesh,
   MeshBasicMaterial,
+  Mesh as MeshClass,
   type MeshPhysicalMaterial,
   type Object3D,
   PerspectiveCamera,
@@ -20,7 +21,8 @@ import {
   Vector3,
   WebGLRenderTarget,
 } from 'three';
-import { BEATS, devFlag, journey, landingAt, ledgeIn, RAINBOW_LAYER, smoothstep, toyPresence } from '@/lib/journey';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { BEATS, devFlag, journey, landingAt, ledgeIn, NO_MIRROR_LAYER, RAINBOW_LAYER, smoothstep, toyPresence } from '@/lib/journey';
 import { FallStreaks } from './fall-streaks';
 import { landingMaterial } from './landing';
 import { useLandingReflections } from './landing-reflections';
@@ -198,6 +200,39 @@ export function Biome({ onReady, onSun }: { onReady: () => void; onSun: (sun: Me
     return list;
   }, [scene]);
 
+  // The moss on the hand and the leaves are hundreds of little static meshes: merged into one per material and parent
+  // (they never move), so they cost a few draw calls rather than hundreds, in every pass that draws the toy.
+  useMemo(() => {
+    const groups = new Map<string, Mesh[]>();
+    scene.updateMatrixWorld(true);
+    scene.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh || !/^(MossHand|Leaf)/.test(ownerName(mesh)) || !mesh.parent) return;
+      const g = mesh.geometry;
+      const key = `${(mesh.material as Material).uuid}|${mesh.parent.uuid}|${Object.keys(g.attributes).sort().join()}|${!!g.index}`;
+      groups.set(key, [...(groups.get(key) ?? []), mesh]);
+    });
+    for (const meshes of groups.values()) {
+      if (meshes.length < 2) continue;
+      const parent = meshes[0].parent as Object3D;
+      const toParent = parent.matrixWorld.clone().invert();
+      const merged = mergeGeometries(
+        meshes.map((m) => m.geometry.clone().applyMatrix4(toParent.clone().multiply(m.matrixWorld))),
+        false
+      );
+      if (!merged) continue;
+      const one = new MeshClass(merged, meshes[0].material);
+      one.name = `${ownerName(meshes[0])}Merged`;
+      one.castShadow = meshes[0].castShadow;
+      one.receiveShadow = meshes[0].receiveShadow;
+      parent.add(one);
+      for (const m of meshes) {
+        m.removeFromParent();
+        m.geometry.dispose();
+      }
+    }
+  }, [scene]);
+
   const animated = useMemo(() => {
     const list: Animated[] = [];
     const counts: Record<string, number> = {};
@@ -313,6 +348,7 @@ export function Biome({ onReady, onSun }: { onReady: () => void; onSun: (sun: Me
   }, [onSun]);
   useEffect(() => {
     camera.layers.enable(RAINBOW_LAYER);
+    camera.layers.enable(NO_MIRROR_LAYER);
   }, [camera]);
 
   useFrame((state, delta) => {

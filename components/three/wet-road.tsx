@@ -2,9 +2,10 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
-import { Color, PlaneGeometry } from 'three';
+import { type Camera, Color, PlaneGeometry } from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
-import { isLightDevice } from '@/lib/journey';
+import { isLightDevice, journey, landingAt, NO_MIRROR_LAYER } from '@/lib/journey';
+import { ride, road as street } from '@/lib/ride';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
 // up the way rain on asphalt does: sharp in the puddles, smeared into long streaks toward the camera on the wet tarmac
@@ -78,8 +79,9 @@ export function WetRoad({ deck }: { deck: DeckPlacement }) {
   const road = useMemo(() => {
     const light = isLightDevice();
     const mirror = new Reflector(new PlaneGeometry(deck.length, deck.width), {
-      textureWidth: light ? 512 : 1280,
-      textureHeight: light ? 288 : 720,
+      // (Half the screen's resolution or less: the shader smears and ripples it anyway.)
+      textureWidth: light ? 384 : 768,
+      textureHeight: light ? 216 : 432,
       clipBias: 0.003,
       shader: RoadShader,
     });
@@ -92,6 +94,12 @@ export function WetRoad({ deck }: { deck: DeckPlacement }) {
 
   useFrame((state) => {
     (road.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
+    // A mirror renders the whole scene again: only while the deck's actually in view (arriving at the landing, at it,
+    // and riding along it), not on the way down or once the ride's left it behind.
+    road.visible = landingAt(journey.frame) > 0.15 && ride.drive.s < street.end + 25;
+    // Its camera is a clone of the main one, layers and all: leave out the rain and mist (a full redraw of each, for
+    // nothing the ripples would show).
+    (road as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
   });
 
   return <primitive object={road} />;
