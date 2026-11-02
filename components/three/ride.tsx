@@ -17,7 +17,7 @@ import {
   Vector3,
 } from 'three';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
-import { ACCEL, anchors, BRAKE, CHROME_SECONDS, CRUISE, ride, SETTLED_FRAME, WASH, WASH_FROM } from '@/lib/ride';
+import { ACCEL, anchors, BRAKE, CHROME_SECONDS, CRUISE, MORPH_AFTER, ride, SETTLED_FRAME, WASH, WASH_FROM } from '@/lib/ride';
 
 // The ride button's entrance: once the camera has settled on the landing, streaks of light fly in from all round the
 // bike and converge between the handlebars, where the button lights (components/three/bike.tsx gives it its glow from
@@ -134,6 +134,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       const want = ride.mount > 0.95 && drive.cruise ? CRUISE + drive.boost : 0;
       drive.speed = want > drive.speed ? Math.min(want, drive.speed + ACCEL * dt) : Math.max(want, drive.speed - BRAKE * dt);
       drive.s += drive.speed * dt;
+      if (drive.speed > 0.5) drive.time += dt;
     } else {
       drive.cruise = false;
       drive.speed = 0;
@@ -146,17 +147,26 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           drive.s = 0;
           drive.rewindFrom = -1;
           ride.mount = 0;
+          // (Back at the landing, the bike's its black self again.)
+          ride.chrome.want = 0;
+          ride.chrome.at = 0;
+          drive.time = 0;
         }
         if (ride.wash > WASH.in + WASH.hold + WASH.out) ride.wash = -1;
       } else if (drive.s > 0) {
         // Only just rolled off: the bike slides back to its spot as the camera glides back to the landing.
         if (drive.rewindFrom < 0) drive.rewindFrom = drive.s;
         drive.s = drive.rewindFrom * smoothstep(0, 1, ride.mount);
-      } else drive.rewindFrom = -1;
+      } else {
+        drive.rewindFrom = -1;
+        drive.time = 0;
+      }
     }
     drive.boost = Math.max(0, drive.boost - dt * 5);
-    // The chrome morph sweeps at a steady pace either way.
+    // The chrome morph: once the second city's loaded and the ride's been going a while, the bike turns; it sweeps at a
+    // steady pace either way.
     const c = ride.chrome;
+    if (ride.secondCity.ready && ride.mounted && drive.time > MORPH_AFTER) c.want = 1;
     c.at = c.want > c.at ? Math.min(c.want, c.at + dt / CHROME_SECONDS) : Math.max(c.want, c.at - dt / CHROME_SECONDS);
     drive.away = smoothstep(20, 260, drive.s);
   });

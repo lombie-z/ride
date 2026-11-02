@@ -1,0 +1,36 @@
+{
+ "frame": "bike: the bike at the origin on the floor, its front along +X (City2.BikeMark)",
+ "EYE": [
+  -0.4358,
+  -2.2257,
+  0.5002
+ ],
+ "LOOK": [
+  2.7805,
+  7.1305,
+  1.9546
+ ],
+ "FOV": 50.635,
+ "fit": {
+  "rms_px": 4.08,
+  "bike_box": [
+   83.7,
+   304.2,
+   855.5,
+   674.4
+  ],
+  "residuals": [
+   2.8,
+   -4.3,
+   3.3,
+   -2.5,
+   2.9,
+   5.8,
+   -3.3,
+   8.4,
+   2.3,
+   -2.6,
+   -1.7
+  ]
+ }
+}

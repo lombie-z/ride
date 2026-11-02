@@ -9,6 +9,7 @@ import { ride } from '@/lib/ride';
 import { Bike } from './bike';
 import { Biome } from './biome';
 import { City } from './city';
+import { CityTwoLoader } from './city-two';
 import { DriveStreet } from './drive';
 import { Effects } from './effects';
 import { JourneyCamera } from './journey-camera';
@@ -127,6 +128,7 @@ export default function JourneyCanvas({ onReady, onProgress }: { onReady: () => 
         {!flag('noweather') && <Weather />}
         {!flag('nobike') && <Bike />}
         {!flag('nodrive') && <DriveStreet />}
+        <CityTwoLoader />
       </Suspense>
       {flag('nofx') ? <Render /> : <Effects sun={null} pixel={pixel} />}
     </Canvas>

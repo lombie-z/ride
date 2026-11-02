@@ -26,9 +26,9 @@ export const ride = {
   mount: 0,
   /**
    * Riding on (components/three/ride.tsx): distance down the road from the bike's spot (m), speed (m/s), whether it's
-   * cruising, a boost from scrolling (m/s), and how far it's left the landing behind (0 to 1).
+   * cruising, a boost from scrolling (m/s), how far it's left the landing behind (0 to 1), and seconds spent moving.
    */
-  drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1 },
+  drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1, time: 0 },
   /**
    * Getting off after a real ride: a sheet of black oil washes over the screen (components/three/liquid-sweep.ts) and,
    * while it covers it, the ride is put back; seconds since it began, or -1.
@@ -39,9 +39,13 @@ export const ride = {
    * swept, nose to tail (0 black chitin, 1 chrome).
    */
   chrome: { want: 0, at: 0 },
+  /** The second city has loaded and is ready to draw without a hitch (components/three/city-two.tsx). */
+  secondCity: { ready: false },
 };
 /** Seconds for the chrome seam to sweep the bike. */
 export const CHROME_SECONDS = 2.6;
+/** The morph waits for the second city to load, and for at least this long riding (s), so a fast load doesn't cut the ride short. */
+export const MORPH_AFTER = 12;
 
 /** The wash's timing (s): coming in, holding over the swap, draining away. */
 export const WASH = { in: 0.85, hold: 0.25, out: 1.0 } as const;

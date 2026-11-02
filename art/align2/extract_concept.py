@@ -102,7 +102,7 @@ def sun_circle():
     warm = (r > 0.93) & (g > 0.62) & (b < 0.80) & (r - b > 0.18)
     m = np.zeros_like(warm)
     m[y0:y1, x0:x1] = warm[y0:y1, x0:x1]
-    m = morphology.binary_opening(m, morphology.disk(2))
+    m = morphology.opening(m, morphology.disk(2))
     lbl = measure.label(m)
     if lbl.max() == 0:
         return None, m
@@ -118,29 +118,36 @@ def sun_circle():
 
 
 # --- Billboard screen ------------------------------------------------------------------------------------------------
-SCREEN_PRIOR = (940, 0, W, 360)
+SCREEN_PRIOR = (975, 0, 1240, 330)  # inside the frame: the dome and the plaza lights left of it are violet too
 
 
 def screen_quad():
     x0, y0, x1, y1 = SCREEN_PRIOR
     h, s, v = HSV[..., 0], HSV[..., 1], HSV[..., 2]
-    violet = (h > 0.62) & (h < 0.80) & (s > 0.28) & (v > 0.35)
+    violet = (h > 0.60) & (h < 0.80) & (s > 0.25) & (v > 0.22)
     m = np.zeros_like(violet)
     m[y0:y1, x0:x1] = violet[y0:y1, x0:x1]
-    m = morphology.binary_closing(m, morphology.disk(3))
+    m = morphology.closing(m, morphology.disk(3))
     lbl = measure.label(m)
     m = lbl == np.argmax(np.bincount(lbl.ravel())[1:]) + 1
     # The logo inside is white: close it over generously, then fill.
-    m = morphology.binary_closing(m, morphology.disk(25))
+    m = morphology.closing(m, morphology.disk(25))
     m = ndi.binary_fill_holes(m)
-    ys, xs = np.nonzero(m)
-    # Corners: the extreme points along the two diagonals.
-    s_, d_ = xs + ys, xs - ys
-    tl = (xs[np.argmin(s_)], ys[np.argmin(s_)])
-    br = (xs[np.argmax(s_)], ys[np.argmax(s_)])
-    tr = (xs[np.argmax(d_)], ys[np.argmax(d_)])
-    bl = (xs[np.argmin(d_)], ys[np.argmin(d_)])
-    return [list(map(int, p)) for p in (tl, tr, br, bl)], m
+    # The quad: the mask's convex hull simplified (Douglas-Peucker, tolerance raised until four corners remain).
+    # The hull bridges the dents the ooze bites into the frame's edge; the frame top is clipped by the image.
+    hull = morphology.convex_hull_image(m)
+    cont = max(measure.find_contours(hull.astype(float), 0.5), key=len)
+    for tol in np.arange(2, 60, 1.0):
+        poly = measure.approximate_polygon(cont, tolerance=tol)[:-1]
+        if len(poly) <= 4:
+            break
+    pts = [(float(c), float(r)) for r, c in poly]
+    if len(pts) < 4:
+        pts += [pts[-1]] * (4 - len(pts))
+    pts = np.array(pts)
+    s_, d_ = pts[:, 0] + pts[:, 1], pts[:, 0] - pts[:, 1]
+    order = [np.argmin(s_), np.argmax(d_), np.argmax(s_), np.argmin(d_)]  # tl, tr, br, bl
+    return [[round(float(pts[i, 0]), 1), round(float(pts[i, 1]), 1)] for i in order], m
 
 
 # --- Dome ------------------------------------------------------------------------------------------------------------
@@ -156,12 +163,10 @@ def dome_ellipse():
     sel = (r > 0.45) & (r < 1.15) & (xs < 962) & (ys < 345)
     xs, ys = xs[sel].astype(float), ys[sel].astype(float)
 
-    def ok(p):
-        bx, by, hw, hh = ellipse_box(p)
-        return 25 < hw < 70 and 30 < hh < 90 and abs(bx - cx) < 30 and abs(by - cy) < 35
-
-    p, inl = ransac_ellipse(xs, ys, thr=1.5, trials=4000, accept=ok)
-    return p, (xs[inl], ys[inl]) if inl is not None else None
+    # A glass bubble: fit a circle (its rim is broken by the frame on the right and the trees at its foot).
+    c, inl = ransac_circle(xs, ys, thr=1.5, trials=4000,
+                           accept=lambda c: 35 < c[2] < 80 and abs(c[0] - cx) < 30 and abs(c[1] - cy) < 35)
+    return c, (xs[inl], ys[inl]) if inl is not None else None
 
 
 # --- Monorail --------------------------------------------------------------------------------------------------------
@@ -190,7 +195,7 @@ def monorail_curve():
 
 # --- Water line ------------------------------------------------------------------------------------------------------
 WATER_COLS = (860, 960)
-WATER_ROWS = (440, 520)
+WATER_ROWS = (455, 505)
 
 
 def water_line():
@@ -218,8 +223,8 @@ def main():
         'size': [W, H],
         'skyline': {'rows': [int(v) for v in skyline], 'note': 'topmost non-sky row per column; 720 = no structure'},
         'sun': {'centre': [round(sun[0], 1), round(sun[1], 1)], 'radius': round(sun[2], 1)} if sun else None,
-        'screen': {'quad': quad, 'note': 'tl, tr, br, bl'},
-        'dome': dict(zip(('cx', 'cy', 'half_w', 'half_h'), [round(v, 1) for v in ellipse_box(dome)])) if dome else None,
+        'screen': {'quad': quad, 'note': 'tl, tr, br, bl; tl is soft (the screen darkens into the ooze there) and tr is clipped by the frame top: scored on br, bl'},
+        'dome': {'cx': round(dome[0], 1), 'cy': round(dome[1], 1), 'half_w': round(dome[2], 1), 'half_h': round(dome[2], 1)} if dome else None,
         'monorail': {'points': mono, 'note': "the track beam's underside"},
         'water_line': round(wl, 1),
         'horizon': round(wl, 1),
