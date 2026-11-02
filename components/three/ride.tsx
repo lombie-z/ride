@@ -215,7 +215,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     tr.t = tr.placed ? smoothstep(tr.at - TRANSITION_LEAD, tr.at + 160, drive.s) : 0;
     tr.arrive = tr.arrived && ride.mounted ? Math.min(1, tr.arrive + dt / 3.2) : Math.max(0, tr.arrive - dt / 1.2);
     const c = ride.chrome;
-    if (tr.placed && ride.mounted) c.want = 1;
+    // (Once the sunset is coming in, so the chrome bike arrives with its light.)
+    if (tr.placed && ride.mounted && tr.t > 0.3) c.want = 1;
     c.at = c.want > c.at ? Math.min(c.want, c.at + dt / CHROME_SECONDS) : Math.max(c.want, c.at - dt / CHROME_SECONDS);
     drive.away = smoothstep(20, 260, drive.s);
   });
