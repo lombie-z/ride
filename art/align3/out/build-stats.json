@@ -38,9 +38,9 @@
   ],
   "fov": 50.0
  },
- "glb_bytes": 934396,
+ "glb_bytes": 1133672,
  "min_x": 0.0,
- "tris_unique": 115112,
- "tris_drawn": 444538,
- "objects": 2089
+ "tris_unique": 122147,
+ "tris_drawn": 453914,
+ "objects": 3233
 }

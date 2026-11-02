@@ -250,6 +250,51 @@ def stone_texture(n=512):
 STONE_IMG = stone_texture()
 
 
+def heart_texture(w=512, h=256):
+    """The heart's skin, wrapped (equirectangular on its UV sphere): a deep glowing amber-orange, hotter in blotches,
+    under a network of dark red-brown veins (branching random walks, thick trunks from the top thinning downward).
+    Used as base and emissive colour, so the veins stay dark however hard the site drives the emission."""
+    rng = np.random.default_rng(9)
+    yy, xx = np.mgrid[0:h, 0:w] / np.array([h, w])[:, None, None]
+    glow = 0.82 + 0.1 * np.sin(2 * np.pi * (3 * xx + 0.3)) * np.sin(np.pi * 4 * yy) + 0.08 * np.sin(2 * np.pi * 7 * xx) \
+        * np.cos(np.pi * 9 * yy)
+    vein = np.zeros((h, w))
+
+    def walk(x, y, ang, width, n):
+        for i in range(n):
+            ang += rng.normal(0, 0.28)
+            x = (x + 1.6 * np.cos(ang)) % w
+            y = y + 1.6 * np.sin(ang)
+            if y < 0 or y >= h - 1:
+                return
+            r = max(0.6, width * (1 - i / n))
+            x0, x1 = int(x - r - 1), int(x + r + 2)
+            y0, y1 = max(0, int(y - r - 1)), min(h, int(y + r + 2))
+            for yi in range(y0, y1):
+                for xi in range(x0, x1):
+                    d = np.hypot(xi - x, yi - y)
+                    if d < r + 0.7:
+                        vein[yi, xi % w] = max(vein[yi, xi % w], min(1.0, r + 0.7 - d))
+            if width > 1.2 and rng.random() < 0.06:
+                walk(x, y, ang + rng.choice((-1, 1)) * rng.uniform(0.5, 1.2), width * 0.6, int(n * 0.6))
+    for _ in range(26):
+        walk(rng.uniform(0, w), rng.uniform(2, 30), np.pi / 2 + rng.normal(0, 0.4), rng.uniform(2.2, 3.8), 150)
+    for _ in range(28):
+        walk(rng.uniform(0, w), rng.uniform(0, h), rng.uniform(0, 2 * np.pi), rng.uniform(0.7, 1.2), 40)
+    amber = np.stack([np.ones_like(glow) * 1.0, 0.36 * glow + 0.06, 0.05 * glow], -1) * glow[..., None]
+    dark = np.array([0.22, 0.04, 0.025])
+    rgb = amber * (1 - vein[..., None]) + dark * vein[..., None]
+    rgba = np.ones((h, w, 4), np.float32)
+    rgba[..., :3] = np.clip(rgb, 0, 1)
+    im = bpy.data.images.new('City3HeartVeins', w, h, alpha=False)
+    im.pixels.foreach_set(rgba[::-1].ravel())
+    im.pack()
+    return im
+
+
+HEART_IMG = heart_texture()
+
+
 # --- Materials ---------------------------------------------------------------------------------------------------------
 def mix_rgba(nt, blend='MULTIPLY'):
     """A Mix node in RGBA mode and its colour sockets (A, B, Result): by name they'd be the float ones."""
@@ -263,7 +308,8 @@ def mix_rgba(nt, blend='MULTIPLY'):
     return mx, a, b, out
 
 
-def material(name, colour, roughness=0.5, metallic=0.0, emission=None, strength=0.0, coat=0.0, alpha=1.0, image=None):
+def material(name, colour, roughness=0.5, metallic=0.0, emission=None, strength=0.0, coat=0.0, alpha=1.0, image=None,
+             emission_image=False):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     p = m.node_tree.nodes['Principled BSDF']
@@ -288,17 +334,21 @@ def material(name, colour, roughness=0.5, metallic=0.0, emission=None, strength=
         m.node_tree.links.new(t.outputs['Color'], ia)
         ib.default_value = (*colour, 1)
         m.node_tree.links.new(io, p.inputs['Base Color'])
+        if emission_image:
+            # The emissive colour is the image itself (the veins dark in it): glTF emissiveTexture.
+            m.node_tree.links.new(t.outputs['Color'], p.inputs['Emission Color'])
     return m
 
 
 MAT = {
-    'bone': material('City3Bone', (0.80, 0.66, 0.52), 0.68),
-    'coral': material('City3Coral', (0.86, 0.36, 0.42), 0.85),
-    'flesh': material('City3Flesh', (0.42, 0.08, 0.10), 0.35, coat=0.4),
+    'bone': material('City3Bone', (0.90, 0.80, 0.64), 0.66),
+    'coral': material('City3Coral', (0.90, 0.22, 0.30), 0.8),
+    'flesh': material('City3Flesh', (0.30, 0.03, 0.05), 0.35, coat=0.5),
     'stone': material('City3Stone', (0.84, 0.74, 0.64), 0.2, coat=0.35, image=STONE_IMG),
-    'amber': material('City3Amber', (1.0, 0.55, 0.15), 0.4, emission=(1.0, 0.42, 0.05), strength=2.2),
-    'heart': material('City3Heart', (1.0, 0.4, 0.12), 0.35, emission=(1.0, 0.24, 0.03), strength=2.2),
-    'vein': material('City3Vein', (0.30, 0.04, 0.05), 0.4),
+    'amber': material('City3Amber', (1.0, 0.42, 0.06), 0.4, emission=(1.0, 0.33, 0.02), strength=2.4),
+    'heart': material('City3Heart', (1.0, 1.0, 1.0), 0.35, emission=(1.0, 1.0, 1.0), strength=3.2,
+                      image=HEART_IMG, emission_image=True),
+    'vein': material('City3Vein', (0.16, 0.03, 0.025), 0.45, coat=0.3),
     'ooze': material('City3Ooze', (0.006, 0.004, 0.005), 0.04, coat=1.0),
     'water': material('City3Water', (0.10, 0.065, 0.07), 0.03),
     'sun': material('City3Sun', (1.0, 0.85, 0.6), 1.0, emission=(1.0, 0.78, 0.5), strength=10.0),
@@ -423,6 +473,63 @@ def planar_uvs(me, scale=1 / 6):
         uv.data[loop.index].uv = (co.x * scale, co.y * scale)
 
 
+def oval_tube(bm, centres, axa, axb, ra, rb, seg=6, caps=True):
+    """A tube along centres with an elliptic section: semi-axes ra[i] along axa[i], rb[i] along axb[i]."""
+    rings = []
+    for c, a, b, r1, r2 in zip(centres, axa, axb, ra, rb):
+        rings.append([bm.verts.new(c + a * r1 * math.cos(2 * math.pi * k / seg) + b * r2 * math.sin(2 * math.pi * k / seg))
+                      for k in range(seg)])
+    for x, y in zip(rings, rings[1:]):
+        for k in range(seg):
+            j = (k + 1) % seg
+            bm.faces.new((x[k], x[j], y[j], y[k]))
+    if caps:
+        bm.faces.new(list(reversed(rings[0])))
+        bm.faces.new(rings[-1])
+
+
+def bone_ladder(bm, pts, width, thick, plane_n=None, hole=None, flat=0.5, seg=6, taper=0.4, step=None, strut_seg=4):
+    """Calcified bone with oval holes along it (the concept's ribs): two flattened rails either side of the curve in
+    its own plane, joined by flattened struts; the holes between are long ovals. Wider and thicker at the feet.
+    plane_n: the normal of the rib's plane (its thin direction); from the curve if None."""
+    L = plen(pts)
+    pts = resample(pts, step or max(0.02, L / 40))
+    if plane_n is None:
+        ch = pts[-1] - pts[0]
+        mid = pts[len(pts) // 2] - (pts[0] + pts[-1]) / 2
+        plane_n = ch.cross(mid if mid.length > 1e-6 else Vector((0, 0, 1)))
+        if plane_n.length < 1e-6:
+            plane_n = Vector((0, 1, 0))
+        plane_n = plane_n.normalized()
+    n = len(pts)
+    acc = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        acc.append(acc[-1] + (b - a).length)
+    tg, inp, ws, th = [], [], [], []
+    for i, p in enumerate(pts):
+        t = (pts[min(i + 1, n - 1)] - pts[max(i - 1, 0)]).normalized()
+        ip = plane_n.cross(t).normalized()
+        u = acc[i] / max(L, 1e-6)
+        k = 1 + taper * (1 - math.sin(math.pi * u))  # wider at the ends
+        tg.append(t)
+        inp.append(ip)
+        ws.append(width * k * (1 + 0.08 * math.sin(i * 1.3)))
+        th.append(thick * k)
+    for side in (1, -1):
+        rail = [p + ip * side * w / 2 for p, ip, w in zip(pts, inp, ws)]
+        oval_tube(bm, rail, inp, [plane_n] * n, th, [x * flat for x in th], seg=seg)
+    hole = hole or width * 1.7
+    last = -hole * 0.5
+    for i in range(1, n - 1):
+        if acc[i] - last >= hole:
+            last = acc[i]
+            p, ip, w, t_ = pts[i], inp[i], ws[i], tg[i]
+            cs = [p + ip * w / 2 * f for f in (1, 0.35, -0.35, -1)]
+            oval_tube(bm, cs, [t_] * 4, [plane_n] * 4, [th[i] * x for x in (1.6, 1.0, 1.0, 1.6)],
+                      [th[i] * flat * x for x in (1, 0.8, 0.8, 1)], seg=strut_seg)
+    return plane_n
+
+
 def wobble(bm, amp, freq=0.15, seed=0.0):
     """Organic lumps: push vertices along their normals by a smooth 3-D noise (sums of sines)."""
     bm.normal_update()
@@ -468,8 +575,8 @@ def catmull(pts, n=6):
 def module_spire():
     """A gothic bone spire, height 1, base radius 1: a flared foot, ribbed collars, a long needle."""
     bm = bmesh.new()
-    prof = [(1.0, 0.0), (0.82, 0.08), (0.7, 0.22), (0.78, 0.26), (0.58, 0.3), (0.5, 0.45), (0.6, 0.48), (0.4, 0.52),
-            (0.33, 0.66), (0.4, 0.68), (0.24, 0.72), (0.14, 0.86), (0.05, 0.96), (0.0, 1.0)]
+    prof = [(1.0, 0.0), (0.72, 0.18), (0.78, 0.26), (0.5, 0.42), (0.6, 0.48), (0.36, 0.6), (0.4, 0.68), (0.2, 0.78),
+            (0.06, 0.95), (0.0, 1.0)]
     lathe(bm, prof, seg=8, cap_top=False, wob=lambda a, z: 1 + 0.12 * math.sin(4 * a) * (1 - z))
     return mesh_from('City3.M.Spire', bm, MAT['bone'])
 
@@ -538,12 +645,13 @@ def module_hexwindow(w=1.0, h=1.7, cell=0.12, lancet=True):
         gb.faces.new(list(reversed(g)))
     # A bone surround: a thick rim round the window's outline.
     outline = []
-    for k in range(9):
-        z = h * k / 8
+    nk = 9 if cell < 0.2 else 5
+    for k in range(nk):
+        z = h * k / (nk - 1)
         xs = [x for x in [w / 2 * t / 20 for t in range(21)] if lancet_inside(x, z, w, h)] if lancet else [w / 2]
         outline.append((max(xs) if xs else 0.0, z))
     path = [Vector((x, -0.03, z)) for x, z in outline] + [Vector((-x, -0.03, z)) for x, z in reversed(outline)][1:]
-    tube(fb, path, [cell * 0.8] * len(path), seg=4, up=Vector((0, -1, 0)))
+    tube(fb, path, [min(cell, 0.12) * 0.8] * len(path), seg=4 if cell < 0.2 else 3, up=Vector((0, -1, 0)))
     return (mesh_from('City3.M.HexFrame', fb, MAT['bone'], smooth=False),
             mesh_from('City3.M.HexGlow', gb, MAT['amber'], smooth=False))
 
@@ -592,8 +700,8 @@ def module_flesh(seed):
 def module_drip():
     """A hanging ooze strand, top at z 0, length 1 down, ending in a fat drop."""
     bm = bmesh.new()
-    prof = [(0.0, -1.06), (0.55, -1.0), (0.45, -0.87), (0.2, -0.78), (0.2, -0.3), (0.55, 0.0)]
-    lathe(bm, prof, seg=6, cap_top=True, cap_bottom=False)
+    prof = [(0.0, -1.06), (0.55, -0.95), (0.2, -0.78), (0.22, -0.3), (0.55, 0.0)]
+    lathe(bm, prof, seg=5, cap_top=True, cap_bottom=False)
     return mesh_from('City3.M.Drip', bm, MAT['ooze'])
 
 
@@ -605,14 +713,11 @@ def module_puddle():
 
 
 def module_rib():
-    """A rib arch: a tapered bone tube on a half-ellipse from (-1, 0, 0) over (0, 0, 1) to (1, 0, 0), knuckled feet."""
+    """A rib arch on a half-ellipse from (-1, 0, 0) over (0, 0, 1) to (1, 0, 0): flat calcified bone with oval holes,
+    its thin side along y."""
     bm = bmesh.new()
-    pts, rs = [], []
-    for k in range(25):
-        a = math.pi * k / 24
-        pts.append(Vector((-math.cos(a), 0, math.sin(a))))
-        rs.append(0.05 * (1.0 - 0.45 * math.sin(a)) * (1 + 0.15 * math.sin(9 * a)))
-    tube(bm, pts, rs, seg=8, up=Vector((0, 1, 0)))
+    pts = [Vector((-math.cos(math.pi * k / 30), 0, math.sin(math.pi * k / 30))) for k in range(31)]
+    bone_ladder(bm, pts, 0.1, 0.034, plane_n=Vector((0, 1, 0)), hole=0.2, flat=0.55, seg=4, step=0.15, strut_seg=3)
     return mesh_from('City3.M.Rib', bm, MAT['bone'])
 
 
@@ -621,10 +726,10 @@ def module_viaduct():
     bm = bmesh.new()
     sweep(bm, [Vector((0, 0, 1)), Vector((1, 0, 1))], rounded_rect_profile(0.32, 0.1, 0.03), caps=True)
     # pier
-    lathe(bm, [(0.06, -1.5), (0.05, 0.5), (0.08, 0.72), (0.12, 0.9)], seg=8, cx=0.0)
+    lathe(bm, [(0.06, -1.5), (0.05, 0.5), (0.08, 0.72), (0.12, 0.9)], seg=6, cx=0.0)
     # arch: from the pier at z 0.55 up to the deck at mid-span and down to the next pier
-    pts = [Vector((t, 0, 0.55 + 0.4 * math.sin(math.pi * t) ** 0.6)) for t in [i / 12 for i in range(13)]]
-    tube(bm, pts, [0.04] * len(pts), seg=6)
+    pts = [Vector((t, 0, 0.55 + 0.4 * math.sin(math.pi * t) ** 0.6)) for t in [i / 8 for i in range(9)]]
+    tube(bm, pts, [0.04] * len(pts), seg=4)
     return mesh_from('City3.M.Viaduct', bm, MAT['bone'])
 
 
@@ -635,10 +740,10 @@ def module_dome():
     for v in [v for v in gb.verts if v.co.z < -0.05]:
         gb.verts.remove(v)
     rb = bmesh.new()
-    for k in range(8):
-        a = 2 * math.pi * k / 8
+    for k in range(6):
+        a = 2 * math.pi * k / 6
         pts = [Vector((math.cos(a) * math.cos(t), math.sin(a) * math.cos(t), math.sin(t)))
-               for t in [math.radians(x) for x in range(0, 91, 18)]]
+               for t in [math.radians(x) for x in range(0, 91, 30)]]
         tube(rb, pts, [0.035] * len(pts), seg=3)
     for t in (0.0, 0.5):
         rr = math.cos(math.asin(t))
@@ -660,8 +765,101 @@ def module_pod():
     return mesh_from('City3.M.Pod', bm, MAT['bone'])
 
 
+def module_drape(seed, mat, name, holes=0.32, arc=90.0, tongue=0.55):
+    """A sheet draped round a cylinder (radius 1, z 0 -> 1, centred on +x, arc degrees round): its lower edge ragged
+    and run down in tongues, holes eaten through it (flesh-coral webbing), or none (an ooze sheet: holes 0)."""
+    rng = random.Random(seed)
+    nu, nv = 10, 6
+    bm = bmesh.new()
+    low = [rng.uniform(0.0, tongue) for _ in range(nu + 1)]
+    low = [(low[max(0, i - 1)] + 2 * low[i] + low[min(nu, i + 1)]) / 4 for i in range(nu + 1)]
+    top = [1.0 - rng.uniform(0.0, 0.12) for _ in range(nu + 1)]
+    grid = []
+    for i in range(nu + 1):
+        a = math.radians(-arc / 2 + arc * i / nu)
+        col = []
+        for j in range(nv + 1):
+            v = j / nv
+            z = (1 - v) * (-low[i]) + v * top[i]
+            # lumpy: swelling out in the middle, pulled in to the body at the side edges (it grows from it)
+            edge = math.sin(math.pi * i / nu)
+            r = 1.02 + edge * (0.1 + 0.12 * (0.5 + 0.5 * math.sin(4 * a + 7 * v + seed)) * math.sin(math.pi * v) +
+                               0.06 * (1 - v))
+            col.append(bm.verts.new((r * math.cos(a), r * math.sin(a), z)))
+        grid.append(col)
+    ph = rng.uniform(0, 6)
+    for i in range(nu):
+        for j in range(nv):
+            u, v = (i + 0.5) / nu, (j + 0.5) / nv
+            noise = math.sin(11 * u + ph) * math.sin(9 * v + 2 * ph) + 0.6 * math.sin(23 * u - 7 * v + ph)
+            if holes and 0 < i < nu - 1 and 0 < j < nv - 1 and noise > 1.0 - holes * 2.2:
+                continue
+            bm.faces.new((grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]))
+    loose = [v for v in bm.verts if not v.link_faces]
+    for v in loose:
+        bm.verts.remove(v)
+    # Round the holes: every boundary vertex inside the sheet pulls toward the faces round it.
+    bm.verts.ensure_lookup_table()
+    for v in [v for v in bm.verts if v.is_boundary and 0 < len(v.link_faces) < 4]:
+        fc = sum((f.calc_center_median() for f in v.link_faces), Vector()) / len(v.link_faces)
+        if len(v.link_faces) in (2, 3):
+            v.co = v.co.lerp(fc, 0.35)
+    return mesh_from(name, bm, mat)
+
+
+def module_web(seed):
+    """A membrane slung between two supports: a sagging sheet x -1 -> 1, its top edge at z 1, holes through it."""
+    rng = random.Random(seed)
+    nu, nv = 12, 6
+    bm = bmesh.new()
+    grid = []
+    for i in range(nu + 1):
+        x = -1 + 2 * i / nu
+        sag = 0.55 * (1 - x * x)
+        col = []
+        for j in range(nv + 1):
+            v = j / nv
+            z = 1 - v * (0.35 + sag * 0.6) - sag * 0.4 * v * v
+            col.append(bm.verts.new((x, 0.06 * math.sin(4 * x + 3 * v + seed), z)))
+        grid.append(col)
+    ph = rng.uniform(0, 6)
+    for i in range(nu):
+        for j in range(nv):
+            u, v = (i + 0.5) / nu, (j + 0.5) / nv
+            if 0 < i < nu - 1 and j < nv - 1 and math.sin(13 * u + ph) * math.sin(11 * v + ph) > 0.45:
+                continue
+            bm.faces.new((grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]))
+    for v in [v for v in bm.verts if not v.link_faces]:
+        bm.verts.remove(v)
+    return mesh_from(f'City3.M.Web{seed}', bm, MAT['coral'])
+
+
+def module_spire_lo():
+    bm = bmesh.new()
+    lathe(bm, [(1.0, 0.0), (0.62, 0.25), (0.5, 0.48), (0.3, 0.7), (0.12, 0.88), (0.0, 1.0)], seg=6, cap_top=False)
+    return mesh_from('City3.M.SpireLo', bm, MAT['bone'])
+
+
+def module_tower_lo():
+    bm = bmesh.new()
+    lathe(bm, [(0.8, 0.0), (1.0, 0.3), (0.85, 0.55), (0.75, 0.75), (0.4, 0.93), (0.0, 1.0)], seg=8, cap_top=False)
+    return mesh_from('City3.M.TowerLo', bm, MAT['bone'])
+
+
+def module_coral_lo(seed):
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    tips = []
+    for _ in range(2):
+        d = Vector((rng.uniform(-0.4, 0.4), rng.uniform(-0.4, 0.4), 1)).normalized()
+        branch(bm, Vector((0, 0, 0)), d, 0.6, 0.07, 1, rng, tips)
+    for p_, r_ in tips:
+        bmesh.ops.create_icosphere(bm, subdivisions=0, radius=r_ * 1.4, matrix=Matrix.Translation(p_))
+    return mesh_from(f'City3.M.CoralLo{seed}', bm, MAT['coral'])
+
+
 HEXF, HEXG = module_hexwindow()
-HEXF_LO, HEXG_LO = module_hexwindow(cell=0.2)
+HEXF_LO, HEXG_LO = module_hexwindow(cell=0.24)
 HEXF_LO.name, HEXG_LO.name = 'City3.M.HexFrameLo', 'City3.M.HexGlowLo'
 DOMEG, DOMER = module_dome()
 M = {
@@ -670,6 +868,12 @@ M = {
     'coral2': module_coral(2), 'flesh1': module_flesh(1), 'flesh2': module_flesh(2), 'drip': module_drip(),
     'puddle': module_puddle(), 'rib': module_rib(), 'viaduct': module_viaduct(), 'domeg': DOMEG, 'domer': DOMER,
     'lantern': module_lantern(), 'pod': module_pod(),
+    'drapec': module_drape(3, MAT['coral'], 'City3.M.DrapeCoral'),
+    'drapef': module_drape(4, MAT['flesh'], 'City3.M.DrapeFlesh', holes=0.28),
+    'drapeo': module_drape(5, MAT['ooze'], 'City3.M.DrapeOoze', holes=0.0, arc=70.0, tongue=0.9),
+    'web1': module_web(1), 'web2': module_web(2),
+    'spirelo': module_spire_lo(), 'towerlo': module_tower_lo(), 'corallo1': module_coral_lo(5),
+    'corallo2': module_coral_lo(6),
 }
 COUNT = {}
 
@@ -689,17 +893,41 @@ def hexwindow(loc, width, yaw, parent, height=None, lo=False):
     inst('hexglo' if lo else 'hexg', loc, s, parent=parent, rot=r)
 
 
-def coral(loc, size, parent):
-    inst(rnd.choice(('coral1', 'coral2')), loc, size, rot_z=rnd.random() * 6.28, parent=parent)
+def coral(loc, size, parent, lo=False):
+    k = rnd.choice(('corallo1', 'corallo2') if lo else ('coral1', 'coral2'))
+    inst(k, loc, size, rot_z=rnd.random() * 6.28, parent=parent)
 
 
-def flesh(loc, size, parent, drips=4, flat=1.0):
-    """A clump of flesh-coral (three lumps) with ooze dripping off it."""
-    for k in range(3):
-        off = Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), rnd.uniform(-0.6, 0.6))) * size * 0.45 * (k > 0)
-        sz = size * (0.62 if k == 0 else rnd.uniform(0.35, 0.5))
-        inst(rnd.choice(('flesh1', 'flesh2')), Vector(loc) + off, (sz, sz, sz * max(flat, 0.85)),
-             rot_z=rnd.random() * 6.28, parent=parent)
+def drape(c, r, z0, h, yaw, parent, kind=None, ooze=True):
+    """A sheet of flesh-coral webbing draped round a body of radius r centred at c (from z0, h tall), facing yaw;
+    with an ooze sheet run down over it and strands off its ragged edge."""
+    kind = kind or rnd.choice(('drapec', 'drapec', 'drapec', 'drapef'))
+    inst(kind, (c.x, c.y, z0), (r, r, h), rot_z=yaw + rnd.uniform(-0.3, 0.3), parent=parent)
+    if ooze:
+        inst('drapeo', (c.x, c.y, z0 + h * rnd.uniform(0.1, 0.4)), (r * 1.02, r * 1.02, h * rnd.uniform(0.5, 0.9)),
+             rot_z=yaw + rnd.uniform(-0.6, 0.6), parent=parent)
+    for _ in range(3):
+        a = yaw + rnd.uniform(-0.8, 0.8)
+        p = Vector((c.x, c.y, z0 - h * rnd.uniform(0.1, 0.4))) + Vector((math.cos(a), math.sin(a), 0)) * r * 1.06
+        inst('drip', p, (max(0.15, r * 0.035), max(0.15, r * 0.035), h * rnd.uniform(0.2, 0.6)), parent=parent)
+
+
+def flesh(loc, size, parent, drips=4, flat=1.0, normal=None):
+    """Flesh-coral webbing spread over a surface at loc (facing `normal`, horizontal): a holed sheet curved over it,
+    one small lump at its heart, ooze dripping off its edge."""
+    loc = Vector(loc)
+    if normal is None:
+        a = rnd.random() * 6.28
+        normal = Vector((math.cos(a), math.sin(a), 0))
+    nh = Vector((normal.x, normal.y, 0))
+    nh = nh.normalized() if nh.length > 1e-6 else Vector((1, 0, 0))
+    yaw = math.atan2(nh.y, nh.x)
+    c = loc - nh * size * 1.1  # the sheet is a patch of a cylinder round a centre behind the surface
+    inst(rnd.choice(('drapec', 'drapec', 'drapef')), (c.x, c.y, loc.z - size * 0.9), (size * 1.1, size * 1.1, size * 1.6),
+         rot_z=yaw, parent=parent)
+    if rnd.random() < 0.5:
+        inst('drapeo', (c.x, c.y, loc.z - size * 0.5), (size * 1.14, size * 1.14, size * 1.2),
+             rot_z=yaw + rnd.uniform(-0.4, 0.4), parent=parent)
     for _ in range(drips):
         a = rnd.random() * 6.28
         p = Vector(loc) + Vector((math.cos(a), math.sin(a), 0)) * size * rnd.uniform(0.4, 0.8)
@@ -753,7 +981,7 @@ def deck_piece(path, name, parent, mat='stone', parapets=(True, True), piers=Tru
         pts = [p + s * side * (ROAD_W / 2 - PARAPET_W / 2) + Vector((0, 0, PARAPET_H)) for p, (t, s, n) in
                zip(path, fr)]
         bm = bmesh.new()
-        sweep(bm, pts, rounded_rect_profile(PARAPET_W, PARAPET_H + 0.1, 0.12, 2), caps=caps)
+        sweep(bm, pts, rounded_rect_profile(PARAPET_W, PARAPET_H + 0.1, 0.12, 1), caps=caps)
         obj(f'{name}Parapet{"L" if side < 0 else "R"}', mesh_from(name + 'Parapet', bm, MAT['stone'], smooth=True),
             parent)
         # The amber strip: segments 4 m lit, 1.2 m dark, set in the parapet's inner face (a box per segment).
@@ -1061,7 +1289,8 @@ HEART_RZ = ARR.m(hf['half_h'], HD)
 
 def heart_mesh():
     bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=36, v_segments=24, radius=1.0)
+    bm.loops.layers.uv.new('UVMap')  # (calc_uvs writes into the active UV layer: there must be one)
+    bmesh.ops.create_uvsphere(bm, u_segments=36, v_segments=24, radius=1.0, calc_uvs=True)
     for v in bm.verts:
         n = v.co.copy()
         # A heart: fuller up top on the left (the atria), tapering to an apex below, right of centre.
@@ -1095,13 +1324,23 @@ def on_heart(d):
 
 vb = bmesh.new()
 vr = random.Random(5)
-for k in range(70):
-    d = Vector((vr.uniform(-1, 1), vr.uniform(-0.6, -1.0) if k % 3 else vr.uniform(-1, 1), vr.uniform(-0.4, 1.0)))
+for k in range(9):
+    # trunks from the top down over the front (toward the arrival camera, -y... the heart's local -x side faces it)
+    d = Vector((vr.uniform(-1, -0.1), vr.uniform(-1, 1), vr.uniform(0.3, 1.0)))
     pts = []
-    for s in range(9):
+    for s in range(10):
         pts.append(on_heart(d))
-        d = d + Vector((vr.uniform(-0.25, 0.25), vr.uniform(-0.1, 0.1), -0.22))
-    tube(vb, pts, [0.3 * (1 - s / 10) * HEART_RX / 11 for s in range(len(pts))], seg=4)
+        d = d + Vector((vr.uniform(-0.2, 0.2), vr.uniform(-0.2, 0.2), -0.24))
+    pts = catmull(pts, 3)
+    tube(vb, pts, [0.42 * (1 - s / (len(pts) + 1)) * HEART_RX / 11 for s in range(len(pts))], seg=5)
+    for b_ in range(0):  # a branch off it
+        i0 = vr.randrange(2, 6)
+        d2 = (pts[i0].normalized() + Vector((vr.uniform(-0.5, 0.5), vr.uniform(-0.5, 0.5), -0.2)))
+        bp = [pts[i0]]
+        for s in range(5):
+            d2 = d2 + Vector((vr.uniform(-0.25, 0.25), vr.uniform(-0.25, 0.25), -0.15))
+            bp.append(on_heart(d2))
+        tube(vb, bp, [0.3 * (1 - s / 6) * HEART_RX / 11 for s in range(len(bp))], seg=4)
 obj('City3.HeartVeins', mesh_from('City3.HeartVeins', vb, MAT['vein']), heart)
 # Vessel stumps on top (aorta and kin), children of the heart too.
 sb = bmesh.new()
@@ -1141,7 +1380,16 @@ def rib_curve(trace_pts, depth, extend_feet=True):
     return pts
 
 
-def solid_rib(name, pts, r0, r1, parent, mat='bone'):
+def solid_rib(name, pts, r0, r1, parent, mat='bone', solid=False, plane_n=None):
+    """A rib: flat bone with oval holes (bone_ladder), r0 at the feet, r1 at the crown as its half width; solid: a
+    round tapering trunk instead (roots, trunks, the spine)."""
+    if not solid:
+        bm = bmesh.new()
+        L = plen(pts)
+        bone_ladder(bm, pts, (r0 + r1), (r0 + r1) * 0.34, plane_n=plane_n if plane_n is not None else fwd_h,
+                    hole=(r0 + r1) * 1.5, flat=0.55, seg=6, taper=max(0.0, r0 / max(r1, 1e-6) - 1), step=max(0.5, L / 70))
+        wobble(bm, r1 * 0.06, 0.4)
+        return obj(name, mesh_from(name, bm, MAT[mat]), parent)
     n = len(pts)
     rs = []
     for i in range(n):
@@ -1154,32 +1402,15 @@ def solid_rib(name, pts, r0, r1, parent, mat='bone'):
     return obj(name, mesh_from(name, bm, MAT[mat]), parent)
 
 
-def perforated_rib(name, pts, width, thick, parent, hole=2.4):
-    """Bone with oval holes: two rails at +-width/2 in the rib's plane, joined by bulbous struts every `hole` m."""
-    pts = resample(pts, 0.8)
-    fr = frames(pts, up=fwd_h)
-    bm = bmesh.new()
-    for side in (1, -1):
-        rail = [p + nrm * side * width / 2 for p, (t, s, nrm) in zip(pts, fr)]
-        tube(bm, rail, [thick * (1 + 0.15 * math.sin(i * 0.9)) for i in range(len(rail))], seg=8, up=fwd_h)
-    L = 0.0
-    for i in range(1, len(pts)):
-        L += (pts[i] - pts[i - 1]).length
-        if L >= hole:
-            L = 0.0
-            p, (t, s, nrm) = pts[i], fr[i]
-            tube(bm, [p + nrm * width / 2, p + nrm * width / 6 + t * 0.15, p - nrm * width / 6 - t * 0.15,
-                      p - nrm * width / 2], [thick * 0.9, thick * 0.6, thick * 0.6, thick * 0.9], seg=6, up=t)
-    wobble(bm, thick * 0.15, 0.5)
-    return obj(name, mesh_from(name, bm, MAT['bone']), parent)
-
-
 RIBS = FEAT['ribs']
 RIB_DEPTH = {'front_arch': 45.0, 'right_arch': 50.0, 'heart_rib_l': 55.0}
 ribs_built = {}
 fa = rib_curve(RIBS['front_arch']['points'], RIB_DEPTH['front_arch'])
 w_fa = ARR.m(RIBS['front_arch']['half_w'] * 2, RIB_DEPTH['front_arch'])
-ribs_built['front_arch'] = perforated_rib('City3.RibFront', fa, w_fa * 0.75, w_fa * 0.22, G['Ribcage'])
+bm = bmesh.new()
+bone_ladder(bm, fa, w_fa * 0.8, w_fa * 0.27, plane_n=fwd_h, hole=w_fa * 1.25, flat=0.5, seg=7, taper=0.35, step=0.6)
+wobble(bm, w_fa * 0.03, 0.5)
+ribs_built['front_arch'] = obj('City3.RibFront', mesh_from('City3.RibFront', bm, MAT['bone']), G['Ribcage'])
 # The right arch: traced on its right half; mirrored about the heart to close it over the top.
 ra = RIBS['right_arch']['points']
 ra_full = [(2 * hf['cx'] - x, y) for x, y in reversed(ra)][:-1] + ra
@@ -1201,10 +1432,10 @@ for k, (ang, span, h, r) in enumerate(((60, 30, 46, 1.4), (95, 31, 48, 1.3), (12
     pts = [cc + d * span * math.cos(t) + Vector((0, 0, h * math.sin(t) ** 0.8)) for t in
            [math.pi * i / 30 for i in range(31)]]
     pts = [p + Vector((0, 0, WATER_Z)) for p in pts]
-    solid_rib(f'City3.RibCage{k}', pts, r * 1.6, r, G['Ribcage'])
+    solid_rib(f'City3.RibCage{k}', pts, r * 1.6, r, G['Ribcage'], plane_n=Vector((-d.y, d.x, 0)))
 # A spine along the cage's top, front to back.
 sp = [icw + Vector((x, 0.0, 47 + 3 * math.cos(x / 14))) for x in np.linspace(-26, 30, 16)]
-solid_rib('City3.RibSpine', sp, 1.0, 1.5, G['Ribcage'])
+solid_rib('City3.RibSpine', sp, 1.0, 1.5, G['Ribcage'], solid=True)
 # Tendons: the heart hung from the cage (flesh), from points over it up to the spine and the front arch.
 tb = bmesh.new()
 for dx, dy in ((-0.5, 0.2), (0.4, -0.2), (0.0, 0.5), (0.2, 0.4), (-0.3, -0.4)):
@@ -1219,10 +1450,10 @@ for k in range(14):
     p = HEART_C + Vector((math.cos(a) * HEART_RX * rnd.uniform(0.2, 0.75), math.sin(a) * HEART_RX * 0.6,
                           -HEART_RZ * rnd.uniform(0.6, 0.85)))
     inst('drip', p, (0.45, 0.45, rnd.uniform(2, 9)), parent=G['Heart'])
-for k in range(12):
-    p = fa[rnd.randrange(len(fa) // 5, len(fa) * 4 // 5)]
-    if p.z > 12:
-        inst('drip', p - Vector((0, 0, w_fa * 0.2)), (0.3, 0.3, rnd.uniform(1.5, 6)), parent=G['Ribcage'])
+for k in range(40):
+    p = fa[rnd.randrange(len(fa) // 6, len(fa) * 5 // 6)]
+    if p.z > 8:
+        inst('drip', p - Vector((0, 0, w_fa * 0.3)), (0.3, 0.3, rnd.uniform(1.5, 9)), parent=G['Ribcage'])
 
 # =========================================================================================================================
 # The platforms: two round slabs on ooze legs (the concept's dripping tables), their tops traced.
@@ -1297,7 +1528,7 @@ for k in range(8):
     top = top + Vector((-1.2, 0.8, 0.6))
     tpts.append(top.copy())
 tw = ARR.m(RIBS['left_trunk']['half_w'], TRUNK_D)
-solid_rib('City3.LeftRoot', tpts, tw * 1.25, tw * 0.95, G['Plaza'])
+solid_rib('City3.LeftRoot', tpts, tw * 1.25, tw * 0.95, G['Plaza'], solid=True)
 for k in range(6):  # ooze pouring down it
     i = rnd.randrange(3, len(tpts) // 2)
     q = tpts[i] + (ARR.eye - tpts[i]).normalized() * tw * 0.9
@@ -1322,13 +1553,34 @@ for sx, sy, d, s in ((40, 560, 4.2, 0.9), (100, 520, 5.0, 1.1), (20, 470, 6.5, 1
 # =========================================================================================================================
 
 
+def ledge_ooze(view, box, n, parent, length=(1.5, 9.0), width=0.25, step=9, max_depth=600.0):
+    """Black ooze hanging off bone ledges: rays from `view` over the screen box (x0, y0, x1, y1); where one meets bone
+    facing up (a ledge, a sill, the top of a rib), a strand hangs from it, its width scaled with distance."""
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    x0, y0, x1, y1 = box
+    hits = []
+    for sy in range(int(y0), int(y1), step):
+        for sx in range(int(x0), int(x1), step):
+            hit, loc, nrm, idx, ob, mx = scene.ray_cast(dg, view.eye, view.ray(sx, sy).normalized(), distance=max_depth)
+            if hit and nrm.z > 0.35 and ob.type == 'MESH' and ob.data.materials and \
+                    ob.data.materials[0].name == 'City3Bone' and road_dist(loc) > ROAD_W / 2 + 2.5:
+                hits.append(loc)
+    rnd.shuffle(hits)
+    for loc in hits[:n]:
+        d = max(1.0, view.depth(loc))
+        w = width * max(1.0, d / 25)
+        inst('drip', loc + Vector((0, 0, 0.1)), (w, w, rnd.uniform(*length) * max(1.0, d / 40)), parent=parent)
+    return len(hits[:n])
+
+
 def facing(p):
     v = ARR.eye - p
     return math.atan2(v.y, v.x)
 
 
-def tower(c, r, h, parent, windows=(), spire=True, base=MIST_Z, lo=False):
-    inst('tower', (c.x, c.y, base), (r, r, h - base), rot_z=rnd.random() * 6.28, parent=parent)
+def tower(c, r, h, parent, windows=(), spire=True, base=MIST_Z, lo=False, body_lo=False):
+    inst('towerlo' if body_lo else 'tower', (c.x, c.y, base), (r, r, h - base), rot_z=rnd.random() * 6.28, parent=parent)
     if spire:
         inst('spire', (c.x, c.y, h - (h - base) * 0.05), (r * 0.45, r * 0.45, h * 0.6), parent=parent)
     for (z0, z1, w, yaw) in windows:
@@ -1363,7 +1615,7 @@ for (cx_, box, dd, r_, h_) in ((c_rt, rt, d_rt, 7.0, 44.0), (c_rl, rl, d_rl, 6.0
 rtp = RIBS['right_trunk']['points'] + [(1150, 300), (1090, 400), (1060, 470)]
 rt_pts = [ARR.on_plane(x, y, ARR.eye + fwd_h * 18.0, fwd_h) for x, y in rtp]
 rt_pts = catmull(rt_pts, 4)
-solid_rib('City3.RightTrunk', rt_pts, 1.4, 1.0, G['Plaza'])
+solid_rib('City3.RightTrunk', rt_pts, 1.4, 1.0, G['Plaza'], solid=True)
 for sx, sy, d, s in ((1080, 150, 34, 2.0), (1110, 240, 30, 2.0), (1250, 455, 12, 1.2), (1050, 330, 28, 1.6)):
     coral(ARR.point(sx, sy, d), s * 2.2, G['Plaza'])
 flesh(ARR.point(1120, 20, 32), 2.6, G['Plaza'], drips=5)
@@ -1438,6 +1690,8 @@ def right_of_exit_end(c, reach=600.0):
     return v.dot(end_t) > -50 and v.length < 2500  # ahead of the end: the desert's
 
 
+print('plaza ledge ooze', ledge_ooze(ARR, (0, 0, 1280, 470), 50, G['Plaza'], length=(1.0, 6.0), width=0.12, step=8,
+                                     max_depth=200.0))
 # Far ring of hazy spires all round (every direction: the ride sees them too).
 for k in range(70):
     a = rnd.uniform(0, 2 * math.pi)
@@ -1447,7 +1701,7 @@ for k in range(70):
         continue
     h = rnd.uniform(90, 260)
     r = h * rnd.uniform(0.05, 0.08)
-    inst('spire', (c.x, c.y, MIST_Z), (r, r, h - MIST_Z), rot_z=rnd.random() * 6.28, parent=G['Skyline'])
+    inst('spirelo', (c.x, c.y, MIST_Z), (r, r, h - MIST_Z), rot_z=rnd.random() * 6.28, parent=G['Skyline'])
 print('plaza composed: heart', [round(v, 1) for v in HEART_C - BIKE_AT], 'r', round(HEART_RX, 1), round(HEART_RZ, 1))
 
 # =========================================================================================================================
@@ -1485,7 +1739,7 @@ for k in range(41):
     z = GATE_H * (math.sin(a) ** 0.55)
     gate.append(Vector((CATH_X, y, z)))
 gate = [Vector((CATH_X, -GATE_W / 2, MIST_Z + 30))] + gate + [Vector((CATH_X, GATE_W / 2, MIST_Z + 30))]
-solid_rib('City3.Gate', gate, 3.2, 2.2, GC)
+solid_rib('City3.Gate', gate, 3.2, 2.2, GC, plane_n=Vector((1, 0, 0)))
 # The nave: pointed rib arches over the road every 8 m to NAVE_END, a vault skin over them, walls with hex windows
 # facing in (lit: the portal's glow), lanterns.
 for x in np.arange(CATH_X + 8, NAVE_END, 8.0):
@@ -1527,7 +1781,7 @@ for side, pts2 in ((-1, [(640, 70), (680, 45), (720, 70), (745, 120), (760, 180)
     p0_ = Vector((CATH_X + 30, 0, 0))
     curve = [APP.on_plane(x, y, p0_, fwd_a) for x, y in pts2]
     curve = catmull(curve, 4)
-    solid_rib('City3.CathRib', curve, 2.4, 1.7, GC)
+    solid_rib('City3.CathRib', curve, 2.4, 1.7, GC, plane_n=fwd_a)
 
 # The wings: towers and spires whose tips sit on the concept's traced skyline (peaks: spires; the rest: massing).
 sk = FEAT_A['skyline']
@@ -1572,7 +1826,8 @@ for x in range(272, 950, 22):
         b = Vector((CT.x, CT.y + (top.y - CT.y) * 0.25, top.z * 0.85))
         pts = [a.lerp(b, u) + Vector((0, 0, 14 * math.sin(math.pi * u))) for u in np.linspace(0, 1, 10)]
         bm = bmesh.new()
-        tube(bm, pts, [2.2, 1.9, 1.7, 1.6, 1.5, 1.5, 1.6, 1.7, 1.9, 2.2], seg=6)
+        bone_ladder(bm, catmull(pts, 3), 3.4, 0.9, hole=6.0, flat=0.5, seg=4, taper=0.3, step=plen(pts) / 18,
+                    strut_seg=3)
         obj('City3.Buttress', mesh_from('City3.Buttress', bm, MAT['bone']), GC)
 # The facade's lower arcade either side of the gate (concept rows 330-460): stacked arches to the mist.
 for side in (1, -1):
@@ -1608,8 +1863,14 @@ for sx, sy, s in ((330, 300, 7), (380, 345, 8), (455, 290, 6), (650, 265, 6), (7
         continue
     d = APP.depth(loc)
     p = loc + nrm_ * APP.m(s * 1.5, d)
-    flesh(p, APP.m(s * 3.2, d), GC, drips=5, flat=0.75)
-    coral(p + nrm_ * APP.m(s * 2, d), APP.m(s * 6, d), GC)
+    flesh(p, APP.m(s * 3.6, d), GC, drips=5, flat=0.75, normal=nrm_)
+    coral(p + nrm_ * APP.m(s * 2, d), APP.m(s * 6, d), GC, lo=True)
+    for _ in range(3):  # ooze running down from the growth
+        q = loc + nrm_ * 0.3 + Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), 0)) * APP.m(s * 2, d)
+        inst('drip', q, (APP.m(s * 0.25, d), APP.m(s * 0.25, d), APP.m(s * rnd.uniform(3, 8), d)), parent=GC)
+
+print('cathedral ledge ooze', ledge_ooze(APP, (150, 20, 1000, 460), 70, GC, length=(3.0, 14.0), width=0.3,
+                                         step=7))
 
 # Viaducts off to the left (the concept's arched bridges, rows ~290 and ~385), running away left from the cathedral.
 GV = group('City3.Viaducts')
@@ -1646,11 +1907,15 @@ yaw_ = math.atan2(APP.eye.y - rbc.y, APP.eye.x - rbc.x)
 for zz, w_ in ((30.0, 13.0), (8.0, 9.0), (55.0, 10.0)):
     hexwindow(rbc + Vector((math.cos(yaw_), math.sin(yaw_), 0)) * rr * 0.93 + Vector((0, 0, zz)), w_, yaw_,
               G['Causeway'], height=w_ * 1.1)
-for k in range(9):
-    a = yaw_ + rnd.uniform(-0.9, 0.9)
-    p = rbc + Vector((math.cos(a), math.sin(a), 0)) * rr * 0.9 + Vector((0, 0, rnd.uniform(10, 80)))
-    flesh(p, rnd.uniform(5, 9), G['Causeway'], drips=5, flat=0.8)
-    coral(p + Vector((0, 0, 3)), rnd.uniform(6, 12), G['Causeway'])
+for k, z in enumerate((70, 58, 46, 36, 26, 14, 82, 64, 40)):
+    # flesh-coral webbing patches crusted over its face, ooze running off them
+    a = yaw_ + rnd.uniform(-1.0, 1.0)
+    f = (z - MIST_Z) / (95 - MIST_Z)
+    nrm = Vector((math.cos(a), math.sin(a), 0))
+    p = rbc + nrm * rr * tower_radius(f - 0.01, f + 0.01) * 0.97 + Vector((0, 0, z))
+    flesh(p, rnd.uniform(3.5, 6.0), G['Causeway'], drips=4, normal=nrm)
+    if k % 2 == 0:
+        coral(p + nrm * 2 + Vector((0, 0, 3)), rnd.uniform(5, 9), G['Causeway'])
 
 # The far left city (behind the sun's side): spires, towers, domes, 500-1100 m off.
 TAG[0] = 'farleft'
@@ -1662,11 +1927,11 @@ for k in range(26):
         continue
     hgt = tip.z - MIST_Z
     r = max(5.0, hgt * rnd.uniform(0.05, 0.08))
-    inst('spire', (tip.x, tip.y, MIST_Z), (r, r, hgt), rot_z=rnd.random() * 6.28, parent=G['Skyline'])
+    inst('spirelo', (tip.x, tip.y, MIST_Z), (r, r, hgt), rot_z=rnd.random() * 6.28, parent=G['Skyline'])
     if rnd.random() < 0.5:
         inst('domeg', (tip.x + r * 3, tip.y, hgt * 0.3 + MIST_Z), r * 2.2, parent=G['Skyline'])
         inst('domer', (tip.x + r * 3, tip.y, hgt * 0.3 + MIST_Z), r * 2.2, parent=G['Skyline'])
-        inst('tower', (tip.x + r * 3, tip.y, MIST_Z), (r * 2.3, r * 2.3, hgt * 0.3), parent=G['Skyline'])
+        inst('towerlo', (tip.x + r * 3, tip.y, MIST_Z), (r * 2.3, r * 2.3, hgt * 0.3), parent=G['Skyline'])
 # Lone spires and coral stacks rising out of the mist along the causeway (both sides, off the road).
 TAG[0] = 'causeway'
 for k in range(30):
@@ -1677,9 +1942,9 @@ for k in range(30):
         continue
     h = rnd.uniform(20, 110)
     r = rnd.uniform(4, 10)
-    inst('spire', (x, y, MIST_Z), (r, r, h - MIST_Z), rot_z=rnd.random() * 6.28, parent=G['Causeway'])
+    inst('spirelo', (x, y, MIST_Z), (r, r, h - MIST_Z), rot_z=rnd.random() * 6.28, parent=G['Causeway'])
     if rnd.random() < 0.4:
-        coral((x, y, h * 0.35), rnd.uniform(6, 14), G['Causeway'])
+        coral((x, y, h * 0.35), rnd.uniform(6, 14), G['Causeway'], lo=True)
 
 # =========================================================================================================================
 # The hive: the weave from the nave to the plaza. Towers close either side of the road (honeycomb windows facing it,
@@ -1702,16 +1967,24 @@ def hive_tower(c, r, h, face, tag):
     TAG[0] = tag
     placed.append((Vector((c.x, c.y, 0)), r))
     g = G['Hive']
-    tower(Vector((c.x, c.y, 0)), r, h, g, spire=rnd.random() < 0.75, lo=True,
+    tower(Vector((c.x, c.y, 0)), r, h, g, spire=rnd.random() < 0.75, lo=True, body_lo=road_dist(c) > 60,
           windows=[(z, z + r * rnd.uniform(1.0, 1.7), r * rnd.uniform(0.55, 0.85), face + rnd.uniform(-0.25, 0.25))
                    for z in np.arange(rnd.uniform(2, 10), h * 0.7, r * 2.4)][:2])
-    for _ in range(rnd.randint(0, 2)):
+    for _ in range(rnd.randint(1, 2)):
+        # flesh-coral webbing draped round the body, ooze run down over it
         a = face + rnd.uniform(-1.4, 1.4)
-        z = rnd.uniform(4, h * 0.8)
-        p = Vector((c.x, c.y, z)) + Vector((math.cos(a), math.sin(a), 0)) * r * tower_radius(
-            (z - MIST_Z) / (h - MIST_Z) - 0.03, (z - MIST_Z) / (h - MIST_Z) + 0.03)
-        flesh(p, rnd.uniform(2.5, 5.5), g, drips=rnd.randint(2, 5), flat=0.8)
-        coral(p + Vector((0, 0, 1.5)), rnd.uniform(3, 7), g)
+        z0 = rnd.uniform(-10, h * 0.6)
+        hz = rnd.uniform(10, 24)
+        f0, f1 = (z0 - MIST_Z) / (h - MIST_Z), (z0 + hz - MIST_Z) / (h - MIST_Z)
+        drape(c, r * tower_radius(f0, f1), z0, hz, a, g)
+        p = Vector((c.x, c.y, z0 + hz)) + Vector((math.cos(a), math.sin(a), 0)) * r * tower_radius(f1, f1 + 0.02)
+        coral(p, rnd.uniform(3, 7), g, lo=True)
+    # ooze off the crown
+    for _ in range(2):
+        a = rnd.uniform(0, 6.28)
+        zc = MIST_Z + (h - MIST_Z) * 0.8
+        p = Vector((c.x, c.y, zc)) + Vector((math.cos(a), math.sin(a), 0)) * r * tower_radius(0.78, 0.82)
+        inst('drip', p, (r * 0.07, r * 0.07, rnd.uniform(4, 14)), parent=g)
 
 
 S0 = NAVE_END + 20
@@ -1792,7 +2065,66 @@ for k in range(45):
     inst('domeg', (c.x, c.y, z + r * 0.9), r * 0.6, parent=G['Hive'])
     inst('domer', (c.x, c.y, z + r * 0.9), r * 0.6, parent=G['Hive'])
     if rnd.random() < 0.5:
-        inst('spire', (c.x + r, c.y, MIST_Z), (r * 0.5, r * 0.5, z + r * 5 - MIST_Z), parent=G['Hive'])
+        inst('spirelo', (c.x + r, c.y, MIST_Z), (r * 0.5, r * 0.5, z + r * 5 - MIST_Z), parent=G['Hive'])
+
+# The hive's mass: clusters of low-poly spires and towers rising out of the mist to fill the gaps between the weave's legs
+# and round it (two to four shafts each, a lit window on some, coral and an ooze sheet on some).
+def cluster(c, parent, tag, scale=1.0):
+    TAG[0] = tag
+    nshaft = rnd.randint(2, 4)
+    for j in range(nshaft):
+        q = c + Vector((rnd.uniform(-1, 1), rnd.uniform(-1, 1), 0)) * 14 * scale
+        h = rnd.uniform(25, 150) * scale
+        r = rnd.uniform(5, 11) * scale
+        if rnd.random() < 0.55:
+            inst('spirelo', (q.x, q.y, MIST_Z), (r, r, h - MIST_Z), rot_z=rnd.random() * 6.28, parent=parent)
+        else:
+            inst('towerlo', (q.x, q.y, MIST_Z), (r, r, h - MIST_Z), rot_z=rnd.random() * 6.28, parent=parent)
+            if rnd.random() < 0.5:
+                inst('spirelo', (q.x, q.y, h - 4), (r * 0.4, r * 0.4, h * 0.5), parent=parent)
+            if rnd.random() < 0.3:
+                yw = rnd.uniform(0, 6.28)
+                zw = MIST_Z + (h - MIST_Z) * rnd.uniform(0.45, 0.6)
+                hexwindow(Vector((q.x, q.y, zw)) + Vector((math.cos(yw), math.sin(yw), 0)) * r * 0.98, r * 0.9, yw,
+                          parent, height=r * 1.6, lo=True)
+            if rnd.random() < 0.35:
+                z0 = rnd.uniform(-20, h * 0.5)
+                inst('drapeo', (q.x, q.y, z0), (r * 1.05, r * 1.05, rnd.uniform(10, 25)), rot_z=rnd.uniform(0, 6.28),
+                     parent=parent)
+    if rnd.random() < 0.5:
+        coral((c.x, c.y, rnd.uniform(-10, 20)), rnd.uniform(6, 14) * scale, parent, lo=True)
+
+
+nclu = 0
+for gx in np.arange(880, 2120, 74.0):
+    for gy in np.arange(-260, 420, 74.0):
+        c = Vector((gx + rnd.uniform(-20, 20), gy + rnd.uniform(-20, 20), 0))
+        d = road_dist(c)
+        if not (26 < d < 300) or any((c - q).length < qr + 18 for q, qr in placed):
+            continue
+        if (c - B(IC.x, IC.y)).length < PLAZA_R + 30:
+            continue
+        cluster(c, G['Hive'], f'clu{nclu}', scale=1.0 if d < 120 else 1.25)
+        placed.append((c, 14.0))
+        nclu += 1
+print('hive clusters', nclu)
+# Membranes of flesh-coral slung between neighbouring towers by the road.
+nweb = 0
+near = [(q, r) for q, r in placed if road_dist(q) < 70]
+for i, (a, ra) in enumerate(near):
+    for b, rb in near[i + 1:]:
+        gap = (b - a).length
+        if 30 < gap < 70 and rnd.random() < 0.5 and nweb < 34:
+            m = (a + b) / 2
+            if road_dist(m) < ROAD_W / 2 + 8:
+                continue  # never across the road
+            d = (b - a).normalized()
+            zt = rnd.uniform(20, 45)
+            TAG[0] = f'web{nweb}'
+            inst(rnd.choice(('web1', 'web2')), (m.x, m.y, zt - gap * 0.45), (gap / 2, 1.0, gap * 0.45),
+                 rot_z=math.atan2(d.y, d.x), parent=G['Hive'])
+            nweb += 1
+print('webs', nweb)
 
 # =========================================================================================================================
 # The exit: the hive's edge on the left of the exit road (arches, spires, honeycomb towers, a viaduct sweeping
@@ -1813,9 +2145,15 @@ while s < OUT_LEN - 40:
             placed.append((c, r))
             fade = max(0.45, 1 - s / OUT_LEN * 0.6)  # the hive thins out toward the desert
             r *= fade
-            tower(Vector((c.x, c.y, 0)), r, rnd.uniform(40, 130) * fade, GE, spire=True, lo=True,
-                  windows=[(z, z + r * 1.4, r * 0.8, math.atan2(-n.y, -n.x) + rnd.uniform(-0.3, 0.3))
+            ht = rnd.uniform(40, 130) * fade
+            face = math.atan2(-n.y, -n.x)
+            tower(Vector((c.x, c.y, 0)), r, ht, GE, spire=True, lo=True,
+                  windows=[(z, z + r * 1.4, r * 0.8, face + rnd.uniform(-0.3, 0.3))
                            for z in (rnd.uniform(0, 8), rnd.uniform(12, 25))])
+            z0 = rnd.uniform(-12, ht * 0.4)
+            hz = rnd.uniform(10, 20)
+            drape(c, r * tower_radius((z0 - MIST_Z) / (ht - MIST_Z), (z0 + hz - MIST_Z) / (ht - MIST_Z)), z0, hz,
+                  face + rnd.uniform(-0.6, 0.6), GE)
             break
     # Rib arches leaning over the road from the left.
     if k % 3 == 1:
@@ -1841,6 +2179,17 @@ vl = [p + n * (55 + 15 * math.sin(s_ / 120)) for s_, (p, t, n) in
 for a, b in zip(vl, vl[1:]):
     L = (b - a).length
     inst('viaduct', (a.x, a.y, 0), (L, L * 0.5, 20.0), rot_z=math.atan2(b.y - a.y, b.x - a.x), parent=GE)
+# Fill the exit's left edge: clusters 25-220 m off the road's left, thinning toward the desert.
+TAG[0] = None
+for s_ in np.arange(S_OUT_DECK + 20, OUT_LEN - 30, 34.0):
+    p, t, n = line_frame(OUT_LINE, s_)
+    for _ in range(1):
+        c = p + n * rnd.uniform(28, 220) + t * rnd.uniform(-15, 15)
+        if road_dist(c) < 26 or any((c - q).length < qr + 14 for q, qr in placed):
+            continue
+        cluster(c, GE, None, scale=max(0.55, 1.0 - s_ / OUT_LEN * 0.4))
+        placed.append((c, 12.0))
+TAG[0] = None
 # Sand drifting over the asphalt and against the parapets on the last stretch.
 MAT_S = MAT['sand']
 for s_ in np.arange(S_ASPHALT + 20, OUT_LEN, 9.0):
@@ -1973,25 +2322,44 @@ print('approach EYE', r4(APP_EYE), 'LOOK', r4(APP_LOOK), '| exit END', r4(OUT_EN
 NO_COL = {'City3Sun', 'City3Amber', 'City3Heart', 'City3Lamp', 'City3Haze', 'City3Water', 'City3Mist'}
 
 
-def dirt(me, base_dark=0.35):
+def dirt(o, base_dark=0.35):
+    """Grime per vertex (0-1): crevices dark (concavity), the foot of each piece dark, streaks running down, and on the
+    unique pieces placed in the world, a dark band where they meet the floor or the water (z ~ 0)."""
+    me = o.data
     bm = bmesh.new()
     bm.from_mesh(me)
     bm.normal_update()
     zs = [v.co.z for v in bm.verts] or [0]
     z0, z1 = min(zs), max(zs)
+    world = me.users == 1
+    mw = o.matrix_world
     out = []
     for v in bm.verts:
         nb = [e.other_vert(v).co for e in v.link_edges]
         cav = 0.0
         if nb:
             cav = sum((q - v.co).dot(v.normal) / max((q - v.co).length, 1e-6) for q in nb) / len(nb)
-        c = 1.0 - 0.9 * max(0.0, cav)              # concave -> darker
+        c = 1.0 - 1.5 * max(0.0, cav)              # concave -> darker
         h = (v.co.z - z0) / max(z1 - z0, 1e-6)
-        c *= 1 - base_dark * max(0.0, 1 - h * 4)   # the bottom quarter darkens toward the foot
-        g = 0.94 + 0.06 * math.sin(v.co.x * 3.1 + v.co.y * 1.7) * math.sin(v.co.z * 2.3)
-        out.append(max(0.25, min(1.0, c * g)))
+        c *= 1 - base_dark * max(0.0, 1 - h * 3) ** 1.5   # the lower third darkens toward the foot
+        # streaks running down (vertical bands round the piece, stronger low)
+        a = math.atan2(v.co.y, v.co.x)
+        streak = max(0.0, math.sin(a * 7 + v.co.x * 0.9) * math.sin(a * 3 - v.co.y * 0.7))
+        c *= 1 - 0.28 * streak * (1 - 0.6 * h)
+        if world:
+            wz = (mw @ v.co).z
+            c *= 0.5 + 0.5 * min(1.0, max(0.0, (wz - 0.0) / 3.0)) if wz > -1.5 else 0.5
+        g = 0.93 + 0.07 * math.sin(v.co.x * 3.1 + v.co.y * 1.7) * math.sin(v.co.z * 2.3)
+        out.append(max(0.18, min(1.0, c * g)))
     bm.free()
     return out
+
+
+GRIME = (0.40, 0.27, 0.19)  # crevice colour: warm brown-black (three multiplies COLOR_0 into the base colour)
+
+
+def grime(v):
+    return tuple(GRIME[i] + (1 - GRIME[i]) * v for i in range(3)) if v < 1 else (1.0, 1.0, 1.0)
 
 
 def ensure_col(me):
@@ -2012,9 +2380,9 @@ for o in meshes:
         for d in col.data:
             d.color = (1, 1, 1, 1)
         continue
-    vals = dirt(me, 0.45 if me.users > 1 else 0.25)
+    vals = dirt(o, 0.55 if me.users > 1 else 0.35)
     for d, v in zip(col.data, vals):
-        d.color = (v, v, v, 1)
+        d.color = (*grime(v * v), 1)
 
 if os.environ.get('CITY3_NO_BAKE') != '1':
     # AO on the unique meshes (one user: their own place in the city), multiplied into the dirt.
@@ -2053,8 +2421,8 @@ if os.environ.get('CITY3_NO_BAKE') != '1':
         ao = me.color_attributes['AO']
         col = me.color_attributes['Col']
         for d, c0, a in zip(col.data, keep[me.name], ao.data):
-            v = c0[0] * (0.45 + 0.55 * a.color[0])
-            d.color = (v, v, v, 1)
+            f = 0.3 + 0.7 * a.color[0] ** 1.3
+            d.color = (c0[0] * f, c0[1] * f, c0[2] * f, 1)
         me.color_attributes.remove(ao)
         me.color_attributes.active_color = me.color_attributes['Col']
 

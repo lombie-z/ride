@@ -85,7 +85,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
   const coarse = useMemo(() => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches, []);
 
   useFrame((state, delta) => {
-    if (process.env.NODE_ENV === 'development') (window as unknown as { __ride?: unknown }).__ride = { ride, anchors };
+    if (process.env.NODE_ENV === 'development') (window as unknown as { __ride?: unknown }).__ride = { ride, anchors, scene: state.scene };
     const dt = Math.min(delta, 1 / 20);
     const settled = journey.frame >= SETTLED_FRAME;
     // Counting up once settled on the landing; before the button's been lit it runs back when the visitor scrolls away,

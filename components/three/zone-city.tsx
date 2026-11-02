@@ -136,12 +136,11 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       m.needsUpdate = true;
     });
     // The hive's heart, beating (components/three/ride.tsx: the heartbeat), and the desert's lightning.
-    parts.current = {
-      heart: node(scene, `${prefix}Heart`) ?? null,
-      lightning: [] as MeshStandardMaterial[],
-    };
+    // (Found by its material: its name's shared with the ooze it hangs under.)
+    parts.current = { heart: null, lightning: [] as MeshStandardMaterial[] };
     scene.traverse((o) => {
       const m = (o as Mesh).material as MeshStandardMaterial | undefined;
+      if (m?.name === `${prefix}Heart`) parts.current.heart = o;
       if (m?.name === `${prefix}Lightning` && !parts.current.lightning.includes(m)) parts.current.lightning.push(m);
     });
   }, [scene, gl, prefix, k]);
@@ -178,6 +177,8 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
           if (!instanced.has(key)) instanced.set(key, { source: im, matrices: [] });
           (instanced.get(key) as { matrices: Matrix4[] }).matrices.push(m);
         }
+        // (Anything hung under it, kept where it is: the hive's heart hangs under its ooze.)
+        for (const child of [...im.children]) (im.parent ?? scene).attach(child);
         im.removeFromParent();
         continue;
       }
@@ -250,7 +251,11 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     g.position.copy(leg.origin);
     g.rotation.set(0, leg.yaw, 0);
     const { heart, lightning } = parts.current;
-    if (heart) heart.scale.setScalar(1 + 0.06 * ride.drive.beat);
+    // (Relative to its own scale: it's modelled as a unit sphere, scaled up.)
+    if (heart) {
+      if (!heart.userData.size) heart.userData.size = heart.scale.clone();
+      heart.scale.copy(heart.userData.size).multiplyScalar(1 + 0.06 * ride.drive.beat);
+    }
     // (Now and then a fork of lightning in the storm: a quick double flicker.)
     if (lightning.length) {
       const t = state.clock.elapsedTime;
