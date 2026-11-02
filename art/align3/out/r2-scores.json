@@ -1,0 +1,61 @@
+{
+ "arrival": {
+  "sun_px": 4.617,
+  "sun_r_px": 4.629,
+  "heart_px": 10.057,
+  "heart_size_px": 8.4,
+  "kerb_px": 1.243,
+  "kerb_cover": 0.61,
+  "rib_front_arch": 0.917,
+  "rib_right_arch": 0.483,
+  "rib_heart_rib_l": 0.883,
+  "ribs_cover": 0.761,
+  "platforms_px": 4.595,
+  "water_iou": 0.255,
+  "glow_cover": 0.159,
+  "horizon_px": 6.482,
+  "bike_iou": 0.9,
+  "total": 73.368
+ },
+ "approach": {
+  "skyline_mae_px": 44.503,
+  "sun_px": 180.577,
+  "vp_px": 0.002
+ },
+ "scene": {
+  "sun": {
+   "centre": [
+    294.3,
+    166.8
+   ],
+   "radius": 31.4
+  },
+  "heart": {
+   "cx": 701.5,
+   "cy": 229.0,
+   "half_w": 117.5,
+   "half_h": 135.0
+  },
+  "platforms": {
+   "upper": {
+    "cx": 525.0,
+    "cy": 314.0,
+    "half_w": 113.0,
+    "half_h": 15
+   },
+   "lower": {
+    "cx": 675.0,
+    "cy": 377.0,
+    "half_w": 113.0,
+    "half_h": 11
+   }
+  },
+  "bike_box": [
+   830,
+   398,
+   1241,
+   676
+  ],
+  "ribs": null
+ }
+}

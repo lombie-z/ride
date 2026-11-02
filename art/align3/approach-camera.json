@@ -1,0 +1,22 @@
+{
+ "frame": "City3 causeway: deck top z 0, the road along +X centred on y 0; EYE x 0 (placed down the causeway by art/build-city3.py), LOOK = EYE + 10 x the view direction",
+ "EYE": [
+  0.0,
+  2.3274,
+  1.45
+ ],
+ "LOOK": [
+  9.9179,
+  2.0608,
+  2.7003
+ ],
+ "FOV": 50.0,
+ "fit": {
+  "residuals_vp_kerbl_kerbr": [
+   0.0,
+   0.0,
+   0.0,
+   -38.8
+  ]
+ }
+}
