@@ -6,6 +6,7 @@ import {
   BlendFunction,
   type BloomEffect,
   type DepthOfFieldEffect,
+  type Effect,
   type GodRaysEffect,
   type NoiseEffect,
   type SMAAEffect,
@@ -14,7 +15,7 @@ import {
 import { useRef } from 'react';
 import { type Mesh, ShaderChunk, type Sphere, Vector3 } from 'three';
 import { devFlag, journey, landingAt, smoothstep } from '@/lib/journey';
-import { washCover } from '@/lib/ride';
+import { ride, washCover } from '@/lib/ride';
 import { Grade, type GradeEffect } from './grade';
 import { LiquidSweep, type LiquidSweepEffect } from './liquid-sweep';
 import { NearBlur, type NearBlurEffect } from './near-blur';
@@ -47,6 +48,22 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
   const sweep = useRef<PixelSweepEffect>(null);
   const liquid = useRef<LiquidSweepEffect>(null);
   const smaa = useRef<SMAAEffect>(null);
+  // Effects only needed some of the time are switched out of the composite while they're idle (the shader recompiles,
+  // once, as each changes) and their own off-screen work is skipped: the lens blurs belong to the still landing shot,
+  // the edge smoothing to full-resolution rendering, the pixel wipe to the pre-roll.
+  const gates = useRef(new Map<Effect, boolean>());
+  const gate = (effect: Effect | null, on: boolean) => {
+    if (!effect) return;
+    if (!gates.current.has(effect)) {
+      const update = effect.update.bind(effect);
+      effect.update = (renderer, input, delta) => {
+        if (gates.current.get(effect)) update(renderer, input, delta);
+      };
+    }
+    if (gates.current.get(effect) === on) return;
+    gates.current.set(effect, on);
+    effect.blendMode.blendFunction = on ? BlendFunction.NORMAL : BlendFunction.SKIP;
+  };
 
   useFrame((state) => {
     const underway = smoothstep(10, 120, journey.frame);
@@ -83,7 +100,13 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     // The blurs are measured in buffer pixels: at pixel mode's low resolution each covers far more of the screen, so
     // they're scaled down to look the same.
     const scale = Math.min(1, state.gl.getPixelRatio() / 1.75);
-    if (focus.current) focus.current.bokehScale = 1.8 * landingAt(journey.frame) * Math.max(scale, 0.35);
+    // (The still landing shot only: not on the way down, nor once on the bike.)
+    const still = landingAt(journey.frame) * (1 - ride.mount);
+    if (focus.current) focus.current.bokehScale = 1.8 * still * Math.max(scale, 0.35);
+    gate(focus.current, still > 0.01);
+    gate(nearBlur.current, still > 0.01);
+    gate(smaa.current, state.gl.getPixelRatio() >= 1);
+    gate(sweep.current, !pixel || journey.sweep < 1);
     if (sweep.current) sweep.current.set(pixel ? journey.sweep : 0, pixel * state.gl.getPixelRatio());
     if (liquid.current) {
       const { cover, leaving } = washCover();
@@ -99,7 +122,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     if (rays.current) rays.current.godRaysMaterial.weight = 0.6 * (1 - 0.85 * landingAt(journey.frame));
     // The shallow focus is the landing's still shot.
     if (nearBlur.current) {
-      nearBlur.current.weight = landingAt(journey.frame);
+      nearBlur.current.weight = still;
       nearBlur.current.radius = 14 * Math.max(scale, 0.3);
     }
   });
