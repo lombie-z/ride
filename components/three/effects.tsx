@@ -112,7 +112,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     gate(sweep.current, !pixel || journey.sweep < 1);
     if (sweep.current) sweep.current.set(pixel ? journey.sweep : 0, pixel * state.gl.getPixelRatio());
     // Motion blur from the bike's speed, only from the rider's seat (and off in a gate when still, costing nothing).
-    const blur = ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5;
+    const blur = devFlag('noblur') ? 0 : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5;
     if (speedBlur.current) speedBlur.current.set(blur);
     gate(speedBlur.current, blur > 0.002);
     if (liquid.current) {
