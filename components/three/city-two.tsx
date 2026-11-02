@@ -3,7 +3,7 @@
 import { useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { type Group, InstancedMesh, type Material, Matrix4, type Mesh, Mesh as MeshClass, type MeshStandardMaterial, type Object3D, type Texture } from 'three';
+import { type Group, InstancedMesh, type Material, Matrix4, type Mesh, Mesh as MeshClass, type MeshStandardMaterial, type Texture, Vector3 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ride, road, setCityPath } from '@/lib/ride';
 import { AT, sunsetEnvMap } from './bike';
@@ -74,27 +74,47 @@ function CityTwo({ src }: { src: string }) {
   useEffect(() => {
     scene.updateMatrixWorld(true);
     const toScene = new Matrix4().copy(scene.matrixWorld).invert();
+    // (In cells of the city, so each merged piece covers only its part of it and the ones out of view aren't drawn.)
+    const CELL = 260;
+    const cellOf = (x: number, z: number) => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
+    const centre = new Vector3();
     const plain = new Map<string, Mesh[]>();
-    const instanced = new Map<string, InstancedMesh[]>();
+    const instanced = new Map<string, { source: InstancedMesh; matrices: Matrix4[] }>();
+    const each = new Matrix4();
+    const sources: Mesh[] = [];
     scene.traverse((o) => {
       const mesh = o as Mesh;
       if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+      sources.push(mesh);
+    });
+    for (const mesh of sources) {
+      const material = mesh.material as Material;
       if ((mesh as InstancedMesh).isInstancedMesh) {
-        const key = `${mesh.geometry.uuid}|${mesh.material.uuid}`;
-        instanced.set(key, [...(instanced.get(key) ?? []), mesh as InstancedMesh]);
-        return;
+        const im = mesh as InstancedMesh;
+        const base = toScene.clone().multiply(im.matrixWorld);
+        for (let k = 0; k < im.count; k++) {
+          im.getMatrixAt(k, each);
+          const m = base.clone().multiply(each);
+          centre.setFromMatrixPosition(m);
+          const key = `${im.geometry.uuid}|${material.uuid}|${cellOf(centre.x, centre.z)}`;
+          if (!instanced.has(key)) instanced.set(key, { source: im, matrices: [] });
+          (instanced.get(key) as { matrices: Matrix4[] }).matrices.push(m);
+        }
+        im.removeFromParent();
+        continue;
       }
       const g = mesh.geometry;
-      const key = `${mesh.material.uuid}|${Object.keys(g.attributes).sort().join()}|${!!g.index}`;
+      if (!g.boundingBox) g.computeBoundingBox();
+      g.boundingBox?.getCenter(centre);
+      centre.applyMatrix4(toScene.clone().multiply(mesh.matrixWorld));
+      const key = `${material.uuid}|${Object.keys(g.attributes).sort().join()}|${!!g.index}|${cellOf(centre.x, centre.z)}`;
       plain.set(key, [...(plain.get(key) ?? []), mesh]);
-    });
-    const added: Object3D[] = [];
-    const place = (o: Object3D, from: Mesh) => {
+    }
+    const place = (o: Mesh, from: Mesh) => {
       o.castShadow = from.castShadow;
       o.receiveShadow = from.receiveShadow;
       o.renderOrder = from.renderOrder;
       scene.add(o);
-      added.push(o);
     };
     for (const meshes of plain.values()) {
       if (meshes.length < 2) continue;
@@ -105,23 +125,12 @@ function CityTwo({ src }: { src: string }) {
       place(one, meshes[0]);
       for (const m of meshes) m.removeFromParent();
     }
-    const each = new Matrix4();
-    for (const meshes of instanced.values()) {
-      if (meshes.length < 2) continue;
-      const total = meshes.reduce((n, m) => n + m.count, 0);
-      const one = new InstancedMesh(meshes[0].geometry, meshes[0].material, total);
-      one.name = `${(meshes[0].material as Material).name}Instances`;
-      one.frustumCulled = false;
-      let i = 0;
-      for (const m of meshes) {
-        const base = toScene.clone().multiply(m.matrixWorld);
-        for (let k = 0; k < m.count; k++) {
-          m.getMatrixAt(k, each);
-          one.setMatrixAt(i++, base.clone().multiply(each));
-        }
-        m.removeFromParent();
-      }
-      place(one, meshes[0]);
+    for (const { source, matrices } of instanced.values()) {
+      const one = new InstancedMesh(source.geometry, source.material, matrices.length);
+      one.name = `${(source.material as Material).name}Instances`;
+      for (const [i, m] of matrices.entries()) one.setMatrixAt(i, m);
+      one.computeBoundingSphere();
+      place(one, source);
     }
   }, [scene]);
 
