@@ -26,9 +26,10 @@ export const ride = {
   mount: 0,
   /**
    * Riding on (components/three/ride.tsx): distance down the road from the bike's spot (m), speed (m/s), whether it's
-   * cruising, a boost from scrolling (m/s), how far it's left the landing behind (0 to 1), and seconds spent moving.
+   * cruising, a boost from scrolling (m/s), how far it's left the landing behind (0 to 1), seconds spent moving, and
+   * the surge: holding the throttle button down (`boosting`) eases `surge` up to 1, near doubling its speed.
    */
-  drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1, time: 0 },
+  drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1, time: 0, boosting: false, surge: 0 },
   /**
    * Getting off after a real ride: a sheet of black oil washes over the screen (components/three/liquid-sweep.ts) and,
    * while it covers it, the ride is put back; seconds since it began, or -1.
@@ -192,6 +193,8 @@ export const WASH_FROM = 25;
 
 /** Top cruising speed (m/s) and how hard it speeds up and brakes (m/s²). */
 export const CRUISE = 32;
+/** Holding the throttle button: how much faster it goes, at full surge. */
+export const SURGE = 1.1;
 export const ACCEL = 7;
 export const BRAKE = 14;
 

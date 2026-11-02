@@ -374,7 +374,7 @@ export function Bike() {
         // Leaning into the bend as it takes it.
         // (Into a right-hand bend it leans right: its +x roll, as the yaw is applied first.)
         const lean = -Math.atan((speed * speed * cityRoadCurve(s - tr.at)) / 9.8);
-        b.rotation.x += (Math.max(-0.35, Math.min(0.35, lean)) - b.rotation.x) * 0.08;
+        b.rotation.x += (Math.max(-0.5, Math.min(0.5, lean)) - b.rotation.x) * 0.08;
       } else {
         b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, s);
         b.rotation.y = YAW + (road.yaw - YAW) * smoothstep(0, 12, s);

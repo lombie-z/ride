@@ -29,6 +29,7 @@ import {
   muckUnder,
   ride,
   SETTLED_FRAME,
+  SURGE,
   TRANSITION_LEAD,
   WASH,
   WASH_FROM,
@@ -150,7 +151,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     const drive = ride.drive;
     if (ride.mounted) {
       drive.rewindFrom = -1;
-      let want = ride.mount > 0.95 && drive.cruise ? CRUISE + drive.boost : 0;
+      // Holding the throttle button surges it on, easing in and out.
+      drive.surge += ((drive.boosting && drive.cruise ? 1 : 0) - drive.surge) * Math.min(1, dt * (drive.boosting ? 1.6 : 2.4));
+      let want = ride.mount > 0.95 && drive.cruise ? CRUISE * (1 + SURGE * drive.surge) + drive.boost : 0;
       // In the second city, the ride slows to pull up at the end of its road, the bike's spot there.
       const tr = ride.transition;
       if (tr.placed) {
@@ -165,7 +168,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         if (drive.s > tr.at - 60) {
           let curve = 0;
           for (let ahead = 0; ahead <= 60; ahead += 10) curve = Math.max(curve, Math.abs(cityRoadCurve(drive.s - tr.at + ahead)));
-          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44)) / curve));
+          // (Surging, it leans harder and takes them faster.)
+          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * drive.surge)) / curve) * (1 + 0.5 * drive.surge));
         }
         if (left < 0.6 && drive.speed < 0.4 && !tr.arrived) {
           tr.arrived = true;
@@ -179,6 +183,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     } else {
       drive.cruise = false;
       drive.speed = 0;
+      drive.boosting = false;
+      drive.surge = 0;
       if (ride.wash < 0 && drive.s > WASH_FROM) ride.wash = 0;
       if (ride.wash >= 0) {
         // Getting off after a ride: the liquid wash, everything put back once it covers the screen.

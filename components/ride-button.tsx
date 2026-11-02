@@ -6,11 +6,18 @@ import { ride } from '@/lib/ride';
 // The hit area for the glowing button on the bike (drawn in the canvas, components/three/ride.tsx): a real, invisible
 // <button> kept over it each frame, so it's clickable, focusable and announced. From the landing it covers the whole
 // bike, and clicking gets on: the camera glides to the rider's eye and the page stops scrolling. On the bike it's the
-// throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or
-// scrolling back brakes, and scrolling back once stopped gets off (as does Escape).
+// throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; pressing and holding
+// it (or Space) surges it on; clicking again or scrolling back brakes, and scrolling back once stopped gets off (as does
+// Escape).
 export function RideButton() {
   const button = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
+  const held = useRef(false);
+  const holdTimer = useRef(0);
+  const release = () => {
+    window.clearTimeout(holdTimer.current);
+    ride.drive.boosting = false;
+  };
 
   // Where the pointer is, for the button's glow.
   useEffect(() => {
@@ -77,7 +84,12 @@ export function RideButton() {
       // (Dev: c previews the second city's chrome morph.)
       if (process.env.NODE_ENV === 'development' && e.key === 'c') ride.chrome.want = 1 - ride.chrome.want;
       if (e.key === 'Escape') setMounted(false);
-      else if (e.key === 'ArrowUp' || e.key === 'w') go();
+      else if (e.key === ' ') {
+        // (Space, held, surges it on too.)
+        e.preventDefault();
+        ride.drive.cruise = true;
+        ride.drive.boosting = true;
+      } else if (e.key === 'ArrowUp' || e.key === 'w') go();
       else if (e.key === 'ArrowDown' || e.key === 's') back();
     };
     // (Wheels and trackpads fire many events per gesture: one gesture is one nudge.)
@@ -102,13 +114,19 @@ export function RideButton() {
       if (dy < 0) go();
       else back();
     };
+    const keyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') ride.drive.boosting = false;
+    };
     window.addEventListener('keydown', key);
+    window.addEventListener('keyup', keyUp);
     window.addEventListener('wheel', wheel, { passive: true });
     window.addEventListener('touchstart', touchStart, { passive: true });
     window.addEventListener('touchmove', touchMove, { passive: true });
     return () => {
       root.style.overflow = '';
       window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', keyUp);
+      ride.drive.boosting = false;
       window.removeEventListener('wheel', wheel);
       window.removeEventListener('touchstart', touchStart);
       window.removeEventListener('touchmove', touchMove);
@@ -123,8 +141,23 @@ export function RideButton() {
         aria-label="Get on the bike"
         onClick={() => {
           if (!mounted) setMounted(true);
+          // (A long press was a surge, not a tap: it leaves the ride going.)
+          else if (held.current) held.current = false;
           else ride.drive.cruise = !ride.drive.cruise;
         }}
+        // On the bike, pressing and holding the button surges it on (riding on first if it was stopped).
+        onPointerDown={() => {
+          if (!mounted) return;
+          window.clearTimeout(holdTimer.current);
+          holdTimer.current = window.setTimeout(() => {
+            held.current = true;
+            ride.drive.cruise = true;
+            ride.drive.boosting = true;
+          }, 220);
+        }}
+        onPointerUp={release}
+        onPointerLeave={release}
+        onPointerCancel={release}
         onFocus={() => {
           ride.focused = true;
         }}

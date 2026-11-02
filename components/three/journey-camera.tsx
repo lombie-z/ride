@@ -158,7 +158,8 @@ export function JourneyCamera() {
       riderEye.y += pace * 0.006 * (Math.sin(t * 41) + 0.6 * Math.sin(t * 67));
       cam.position.lerp(riderEye, e);
       cam.quaternion.slerp(riderQuaternion, e);
-      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV + 12 * pace * pace, e);
+      // (Surging, the view stretches wider still.)
+      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV + 12 * Math.min(1, pace * pace) + 10 * ride.drive.surge, e);
       cam.filmOffset *= 1 - e;
     }
     // Pulled up in the second city: the camera eases off the bike to the arrival shot.
