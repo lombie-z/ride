@@ -3,11 +3,13 @@
 import { useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import type { Group, Material, Mesh, MeshStandardMaterial, Texture } from 'three';
+import { type Group, InstancedMesh, type Material, Matrix4, type Mesh, Mesh as MeshClass, type MeshStandardMaterial, type Object3D, type Texture } from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ride, road, setCityPath } from '@/lib/ride';
 import { AT, sunsetEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
+import { Traffic } from './traffic';
 import { useVoidGloop, voidGloop } from './void-gloop';
 
 // The second city (art/build-city2.py), loaded during the ride: it's downloaded once the visitor gets on the bike,
@@ -65,6 +67,63 @@ function CityTwo({ src }: { src: string }) {
     });
   }, [scene, gl]);
 
+  // Drawn in as few calls as it can be: its static meshes merged into one per material, and its instanced pieces (the
+  // glb's GPU instancing, one per node) gathered into one instanced mesh per geometry and material. (After its
+  // materials are set: the ooze has been swapped for its own.)
+  useEffect(() => {
+    scene.updateMatrixWorld(true);
+    const toScene = new Matrix4().copy(scene.matrixWorld).invert();
+    const plain = new Map<string, Mesh[]>();
+    const instanced = new Map<string, InstancedMesh[]>();
+    scene.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+      if ((mesh as InstancedMesh).isInstancedMesh) {
+        const key = `${mesh.geometry.uuid}|${mesh.material.uuid}`;
+        instanced.set(key, [...(instanced.get(key) ?? []), mesh as InstancedMesh]);
+        return;
+      }
+      const g = mesh.geometry;
+      const key = `${mesh.material.uuid}|${Object.keys(g.attributes).sort().join()}|${!!g.index}`;
+      plain.set(key, [...(plain.get(key) ?? []), mesh]);
+    });
+    const added: Object3D[] = [];
+    const place = (o: Object3D, from: Mesh) => {
+      o.castShadow = from.castShadow;
+      o.receiveShadow = from.receiveShadow;
+      o.renderOrder = from.renderOrder;
+      scene.add(o);
+      added.push(o);
+    };
+    for (const meshes of plain.values()) {
+      if (meshes.length < 2) continue;
+      const merged = mergeGeometries(meshes.map((m) => m.geometry.clone().applyMatrix4(toScene.clone().multiply(m.matrixWorld))));
+      if (!merged) continue;
+      const one = new MeshClass(merged, meshes[0].material);
+      one.name = `${(meshes[0].material as Material).name}Merged`;
+      place(one, meshes[0]);
+      for (const m of meshes) m.removeFromParent();
+    }
+    const each = new Matrix4();
+    for (const meshes of instanced.values()) {
+      if (meshes.length < 2) continue;
+      const total = meshes.reduce((n, m) => n + m.count, 0);
+      const one = new InstancedMesh(meshes[0].geometry, meshes[0].material, total);
+      one.name = `${(meshes[0].material as Material).name}Instances`;
+      one.frustumCulled = false;
+      let i = 0;
+      for (const m of meshes) {
+        const base = toScene.clone().multiply(m.matrixWorld);
+        for (let k = 0; k < m.count; k++) {
+          m.getMatrixAt(k, each);
+          one.setMatrixAt(i++, base.clone().multiply(each));
+        }
+        m.removeFromParent();
+      }
+      place(one, meshes[0]);
+    }
+  }, [scene]);
+
   useEffect(() => {
     let live = true;
     const g = group.current;
@@ -106,6 +165,7 @@ function CityTwo({ src }: { src: string }) {
     <group ref={group} visible={false}>
       <primitive object={scene} />
       <Muck />
+      <Traffic env={sunsetEnvMap(gl)} />
     </group>
   );
 }

@@ -5,7 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { useRef, useState } from 'react';
 import type { Group } from 'three';
 import { belowVisible, devFlag, isLightDevice, journey, landingAt, smoothstep } from '@/lib/journey';
-import { ride } from '@/lib/ride';
+import { pastFirstCity, ride } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { Mist } from './weather-mist';
 import { Ooze } from './weather-ooze';
@@ -28,7 +28,7 @@ export function Weather() {
   useFrame(() => {
     const f = journey.frame;
     const on = belowVisible(f) && landingAt(f) > 0;
-    if (group.current) group.current.visible = on;
+    if (group.current) group.current.visible = on && !pastFirstCity();
     const landing = landingAt(f);
     // The rain starts as the camera comes down to the deck; the drips and the smog are there from the approach.
     // (The rain stops as the ride comes out of the smog into the second city's sunset.)

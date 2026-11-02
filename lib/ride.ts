@@ -158,6 +158,15 @@ export const CHROME_SECONDS = 2.6;
  */
 export const MORPH_AFTER = 12;
 
+/**
+ * Well into the second city: the rain (the green city's weather) isn't drawn at all. (The green city itself stays, seen
+ * in the distance.)
+ */
+export const pastFirstCity = () => {
+  const tr = ride.transition;
+  return tr.placed && tr.t >= 1 && ride.chrome.at >= 1 && ride.drive.s - tr.at > 260;
+};
+
 /** The wash's timing (s): coming in, holding over the swap, draining away. */
 export const WASH = { in: 0.85, hold: 0.25, out: 1.0 } as const;
 /** How much of the screen the wash covers now, and whether it's draining. */

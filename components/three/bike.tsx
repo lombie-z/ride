@@ -155,7 +155,7 @@ totalEmissiveRadiance += vec3(0.85, 0.75, 1.0) * exp(-abs(vBikeX - uChromeEdge) 
 }
 
 /** The liquid-chrome bike (art/build-bike2.py), revealed behind the morph's seam; its heart beats once it's arrived. */
-function ChromeBike({ env, buttonMaterials }: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] } }) {
+function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] }; black: Object3D }) {
   const { scene } = useGLTF(URL2, DRACO_PATH);
   const parts = useRef<{ heart: Object3D | null; arteries: Object3D | null; front: Object3D | null; rear: Object3D | null }>({
     heart: null,
@@ -206,6 +206,8 @@ function ChromeBike({ env, buttonMaterials }: { env: Texture; buttonMaterials: {
   const last = useRef(0);
   useFrame((state) => {
     scene.visible = ride.chrome.at > 0.001;
+    // (The black bike, wholly cut away by now, isn't drawn.)
+    black.visible = ride.chrome.at < 0.999;
     const { front, rear, heart, arteries } = parts.current;
     const ds = ride.drive.s - last.current;
     last.current = ride.drive.s;
@@ -224,7 +226,7 @@ function ChromeBike({ env, buttonMaterials }: { env: Texture; buttonMaterials: {
 }
 
 /** Loads the chrome bike once the visitor's on the black one, as the second city does (components/three/city-two.tsx). */
-function ChromeBikeLoader(props: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] } }) {
+function ChromeBikeLoader(props: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] }; black: Object3D }) {
   const [go, setGo] = useState(false);
   useFrame(() => {
     if (!go && ride.mount > 0.5) setGo(true);
@@ -381,7 +383,7 @@ export function Bike() {
     <group ref={group} visible={false}>
       <group ref={ridden} position={AT} rotation={[0, YAW, 0, 'YXZ']}>
         <primitive object={scene} />
-        <ChromeBikeLoader env={envSunset} buttonMaterials={buttonMaterials} />
+        <ChromeBikeLoader env={envSunset} buttonMaterials={buttonMaterials} black={scene} />
         <spotLight ref={headlight} position={[0.95, 0.72, 0]} angle={0.42} penumbra={0.7} distance={60} decay={1.1} intensity={0} color="#e8ffd8" />
         <object3D ref={headlightAim} position={[24, -1.2, 0]} />
       </group>
