@@ -28,8 +28,26 @@ export const ride = {
    * Riding on (components/three/ride.tsx): distance down the road from the bike's spot (m), speed (m/s), whether it's
    * cruising, a boost from scrolling (m/s), how far it's left the landing behind (0 to 1), seconds spent moving, and
    * the surge: holding the throttle button down (`boosting`) eases `surge` up to 1, near doubling its speed.
+   * The slingshot: the button dragged back along its track (`pull`, 0 to 1, from components/ride-button.tsx; `draw`,
+   * the same eased, where it's drawn), let go (`release`, its strength, picked up next frame) launches it (`launch`,
+   * the kick left, running down over a few seconds; `fire`, the flames round the view, following it).
    */
-  drive: { s: 0, speed: 0, cruise: false, boost: 0, away: 0, rewindFrom: -1, time: 0, boosting: false, surge: 0 },
+  drive: {
+    s: 0,
+    speed: 0,
+    cruise: false,
+    boost: 0,
+    away: 0,
+    rewindFrom: -1,
+    time: 0,
+    boosting: false,
+    surge: 0,
+    pull: 0,
+    draw: 0,
+    release: 0,
+    launch: 0,
+    fire: 0,
+  },
   /**
    * Getting off after a real ride: a sheet of black oil washes over the screen (components/three/liquid-sweep.ts) and,
    * while it covers it, the ride is put back; seconds since it began, or -1.
@@ -209,6 +227,9 @@ export const CRUISE = 32;
 export const SURGE = 1.1;
 export const ACCEL = 7;
 export const BRAKE = 14;
+/** The slingshot at full draw: how much faster than cruising it launches, and how long the kick lasts (s). */
+export const LAUNCH = 2.2;
+export const LAUNCH_SECONDS = 3.2;
 
 /**
  * The road the bike rides along (components/three/drive.tsx works it out from the city's City.DeckTop marker): its

@@ -25,6 +25,8 @@ import {
   CRUISE,
   cityRoadCurve,
   cityRoadLength,
+  LAUNCH,
+  LAUNCH_SECONDS,
   MORPH_AFTER,
   muckUnder,
   ride,
@@ -60,6 +62,8 @@ const p = new Vector3();
 const ndc = new Vector3();
 const box = new Box3();
 const corner = new Vector3();
+// The slingshot's heat: the button runs from its own light toward this as it's drawn back, and flares with it on launch.
+const HOT = new Color(1.0, 0.45, 0.12);
 
 type Streak = { from: Vector3; bend: Vector3; delay: number; duration: number };
 
@@ -141,9 +145,13 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     ride.near += (near - ride.near) * Math.min(1, dt * 8);
     // (Pixel mode draws the scene at a quarter of the resolution: the small button needs more light to survive it.)
     const boost = state.gl.getPixelRatio() < 1 ? 2 : 1;
+    const drive = ride.drive;
+    const heat = Math.max(drive.draw, drive.fire);
     for (const m of buttonMaterials.current) {
       const glyph = m.name.endsWith('ButtonGlyph');
-      m.emissiveIntensity = ride.appear * (glyph ? 1.8 + 5 * ride.near : 0.2 + 1.4 * ride.near) * boost;
+      if (!m.userData.light) m.userData.light = m.emissive.clone();
+      m.emissive.copy(m.userData.light).lerp(HOT, 0.85 * heat);
+      m.emissiveIntensity = ride.appear * (glyph ? 1.8 + 5 * ride.near : 0.2 + 1.4 * ride.near) * boost * (1 + 1.5 * drive.draw + 2 * drive.fire);
     }
 
     // Getting on: an eased glide there and back.
@@ -153,12 +161,24 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     if (!washing) ride.mount = goal > ride.mount ? Math.min(goal, ride.mount + dt / MOUNT_SECONDS) : Math.max(goal, ride.mount - dt / MOUNT_SECONDS);
 
     // Riding on (this runs before the bike moves and the camera follows: components/three/bike.tsx): up to cruising speed (plus any boost from scrolling) once it's told to go, braking to a stop when not.
-    const drive = ride.drive;
     if (ride.mounted) {
       drive.rewindFrom = -1;
       // Holding the throttle button surges it on, easing in and out.
       drive.surge += ((drive.boosting && drive.cruise ? 1 : 0) - drive.surge) * Math.min(1, dt * (drive.boosting ? 1.6 : 2.4));
-      let want = ride.mount > 0.95 && drive.cruise ? CRUISE * (1 + SURGE * drive.surge) + drive.boost : 0;
+      // The slingshot: the button drawn back along its track (it snaps home fast when let go); let go, the bike's flung
+      // on, the kick running down over a few seconds.
+      drive.draw += (drive.pull - drive.draw) * Math.min(1, dt * (drive.pull > drive.draw ? 16 : 30));
+      if (drive.release > 0) {
+        drive.launch = Math.max(drive.launch, drive.release);
+        drive.speed += 30 * drive.release;
+        drive.cruise = true;
+        drive.release = 0;
+      }
+      drive.launch = Math.max(0, drive.launch - dt / LAUNCH_SECONDS);
+      drive.fire += (Math.min(1, drive.launch * 1.5) - drive.fire) * Math.min(1, dt * (drive.launch * 1.5 > drive.fire ? 14 : 3));
+      let want = ride.mount > 0.95 && drive.cruise ? CRUISE * (1 + SURGE * drive.surge + LAUNCH * drive.launch) + drive.boost : 0;
+      // (Drawn back, it holds back a little, like a bow.)
+      want *= 1 - 0.35 * drive.draw;
       // In the second city, the ride slows to pull up at the end of its road, the bike's spot there.
       const tr = ride.transition;
       if (tr.placed) {
@@ -173,15 +193,16 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         if (drive.s > tr.at - 60) {
           let curve = 0;
           for (let ahead = 0; ahead <= 60; ahead += 10) curve = Math.max(curve, Math.abs(cityRoadCurve(drive.s - tr.at + ahead)));
-          // (Surging, it leans harder and takes them faster.)
-          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * drive.surge)) / curve) * (1 + 0.5 * drive.surge));
+          // (Surging or launched, it leans harder and takes them faster.)
+          const kick = Math.max(drive.surge, drive.launch);
+          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * kick)) / curve) * (1 + 0.5 * kick));
         }
         if (left < 0.6 && drive.speed < 0.4 && !tr.arrived) {
           tr.arrived = true;
           drive.cruise = false;
         }
       }
-      drive.speed = want > drive.speed ? Math.min(want, drive.speed + ACCEL * dt) : Math.max(want, drive.speed - BRAKE * dt);
+      drive.speed = want > drive.speed ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch) * dt) : Math.max(want, drive.speed - BRAKE * dt);
       drive.s += drive.speed * dt;
       if (tr.placed) drive.s = Math.min(drive.s, tr.at + cityRoadLength());
       if (drive.speed > 0.5) drive.time += dt;
@@ -190,6 +211,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       drive.speed = 0;
       drive.boosting = false;
       drive.surge = 0;
+      Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0 });
       if (ride.wash < 0 && drive.s > WASH_FROM) ride.wash = 0;
       if (ride.wash >= 0) {
         // Getting off after a ride: the liquid wash, everything put back once it covers the screen.

@@ -27,6 +27,7 @@ import { anchors, CRUISE, cityRoadAt, cityRoadCurve, muckUnder, ride, road } fro
 import { DRACO_PATH } from './biome';
 import { dashDisplay } from './dash';
 import { RideControl, RideHalo, RideStreaks } from './ride';
+import { BLACK_TANK, CHROME_TANK, throttleTrack } from './throttle-track';
 
 const URL = '/models/bike.glb';
 const URL2 = '/models/bike2.glb';
@@ -155,6 +156,16 @@ totalEmissiveRadiance += vec3(0.85, 0.75, 1.0) * exp(-abs(vBikeX - uChromeEdge) 
   material.customProgramCacheKey = () => `bike-morph-${kind}`;
 }
 
+/** The track's glow: the colour of the button's own light (a fallback if it hasn't one). */
+function trackColour(scene: Object3D, material: string, fallback: string) {
+  let found: MeshStandardMaterial | undefined;
+  scene.traverse((o) => {
+    const m = (o as Mesh).material as MeshStandardMaterial | undefined;
+    if ((o as Mesh).isMesh && m?.name === material) found = m;
+  });
+  return found?.emissive && found.emissive.getHex() !== 0 ? found.emissive.clone() : new Color(fallback);
+}
+
 /** The liquid-chrome bike (art/build-bike2.py), revealed behind the morph's seam; its heart beats once it's arrived. */
 function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMaterials: { current: MeshStandardMaterial[] }; black: Object3D }) {
   const { scene } = useGLTF(URL2, DRACO_PATH);
@@ -223,8 +234,20 @@ function ChromeBike({ env, buttonMaterials, black }: { env: Texture; buttonMater
     };
   }, [scene, env, buttonMaterials, black, dash]);
 
+  // Its throttle on its own track (components/three/throttle-track.ts).
+  const track = useRef<ReturnType<typeof throttleTrack>>(null);
+  useEffect(() => {
+    const t = throttleTrack(scene, ['Bike2Button', 'Bike2ButtonGlyph'], trackColour(scene, 'Bike2ButtonGlyph', '#d8c4ff'), CHROME_TANK);
+    track.current = t;
+    return () => {
+      t?.dispose();
+      track.current = null;
+    };
+  }, [scene]);
+
   const last = useRef(0);
   useFrame((state) => {
+    track.current?.set(ride.drive.draw, ride.mount * ride.appear * ride.chrome.at, state.clock.elapsedTime);
     scene.visible = ride.chrome.at > 0.001;
     // (The black bike, wholly cut away by now, isn't drawn.)
     black.visible = ride.chrome.at < 0.999;
@@ -281,6 +304,7 @@ export function Bike() {
     if (lamp.current && lampAim.current) lamp.current.target = lampAim.current;
   }, []);
   const wheels = useRef<{ front: Object3D | null; rear: Object3D | null }>({ front: null, rear: null });
+  const track = useRef<ReturnType<typeof throttleTrack>>(null);
 
   useEffect(() => {
     const glowing: MeshStandardMaterial[] = [];
@@ -341,7 +365,12 @@ export function Bike() {
     anchors.eye = scene.getObjectByName('RiderEye') ?? stand('RiderEye', -0.3, 1.55);
     anchors.bike = scene;
     wheels.current = { front: scene.getObjectByName('WheelFront') ?? null, rear: scene.getObjectByName('WheelRear') ?? null };
+    // The throttle on its track (components/three/throttle-track.ts).
+    const t = throttleTrack(scene, ['BikeButton', 'BikeButtonGlyph'], trackColour(scene, 'BikeButtonGlyph', '#9dff7a'), BLACK_TANK);
+    track.current = t;
     return () => {
+      t?.dispose();
+      track.current = null;
       anchors.button = null;
       anchors.eye = null;
       anchors.bike = null;
@@ -353,6 +382,8 @@ export function Bike() {
   // (Before the camera, -1, which rides on the bike: otherwise it trails a frame behind it.)
   useFrame((state) => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
+    // (The track shows once seated: it's the throttle's.)
+    track.current?.set(ride.drive.draw, ride.mount * ride.appear * (1 - ride.chrome.at), state.clock.elapsedTime);
     const { s, speed } = ride.drive;
     const pace = Math.min(1, speed / CRUISE);
     // The ribs breathe, slowly; brighter and quicker as it goes.

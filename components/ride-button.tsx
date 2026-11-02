@@ -7,7 +7,8 @@ import { ride } from '@/lib/ride';
 // <button> kept over it each frame, so it's clickable, focusable and announced. From the landing it covers the whole
 // bike, and clicking gets on: the camera glides to the rider's eye and the page stops scrolling. On the bike it's the
 // throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; pressing and holding
-// it (or Space) surges it on; clicking again or scrolling back brakes. There's no getting off by scrolling (easy to do
+// it (or Space) surges it on; dragging it back, down the screen toward the rider, draws it back along its track like a
+// slingshot, and letting go launches the bike; clicking again or scrolling back brakes. There's no getting off by scrolling (easy to do
 // by accident while finding the controls): the way back is on the map, once in the chrome city (ride.request.back, from
 // the map's green city, components/three/holomap.tsx).
 export function RideButton() {
@@ -16,9 +17,19 @@ export function RideButton() {
   const [mounted, setMounted] = useState(false);
   const held = useRef(false);
   const holdTimer = useRef(0);
+  // The slingshot: where the press began (null when not pressed) and whether it's become a drag.
+  const press = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
   const release = () => {
     window.clearTimeout(holdTimer.current);
     ride.drive.boosting = false;
+  };
+  // Let go of a draw: far enough back, it launches (as hard as it was drawn); not, it just slides home.
+  const letGo = (launch: boolean) => {
+    const drive = ride.drive;
+    if (press.current?.dragging && launch && drive.pull > 0.12) drive.release = drive.pull;
+    drive.pull = 0;
+    press.current = null;
+    release();
   };
 
   // Where the pointer is, for the button's glow.
@@ -116,7 +127,8 @@ export function RideButton() {
     };
     let touchY: number | null = null;
     const touchStart = (e: TouchEvent) => {
-      touchY = e.touches[0]?.clientY ?? null;
+      // (Not a drag on the throttle itself: that's the slingshot.)
+      touchY = e.target === button.current ? null : (e.touches[0]?.clientY ?? null);
     };
     // (A finger dragged up the screen is scrolling down: ride on; dragged down is scrolling up.)
     const touchMove = (e: TouchEvent) => {
@@ -159,8 +171,11 @@ export function RideButton() {
           else ride.drive.cruise = !ride.drive.cruise;
         }}
         // On the bike, pressing and holding the button surges it on (riding on first if it was stopped).
-        onPointerDown={() => {
+        onPointerDown={(e) => {
           if (!mounted) return;
+          press.current = { x: e.clientX, y: e.clientY, dragging: false };
+          // (Kept on the button while it's dragged off it.)
+          e.currentTarget.setPointerCapture(e.pointerId);
           window.clearTimeout(holdTimer.current);
           holdTimer.current = window.setTimeout(() => {
             held.current = true;
@@ -168,16 +183,31 @@ export function RideButton() {
             ride.drive.boosting = true;
           }, 220);
         }}
-        onPointerUp={release}
-        onPointerLeave={release}
-        onPointerCancel={release}
+        // Dragged back (down the screen, toward the rider): drawn back along its track, the further the harder.
+        onPointerMove={(e) => {
+          const p = press.current;
+          if (!p) return;
+          const back = e.clientY - p.y;
+          if (!p.dragging && back > 8 && back > Math.abs(e.clientX - p.x)) {
+            p.dragging = true;
+            // (A drag, not a tap or a held surge.)
+            held.current = true;
+            release();
+          }
+          if (p.dragging) ride.drive.pull = Math.min(1, Math.max(0, back / Math.max(80, window.innerHeight * 0.16)));
+        }}
+        onPointerUp={() => letGo(true)}
+        onPointerCancel={() => letGo(false)}
+        onLostPointerCapture={() => {
+          if (press.current) letGo(true);
+        }}
         onFocus={() => {
           ride.focused = true;
         }}
         onBlur={() => {
           ride.focused = false;
         }}
-        className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer outline-none"
+        className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer touch-none outline-none"
       />
       {/* Over the map's green city: the way back. */}
       <button
