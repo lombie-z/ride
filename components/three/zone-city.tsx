@@ -155,6 +155,8 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     // (In cells of the city, so each merged piece covers only its part of it and the ones out of view aren't drawn.)
     const CELL = 260;
     const cellOf = (x: number, z: number) => `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
+    // (Instanced pieces in cells twice as wide: they're cheap to draw out of view, and each cell's another call.)
+    const wideCellOf = (x: number, z: number) => `${Math.floor(x / (2 * CELL))},${Math.floor(z / (2 * CELL))}`;
     const centre = new Vector3();
     const plain = new Map<string, Mesh[]>();
     const instanced = new Map<string, { source: InstancedMesh; matrices: Matrix4[] }>();
@@ -174,7 +176,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
           im.getMatrixAt(k, each);
           const m = base.clone().multiply(each);
           centre.setFromMatrixPosition(m);
-          const key = `${im.geometry.uuid}|${material.uuid}|${cellOf(centre.x, centre.z)}`;
+          const key = `${im.geometry.uuid}|${material.uuid}|${wideCellOf(centre.x, centre.z)}`;
           if (!instanced.has(key)) instanced.set(key, { source: im, matrices: [] });
           (instanced.get(key) as { matrices: Matrix4[] }).matrices.push(m);
         }
