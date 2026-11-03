@@ -23,7 +23,8 @@ components/three/effects.tsx, grade.ts  # Post: bloom, grade (cold green), grain
 components/three/speed-blur.ts        # Motion blur + the zone features' looks: iridescence, heartbeat veins, flames
 components/three/ride.tsx             # The ride: button entrance, getting on, driving, zones, features, morphs, map timing
 components/three/zone-city.tsx        # Loads/places each city after the green one (city2.glb, city3.glb, city4.glb)
-components/three/holomap.tsx          # The hologram map in the rider's hands (hands.glb): way back, ride on
+components/three/holomap.tsx, holomap-materials.ts  # The map terminal in the rider's hands (hands.glb): 3D land, way back, ride on
+components/three/precompile.ts        # Compiles a model's shaders ahead of time, for the post's linear buffer
 components/three/throttle-track.ts    # The throttle pill's slingshot track on the tank
 components/ride-button.tsx            # The DOM hit areas over the 3D button and the map; gestures per zone
 lib/journey.ts                        # Scroll progress, beats, shared per-frame state
