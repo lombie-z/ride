@@ -27,6 +27,7 @@ import { look } from '@/lib/look';
 import { FallStreaks } from './fall-streaks';
 import { landingMaterial } from './landing';
 import { useLandingReflections } from './landing-reflections';
+import { precompile } from './precompile';
 import { rockMaterial } from './rock';
 import { SilhouetteOutline } from './silhouette-outline';
 import { bloomAt, SUN_POSITION } from './sky';
@@ -308,7 +309,7 @@ export function Biome({ onReady, onSun }: { onReady: () => void; onSun: (sun: Me
           })
       )
     );
-    Promise.race([Promise.all([gl.compileAsync(threeScene, camera), loaded]), settle])
+    Promise.race([Promise.all([precompile(gl, threeScene, camera, threeScene), loaded]), settle])
       .catch(() => {})
       .then(() => {
         if (!live) return;

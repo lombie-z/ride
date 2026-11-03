@@ -233,7 +233,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         }
       }
       drive.speed =
-        want > drive.speed ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump + 8 * drive.surge) * dt) : Math.max(want, drive.speed - BRAKE * dt);
+        want > drive.speed
+          ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump + 8 * drive.surge) * dt)
+          : Math.max(want, drive.speed - BRAKE * dt);
       drive.s = Math.min(drive.s + drive.speed * dt, stop);
       if (drive.speed > 0.5) drive.time += dt;
     } else {

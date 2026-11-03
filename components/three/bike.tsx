@@ -26,6 +26,7 @@ import { belowVisible, journey, smoothstep } from '@/lib/journey';
 import { anchors, bikeReady, CRUISE, featureHere, muckUnder, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { dashDisplay } from './dash';
+import { precompile } from './precompile';
 import { RideControl, RideHalo, RideStreaks } from './ride';
 import { BLACK_TANK, CHROME_TANK, throttleTrack } from './throttle-track';
 
@@ -233,6 +234,7 @@ const BIKE_GLOWS: Record<string, number> = { Vein: 2.2, Led: 7, Tail: 4, Fluid: 
  */
 function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; buttonMaterials: { current: MeshStandardMaterial[] } }) {
   const { scene } = useGLTF(ZONES[k].bike, DRACO_PATH);
+  const { gl, camera, scene: world } = useThree();
   const P = `Bike${k + 1}`;
   const dash = useMemo(dashDisplay, []);
   const parts = useRef<{ heart: Object3D | null; arteries: Object3D | null; front: Object3D | null; rear: Object3D | null }>({
@@ -296,12 +298,27 @@ function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; button
       front: scene.getObjectByName(`Wheel${k + 1}Front`) ?? null,
       rear: scene.getObjectByName(`Wheel${k + 1}Rear`) ?? null,
     };
-    bikeReady[k] = true;
+    // Ready once its programs are compiled, in the background, and its textures uploaded: compiled on first sight
+    // instead, they stalled the frame the morph into it began.
+    let live = true;
+    const textures = new Set<Texture>();
+    scene.traverse((o) => {
+      const m = (o as Mesh).material as (Material & Record<string, unknown>) | undefined;
+      for (const v of Object.values(m ?? {})) if ((v as Texture)?.isTexture) textures.add(v as Texture);
+    });
+    precompile(gl, scene, camera, world)
+      .catch(() => {})
+      .then(() => {
+        if (!live) return;
+        for (const t of textures) gl.initTexture(t);
+        bikeReady[k] = true;
+      });
     return () => {
+      live = false;
       bikeReady[k] = false;
       buttonMaterials.current = buttonMaterials.current.filter((m) => !mine.includes(m));
     };
-  }, [scene, env, buttonMaterials, dash, k, P]);
+  }, [scene, env, buttonMaterials, dash, k, P, gl, camera, world]);
 
   // Its throttle on its own track (components/three/throttle-track.ts), on its tank's own profile where it carries one.
   const track = useRef<ReturnType<typeof throttleTrack>>(null);

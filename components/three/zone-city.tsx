@@ -21,6 +21,7 @@ import { leftBehind, MUCKY, ride, setZonePaths } from '@/lib/ride';
 import { sunsetEnvMap, zoneEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
+import { precompile } from './precompile';
 import { Traffic } from './traffic';
 import { useVoidGloop, voidGloop } from './void-gloop';
 import { CityRoadMirror } from './wet-road';
@@ -225,7 +226,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       const m = (o as Mesh).material as (Material & Record<string, unknown>) | undefined;
       for (const v of Object.values(m ?? {})) if ((v as Texture)?.isTexture) textures.add(v as Texture);
     });
-    gl.compileAsync(g, camera, world)
+    precompile(gl, g, camera, world)
       .catch(() => {})
       .then(() => {
         if (!live) return;
