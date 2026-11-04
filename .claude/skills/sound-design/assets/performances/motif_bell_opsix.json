@@ -1,0 +1,17 @@
+{
+  "_": "The motif on a bell patch, twice: E F | Bb B at 80 BPM. Slow form, one pair per bar. Set the opsix to channel 2, or edit defaults.",
+  "bpm": 80,
+  "beats": 16,
+  "defaults": { "opsix": { "channel": 2 } },
+  "events": [
+    { "t": 0, "synth": "opsix", "cc": "volume", "value": 110 },
+    { "t": 0, "synth": "opsix", "note": 40, "vel": 112, "dur": 0.25 },
+    { "t": 0.25, "synth": "opsix", "note": 41, "vel": 92, "dur": 3.5 },
+    { "t": 4, "synth": "opsix", "note": 46, "vel": 112, "dur": 0.25 },
+    { "t": 4.25, "synth": "opsix", "note": 47, "vel": 92, "dur": 3.5 },
+    { "t": 8, "synth": "opsix", "note": 40, "vel": 112, "dur": 0.25 },
+    { "t": 8.25, "synth": "opsix", "note": 41, "vel": 92, "dur": 3.5 },
+    { "t": 12, "synth": "opsix", "note": 46, "vel": 112, "dur": 0.25 },
+    { "t": 12.25, "synth": "opsix", "note": 47, "vel": 92, "dur": 3.5 }
+  ]
+}

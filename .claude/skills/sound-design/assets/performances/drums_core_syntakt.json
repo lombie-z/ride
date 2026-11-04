@@ -1,0 +1,18 @@
+{
+  "_": "A bar's kick and snare at 140 on the Syntakt's analog tracks, by note 8 and 9 (tracks 9 and 10, on the channel the manual says trigger by note 0-11), with a filter sweep on the FX track. Check FX CONTROL CH on the device: 13 here. Assumes default track channels 1-12; the manual's wording ties note-triggering to them, so confirm what channel works.",
+  "bpm": 140,
+  "beats": 8,
+  "clock": ["syntakt"],
+  "start": [],
+  "events": [
+    { "t": 0, "synth": "syntakt", "channel": 1, "note": 8, "vel": 120, "dur": 0.1 },
+    { "t": 1, "synth": "syntakt", "channel": 1, "note": 9, "vel": 110, "dur": 0.1 },
+    { "t": 2, "synth": "syntakt", "channel": 1, "note": 8, "vel": 120, "dur": 0.1 },
+    { "t": 3, "synth": "syntakt", "channel": 1, "note": 9, "vel": 110, "dur": 0.1 },
+    { "t": 4, "synth": "syntakt", "channel": 1, "note": 8, "vel": 120, "dur": 0.1 },
+    { "t": 5, "synth": "syntakt", "channel": 1, "note": 9, "vel": 110, "dur": 0.1 },
+    { "t": 6, "synth": "syntakt", "channel": 1, "note": 8, "vel": 120, "dur": 0.1 },
+    { "t": 7, "synth": "syntakt", "channel": 1, "note": 9, "vel": 110, "dur": 0.1 },
+    { "t": 0, "synth": "syntakt_fx", "ramp": "fx.filter.freq", "from": 30, "to": 110, "dur": 8 }
+  ]
+}

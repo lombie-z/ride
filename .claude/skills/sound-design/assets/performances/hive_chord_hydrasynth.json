@@ -1,0 +1,18 @@
+{
+  "_": "The six angel numbers stacked on the Hydrasynth, each voice swelling by polyphonic aftertouch, 1 s apart for clarity rather than at the heart's times. Needs Param RX = CC, and a choir patch with PolyAftT routed, Macro 1 assigned. Channel 3.",
+  "bpm": 60,
+  "defaults": { "hydrasynth": { "channel": 3 } },
+  "events": [
+    { "t": 0, "synth": "hydrasynth", "cc": "macro1", "value": 40 },
+    { "t": 0, "synth": "hydrasynth", "note": 49, "vel": 80, "dur": 10 },
+    { "t": 1, "synth": "hydrasynth", "note": 53, "vel": 80, "dur": 9 },
+    { "t": 2, "synth": "hydrasynth", "note": 56, "vel": 84, "dur": 8 },
+    { "t": 3, "synth": "hydrasynth", "note": 59, "vel": 88, "dur": 7 },
+    { "t": 4, "synth": "hydrasynth", "note": 62, "vel": 92, "dur": 6 },
+    { "t": 5, "synth": "hydrasynth", "note": 67, "vel": 100, "dur": 5 },
+    { "t": 5, "synth": "hydrasynth", "polytouch": 110, "note": 67 },
+    { "t": 6, "synth": "hydrasynth", "polytouch": 70, "note": 62 },
+    { "t": 5, "synth": "hydrasynth", "ramp": "macro1", "from": 40, "to": 120, "dur": 4 },
+    { "t": 9, "synth": "hydrasynth", "ramp": "reverb.wet", "from": 40, "to": 100, "dur": 1 }
+  ]
+}
