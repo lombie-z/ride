@@ -6,7 +6,7 @@ import { BufferGeometry, type Camera, Color, Float32BufferAttribute, type Perspe
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { course, inLength, outLength, pathAt } from '@/lib/course';
 import { devFlag, isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
-import { ride, road as street, zoneRoad } from '@/lib/ride';
+import { ride, road as street, TRANSITION_LEAD, zoneRoad } from '@/lib/ride';
 import { AT } from './bike';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
@@ -280,7 +280,11 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
     const s = ride.drive.s;
     mirror.visible = leg.placed && s > leg.at - 300 && s < leg.at + inLength(leg) + outLength(leg) + 50 && !devFlag('nocitymirror');
     if (!mirror.visible) return;
-    (mirror.material as unknown as { uniforms: { uTime: { value: number } } }).uniforms.uTime.value = state.clock.elapsedTime;
+    const u = (mirror.material as unknown as { uniforms: { uTime: { value: number }; uMirror: { value: number } } }).uniforms;
+    u.uTime.value = state.clock.elapsedTime;
+    // (Going dull on the way out, ahead of the next city's road: it's gone by the join, the change's middle.)
+    const end = leg.at + inLength(leg) + outLength(leg);
+    u.uMirror.value = strength * (1 - smoothstep(end - TRANSITION_LEAD, end - 40, s));
     (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
   });
   return <primitive object={mirror} />;

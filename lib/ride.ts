@@ -20,6 +20,8 @@ export const ride = {
   focused: false,
   /** The button on screen, CSS px: its centre and radius; shown when it's in view and lit. */
   screen: { x: 0, y: 0, r: 0, shown: false },
+  /** The boost button on its pod on screen, CSS px (components/three/boost-pod.tsx). */
+  boostScreen: { x: 0, y: 0, r: 0, shown: false },
   /** The whole bike's box on screen, CSS px: all of it is the click target. */
   bike: { x0: 0, y0: 0, x1: 0, y1: 0 },
   /** The rider's view is wanted; how far the camera has got there (0 at the landing, 1 on the bike). */
@@ -34,6 +36,8 @@ export const ride = {
    * the kick left, running down over a few seconds; `fire`, the flames round the view, following it).
    * The heartbeat: tapped on the beat (`taps`, counted by the button, picked up next frame), each tap pumps it on
    * (`pump`, 0 to 1, built up beat by beat, ebbing away without them); `beat` the heart's pulse now (0 to 1).
+   * Over dunes: how high it is (`y`, m), rising (`vy`, m/s), off the ground (`air`), the thump of landing (`land`, 0 to
+   * 1) and its nose's pitch (`pitch`, radians).
    */
   drive: {
     s: 0,
@@ -54,6 +58,11 @@ export const ride = {
     pump: 0,
     phase: 0,
     beat: 0,
+    y: 0,
+    vy: 0,
+    air: false,
+    land: 0,
+    pitch: 0,
   },
   /**
    * Getting off after a real ride: a sheet of black oil washes over the screen (components/three/liquid-sweep.ts) and,
@@ -105,12 +114,13 @@ export const ride = {
  */
 export function setZonePaths(
   k: number,
-  data: { in?: { points: number[][]; step?: number; length: number }; out?: { points: number[][]; step?: number; length: number } }
+  data: { in?: { points: number[][]; step?: number; length: number; heights?: number[] }; out?: { points: number[][]; step?: number; length: number } }
 ) {
   const leg = course.legs[k];
-  if (data.in) leg.in = makePath(data.in.points, data.in.step ?? 2, data.in.length);
+  if (data.in) leg.in = makePath(data.in.points, data.in.step ?? 2, data.in.length, data.in.heights);
   if (data.out) leg.out = makePath(data.out.points, data.out.step ?? 2, data.out.length);
   slicks.delete(k);
+  spills.delete(k);
 }
 const FALLBACK = { straight: 120, radius: 140, tail: 30 };
 function fallbackPath(): Path {
@@ -192,6 +202,59 @@ export function muckSlicks(k = 1) {
   slicks.set(k, list);
   return list;
 }
+/**
+ * The eye puddles spilling out of a city ahead of the next: thin pools ridden straight through, not bogged down in.
+ * Leaving the chrome city, thickening all the way to the hive; and on into the hive's road, thinning out.
+ */
+export type Spill = { x: number; y: number; heading: number; across: number; along: number; wide: number; height: number; turn: number };
+const spills = new Map<number, Spill[]>();
+export function eyePuddles(k: number) {
+  const known = spills.get(k);
+  if (known) return known;
+  const leg = course.legs[k];
+  const list: Spill[] = [];
+  const hash = (i: number, n: number) => {
+    const h = Math.sin(i * 93.7 + n * 271.3 + k * 41.9) * 43758.5453;
+    return h - Math.floor(h);
+  };
+  const spill = (path: Path, count: number, at: (t: number) => number, grow: (t: number) => number) => {
+    for (let i = 0; i < count; i++) {
+      const t = hash(i, 1);
+      const size = grow(t);
+      const p = pathAt(path, at(t));
+      list.push({
+        x: p.x,
+        y: p.y,
+        heading: p.heading,
+        across: (hash(i, 2) - 0.5) * 11.4,
+        along: (1.4 + hash(i, 3) * 4) * size,
+        wide: (1.0 + hash(i, 4) * 2.6) * size,
+        // (Standing just proud of the road, its mirror and the blend over them, to show.)
+        height: 0.1 + hash(i, 5) * 0.08,
+        turn: (hash(i, 6) - 0.5) * 1.6,
+      });
+    }
+  };
+  // (Crowding toward the join: squared spacing back from it, and larger the nearer.)
+  if (k === 1 && leg.out) {
+    const out = leg.out;
+    spill(
+      out,
+      170,
+      (t) => out.length - t ** 1.7 * (out.length - 40),
+      (t) => 1.25 - 0.65 * t
+    );
+  }
+  if (k === 2 && leg.in)
+    spill(
+      leg.in,
+      60,
+      (t) => t ** 1.7 * 170,
+      (t) => 1.2 - 0.7 * t
+    );
+  spills.set(k, list);
+  return list;
+}
 /** How high the ooze is under the bike u metres along zone k's road in (on its line): 0 off any slick. */
 export function muckUnder(u: number, k = 1) {
   if (!MUCKY[k] || u < 0 || u > inLength(course.legs[k]) + 1) return 0;
@@ -205,8 +268,13 @@ export function muckUnder(u: number, k = 1) {
   return h;
 }
 
-/** How far ahead of the bike the second city's road is placed when the change begins (m): the approach. */
+/**
+ * How far ahead of the bike the next city's road is placed when the change to the chrome city begins (m); and every
+ * change's window (the sky and light coming in): this far before its road takes over, to a little after. One change,
+ * centred on the join: the bike's morph sweeps it as it crosses (components/three/ride.tsx).
+ */
 export const TRANSITION_LEAD = 320;
+export const TRANSITION_TAIL = 160;
 /** Seconds for the morph's seam to sweep the bike. */
 export const CHROME_SECONDS = 2.6;
 /**
@@ -251,6 +319,8 @@ export const LAUNCH_SECONDS = 3.2;
  * beat pumps it, how far off the beat a tap still counts (s), and how fast the pump ebbs without them (per s).
  */
 export const HEART = { period: 0.82, quicken: 0.3, pump: 0.22, window: 0.17, ebb: 0.09 };
+/** Over the dunes: how hard it comes back down (m/s²; more than the real thing, for a jump that lands) and the most it rises. */
+export const JUMP = { gravity: 24, rise: 15 };
 /** Which zones' bikes have loaded (components/three/bike.tsx): the morph into one waits for it. */
 export const bikeReady = [true, false, false, false];
 /** The zone the bike's in now: the one it's heading for once that's mostly come in, else the one before. */

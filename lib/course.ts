@@ -32,9 +32,9 @@ export const ZONES: ZoneDef[] = [
 ];
 
 /** A road as data: its centreline every `step` metres in its city's frame (Blender's: x along the road in, y to its left). */
-export type Path = { x: Float32Array; y: Float32Array; step: number; length: number };
+export type Path = { x: Float32Array; y: Float32Array; step: number; length: number; heights?: Float32Array };
 
-export function makePath(points: number[][] | number[], step: number, length: number): Path {
+export function makePath(points: number[][] | number[], step: number, length: number, heights?: number[]): Path {
   const flat = (points as (number | number[])[]).flat() as number[];
   const n = flat.length / 2;
   const x = new Float32Array(n);
@@ -43,7 +43,7 @@ export function makePath(points: number[][] | number[], step: number, length: nu
     x[i] = flat[2 * i];
     y[i] = flat[2 * i + 1];
   }
-  return { x, y, step, length };
+  return { x, y, step, length, heights: heights ? Float32Array.from(heights) : undefined };
 }
 
 function pointAt(p: Path, v: number): [number, number] {
@@ -142,6 +142,18 @@ export function courseCurve(s: number) {
   if (!a || !b) return 0;
   const d = b.yaw - a.yaw;
   return Math.atan2(Math.sin(d), Math.cos(d)) / 12;
+}
+
+/** How high the road's surface is `s` metres along the course (m): where a dune crosses it, the sand's top; else 0. */
+export function groundAt(s: number) {
+  const p = courseLocal(s);
+  if (!p) return 0;
+  const road = course.legs[p.k].in;
+  const h = road?.heights;
+  if (!road || !h || p.u < 0 || p.u > road.length) return 0;
+  const f = Math.min(p.u / road.step, h.length - 1);
+  const i = Math.min(Math.floor(f), h.length - 2);
+  return h[i] + (h[i + 1] - h[i]) * (f - i);
 }
 
 /** Puts zone `k` on the course at the end of the one before's way out (it must have been placed and loaded). */

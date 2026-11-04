@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react';
 import { PerspectiveCamera as Looker, MathUtils, type PerspectiveCamera as PerspectiveCameraImpl, Quaternion, Vector3 } from 'three';
 import { course, type Shot } from '@/lib/course';
 import { BEATS, heroStageSize, journey, journeyProgress, landingAt, PRE_ROLL, TRACK_FRAMES } from '@/lib/journey';
+import { rhythm } from '@/lib/rhythm';
 import { ARRIVAL, anchors, CRUISE, ride } from '@/lib/ride';
 
 // The hero matches the blog's biome view (and the Blender preview camera): three-quarter, 3.7 units across the stage.
@@ -149,13 +150,16 @@ export function JourneyCamera() {
         riderAhead
           .multiplyScalar(10)
           .add(riderEye)
-          .setY(riderEye.y - 10 * Math.tan(RIDER_PITCH))
+          // (Its nose up or down over the dunes, the view with it by half.)
+          .setY(riderEye.y - 10 * Math.tan(RIDER_PITCH - ride.drive.pitch * 0.5))
       );
       riderQuaternion.copy(looker.quaternion);
       // At speed: the view widens a little and the road buzzes up through the bars.
       const pace = Math.min(1, ride.drive.speed / CRUISE);
       const t = state.clock.elapsedTime;
-      riderEye.y += pace * 0.006 * (Math.sin(t * 41) + 0.6 * Math.sin(t * 67));
+      // (Not off the ground, and not with the ride slowed to a stop; a landing's thump, though.)
+      const buzz = pace * 0.006 * (ride.drive.air ? 0 : rhythm.slow);
+      riderEye.y += buzz * (Math.sin(t * 41) + 0.6 * Math.sin(t * 67)) - 0.16 * ride.drive.land;
       cam.position.lerp(riderEye, e);
       cam.quaternion.slerp(riderQuaternion, e);
       // (Surging, the view stretches wider still; launched, it's punched wider again and shakes, and drawing the

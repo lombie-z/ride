@@ -298,5 +298,30 @@
   "horizon_px": 2.036,
   "bike_iou": 0.978,
   "total": 66.962
+ },
+ "r0": {
+  "skyline_mae_px": 9.216,
+  "storm_edge_px": 11.264,
+  "sun_px": 1.432,
+  "sun_r_px": 0.1,
+  "box_iou": 0.763,
+  "iou_LN": 0.886,
+  "iou_L2": 0.872,
+  "iou_L3": 0.83,
+  "iou_L4": 0.392,
+  "iou_R1": 0.871,
+  "iou_R2": 0.864,
+  "iou_R3": 0.817,
+  "iou_CRT_L": 0.535,
+  "iou_CRT_M": 0.565,
+  "iou_CRT_R": 0.881,
+  "iou_CRT_R2": 0.788,
+  "iou_facility": 0.786,
+  "iou_gate": 0.833,
+  "centre_px": 2.921,
+  "barrier_px": 135.109,
+  "horizon_px": 2.036,
+  "bike_iou": 0.978,
+  "total": 66.962
  }
 }

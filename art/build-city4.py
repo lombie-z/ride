@@ -1738,6 +1738,12 @@ def road_coords_many(X, Y):
     return S, L
 
 
+# (Along the road, m, and their height; long up the windward side, short down the slip face.)
+RAMPS = ((620.0, 2.4), (1850.0, 3.0), (2360.0, 3.4))
+RAMP_UP, RAMP_DOWN = 46.0, 18.0
+ROAD_SAND_MAX = 3.4
+
+
 def terrain_h(X, Y):
     X, Y = np.asarray(X, float), np.asarray(Y, float)
     S, L = road_coords_many(X, Y)
@@ -1757,13 +1763,19 @@ def terrain_h(X, Y):
     rip_w = smoothstep(7.5, 13.0, d) * (1 - smoothstep(70.0, 150.0, d)) * (1 - 0.45 * corridor)
     rip = (0.5 + 0.5 * np.sin(2 * np.pi * ((X * 0.85 + Y * 0.35) / 26.0 + 2.5 * fbm2(X / 90, Y / 90, 11, 2)))) ** 2
     h = h + rip_w * 0.95 * rip * (0.6 + 0.4 * fbm2(X / 40, Y / 40, 12, 2))
+    # The ramps: dunes blown right across the road (the bike rides up them and takes off: City4.RoadPath's heights).
+    for (rs, rh) in RAMPS:
+        rise = smoothstep(rs - RAMP_UP, rs, S) * (1 - smoothstep(rs, rs + RAMP_DOWN, S))
+        h = h + rh * rise * (1 - smoothstep(14.0, 32.0, d))
     comp = smoothstep(130.0, 150.0, xr) * (1 - smoothstep(300.0, 330.0, xr)) * (1 - smoothstep(85.0, 110.0, np.abs(yr)))
     h = h * (1 - comp) + (FAC_Z - 0.15) * comp
     for (mx, my, r, z) in MOUNDS:
         dist = np.hypot(X - mx, Y - my)
         w = smoothstep(r, r * 0.35, dist)
         h = h * (1 - w) + (z + 0.5 * (1 - dist / r).clip(0, 1)) * w
-    return h
+    # (Over the road itself the mounds stay low enough to ride up and jump off: under the toppled tower, not into it.)
+    over = 1 - smoothstep(9.0, 26.0, d)
+    return h * (1 - over) + np.minimum(h, ROAD_SAND_MAX) * over
 
 
 # --- The approach, planned before the dunes are made (its monoliths and the toppled tower heap sand round them) ----------
@@ -2393,9 +2405,25 @@ empty('City4.RoadIn', Vector((0, 0, 0)), yaw=0.0,
       props={'note': 'the road hands over here heading local +X, deck top z 0; width 11.8; its line is City4.RoadPath; '
                      'x < 0 is the zone before\'s, and so is the left (y > 0) of the first ~420 m',
              'LENGTH': round(ROAD_LEN, 2)})
+# What the bike rides over: the sand where a dune crosses its line (the toppled tower's mound, the ramps), else the deck.
+_dg = bpy.context.evaluated_depsgraph_get()
+_sand = []
+for _o in terrain_objs:
+    _me = _o.evaluated_get(_dg).to_mesh()
+    _sand.append(BVHTree.FromPolygons([_o.matrix_world @ _v.co for _v in _me.vertices], [tuple(_f.vertices) for _f in _me.polygons]))
+
+
+def sand_under(p):
+    tops = [t.ray_cast(Vector((p.x, p.y, 80.0)), Vector((0, 0, -1)))[0] for t in _sand]
+    return max([0.0] + [h.z for h in tops if h])
+
+
+_h = [sand_under(p) for p in ROAD_LINE]
+ROAD_HEIGHTS = [round((_h[max(i - 1, 0)] + 2 * _h[i] + _h[min(i + 1, len(_h) - 1)]) / 4, 2) for i in range(len(_h))]
+print('road heights: max', max(ROAD_HEIGHTS), 'over the deck for', sum(1 for h in ROAD_HEIGHTS if h > 0.05) * 2, 'm')
 empty('City4.RoadPath', Vector((0, 0, 0)),
       props={'points': [[round(p.x, 3), round(p.y, 3)] for p in ROAD_LINE], 'length': round(ROAD_LEN, 2),
-             'step': 2.0, 'width': ROAD_W,
+             'step': 2.0, 'width': ROAD_W, 'heights': ROAD_HEIGHTS,
              'note': f'the bike line, RoadIn (0,0) -> BikeMark ({BIKE_AT.x:.1f},{BIKE_AT.y:.1f}), [x, y] in City4 local '
                      'Blender frame (z up; three: x, -y as z), every 2 m of arc length (last step shorter); the deck '
                      'top is z 0 on this line, ROAD_W wide; the road\'s centreline until its last 60 m, where it eases '

@@ -22,8 +22,9 @@ import { sunsetEnvMap, zoneEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
 import { precompile } from './precompile';
+import { RoadJoin } from './road-join';
 import { Traffic } from './traffic';
-import { useVoidGloop, voidGloop } from './void-gloop';
+import { eyeScreenMaterial, useVoidGloop, voidGloop } from './void-gloop';
 import { CityRoadMirror } from './wet-road';
 
 // The cities after the green one (art/build-city2.py and on; lib/course.ts ZONES), each loaded during the ride before
@@ -113,6 +114,16 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       // (components/three/void-gloop.ts), like the slicks.
       if (kind === 'Ooze') {
         mesh.material = voidGloop();
+        return;
+      }
+      // The chrome plaza's screen: the eyes in the ooze, bunched up on it, in another colour.
+      if (kind === 'Screen' && k === 1) {
+        const size = new Vector3();
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        mesh.geometry.boundingBox?.getSize(size);
+        const across = Math.max(size.x, size.y, size.z);
+        const up = size.x + size.y + size.z - across - Math.min(size.x, size.y, size.z);
+        mesh.material = eyeScreenMaterial(across / Math.max(up, 0.01));
         return;
       }
       // The rounded pearl forms (terraces, platforms, the bubble pods round the plaza) are matte: chalky, not glossy;
@@ -280,6 +291,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     <group ref={group} visible={false}>
       <primitive object={scene} />
       {MUCKY[k] && <Muck k={k} />}
+      {k >= 2 && <RoadJoin k={k} />}
       {MIRROR[k] > 0 && <CityRoadMirror k={k} strength={MIRROR[k]} />}
       {k === 1 && <Traffic env={sunsetEnvMap(gl)} />}
     </group>

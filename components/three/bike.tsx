@@ -23,12 +23,13 @@ import {
 } from 'three';
 import { courseAt, courseCurve, ZONES } from '@/lib/course';
 import { belowVisible, journey, smoothstep } from '@/lib/journey';
-import { anchors, bikeReady, CRUISE, featureHere, muckUnder, ride, road } from '@/lib/ride';
+import { anchors, bikeReady, CRUISE, muckUnder, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
+import { BoostPod } from './boost-pod';
 import { dashDisplay } from './dash';
+import { pillPlate } from './pill-glyph';
 import { precompile } from './precompile';
 import { RideControl, RideHalo, RideStreaks } from './ride';
-import { BLACK_TANK, CHROME_TANK, throttleTrack } from './throttle-track';
 
 const URL = ZONES[0].bike;
 // Where it parks on the deck (art/build-city.py BIKE_AT, BIKE_YAW, fitted to the concept's framing; Blender's (x, y, z) is
@@ -199,16 +200,6 @@ totalEmissiveRadiance += uSeamColour * exp(-abs(vBikeX - uEdge) * 38.0) * 4.0 * 
   material.customProgramCacheKey = () => `bike-morph-${bike}-${kind}`;
 }
 
-/** The track's glow: the colour of the button's own light (a fallback if it hasn't one). */
-function trackColour(scene: Object3D, material: string, fallback: string) {
-  let found: MeshStandardMaterial | undefined;
-  scene.traverse((o) => {
-    const m = (o as Mesh).material as MeshStandardMaterial | undefined;
-    if ((o as Mesh).isMesh && m?.name === material) found = m;
-  });
-  return found?.emissive && found.emissive.getHex() !== 0 ? found.emissive.clone() : new Color(fallback);
-}
-
 /** Whether zone k's bike is drawn: the one it is or is becoming, the one it's been while the seam sweeps it. */
 function bikeShown(k: number) {
   const m = ride.morph;
@@ -216,14 +207,6 @@ function bikeShown(k: number) {
   if (k === 0 && m.to === 1 && !bikeReady[1]) return true;
   return k === m.to || (k === m.from && m.from !== m.to);
 }
-/** How much of zone k's bike shows (for its throttle track's glow): all of it, none, or its share of the morph. */
-function bikeShare(k: number) {
-  const m = ride.morph;
-  if (m.from === m.to) return k === m.to ? 1 : 0;
-  return k === m.to ? m.at : k === m.from ? 1 - m.at : 0;
-}
-/** The throttle's track shows only where the slingshot is the zone's feature. */
-const trackShown = () => (featureHere() === 'slingshot' ? 1 : 0);
 
 // Each zone's bike's lit parts, by their name's ending.
 const BIKE_GLOWS: Record<string, number> = { Vein: 2.2, Led: 7, Tail: 4, Fluid: 2.2, Tube: 1.3 };
@@ -287,11 +270,20 @@ function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; button
         if (!mine.includes(m)) mine.push(m);
       }
       morphable(m, 'plain', k);
-      mesh.castShadow = kind !== 'Glass' && kind !== 'Smoke';
+      mesh.castShadow = kind !== 'Glass' && kind !== 'Smoke' && kind !== 'ButtonGlyph';
       mesh.receiveShadow = true;
       m.needsUpdate = true;
     });
     buttonMaterials.current = [...buttonMaterials.current, ...mine];
+    // Its pill's play or pause symbol, in place of the modelled chevrons.
+    const glyphMaterial = mine.find((m) => m.name === `${P}ButtonGlyph`);
+    const unplate = glyphMaterial
+      ? pillPlate(
+          scene,
+          glyphMaterial,
+          mine.find((m) => m.name === `${P}Button`)
+        )
+      : null;
     parts.current = {
       heart: scene.getObjectByName(`${P}Heart`) ?? null,
       arteries: scene.getObjectByName(`${P}Arteries`) ?? null,
@@ -316,28 +308,14 @@ function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; button
     return () => {
       live = false;
       bikeReady[k] = false;
+      unplate?.();
       buttonMaterials.current = buttonMaterials.current.filter((m) => !mine.includes(m));
     };
   }, [scene, env, buttonMaterials, dash, k, P, gl, camera, world]);
 
-  // Its throttle on its own track (components/three/throttle-track.ts), on its tank's own profile where it carries one.
-  const track = useRef<ReturnType<typeof throttleTrack>>(null);
-  useEffect(() => {
-    const d = scene.getObjectByName('ButtonCentre')?.userData as { TRACK_D?: number[]; TRACK_CENTRE?: number[]; TRACK_SIDE?: number[] } | undefined;
-    const profile =
-      d?.TRACK_D && d.TRACK_CENTRE && d.TRACK_SIDE ? { d: d.TRACK_D, centre: d.TRACK_CENTRE, side: d.TRACK_SIDE } : k === 1 ? CHROME_TANK : BLACK_TANK;
-    const t = throttleTrack(scene, [`${P}Button`, `${P}ButtonGlyph`], trackColour(scene, `${P}ButtonGlyph`, '#ffb070'), profile);
-    track.current = t;
-    return () => {
-      t?.dispose();
-      track.current = null;
-    };
-  }, [scene, k, P]);
-
   const last = useRef(0);
   useFrame((state) => {
     scene.visible = bikeShown(k);
-    track.current?.set(ride.drive.draw, ride.mount * ride.appear * bikeShare(k) * trackShown(), state.clock.elapsedTime);
     if (!scene.visible) return;
     const { front, rear, heart, arteries } = parts.current;
     const ds = ride.drive.s - last.current;
@@ -403,7 +381,6 @@ export function Bike() {
     if (lamp.current && lampAim.current) lamp.current.target = lampAim.current;
   }, []);
   const wheels = useRef<{ front: Object3D | null; rear: Object3D | null }>({ front: null, rear: null });
-  const track = useRef<ReturnType<typeof throttleTrack>>(null);
 
   useEffect(() => {
     const glowing: MeshStandardMaterial[] = [];
@@ -465,12 +442,17 @@ export function Bike() {
     anchors.eye = scene.getObjectByName('RiderEye') ?? stand('RiderEye', -0.3, 1.55);
     anchors.bike = scene;
     wheels.current = { front: scene.getObjectByName('WheelFront') ?? null, rear: scene.getObjectByName('WheelRear') ?? null };
-    // The throttle on its track (components/three/throttle-track.ts).
-    const t = throttleTrack(scene, ['BikeButton', 'BikeButtonGlyph'], trackColour(scene, 'BikeButtonGlyph', '#9dff7a'), BLACK_TANK);
-    track.current = t;
+    // Its pill's play or pause symbol, in place of the modelled chevrons.
+    const glyphMaterial = button.find((m) => m.name === 'BikeButtonGlyph');
+    const unplate = glyphMaterial
+      ? pillPlate(
+          scene,
+          glyphMaterial,
+          button.find((m) => m.name === 'BikeButton')
+        )
+      : null;
     return () => {
-      t?.dispose();
-      track.current = null;
+      unplate?.();
       anchors.button = null;
       anchors.eye = null;
       anchors.bike = null;
@@ -483,8 +465,6 @@ export function Bike() {
   useFrame((state) => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
     scene.visible = bikeShown(0);
-    // (The track shows once seated, where it's the throttle's.)
-    track.current?.set(ride.drive.draw, ride.mount * ride.appear * bikeShare(0) * trackShown(), state.clock.elapsedTime);
     const { s, speed } = ride.drive;
     const pace = Math.min(1, speed / CRUISE);
     // The ribs breathe, slowly; brighter and quicker as it goes.
@@ -499,7 +479,9 @@ export function Bike() {
         b.position.set(p.x, AT[1], p.z);
         // (Riding up over the slicks of ooze: eased, the suspension taking the edge off.)
         rise.current += (muckUnder(p.u, p.k) - rise.current) * 0.12;
-        b.position.y += rise.current;
+        // (And over the dunes, or off them: its nose following its line.)
+        b.position.y += rise.current + ride.drive.y;
+        b.rotation.z = ride.drive.pitch;
         b.rotation.y = p.yaw;
         // Leaning into the bend as it takes it.
         // (Into a right-hand bend it leans right: its +x roll, as the yaw is applied first.)
@@ -509,6 +491,7 @@ export function Bike() {
         b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, s);
         b.rotation.y = YAW + (road.yaw - YAW) * smoothstep(0, 12, s);
         b.rotation.x *= 0.9;
+        b.rotation.z = 0;
       }
       const ds = s - last.current;
       last.current = s;
@@ -549,6 +532,7 @@ export function Bike() {
         {ZONES.slice(1).map((z, i) => (
           <ZoneBikeLoader key={z.id} k={i + 1} env={zoneEnvMap(gl, i + 1)} buttonMaterials={buttonMaterials} />
         ))}
+        <BoostPod env={envSunset} />
         <spotLight ref={headlight} position={[0.95, 0.72, 0]} angle={0.42} penumbra={0.7} distance={60} decay={1.1} intensity={0} color="#e8ffd8" />
         <object3D ref={headlightAim} position={[24, -1.2, 0]} />
       </group>

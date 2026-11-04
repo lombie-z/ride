@@ -2,41 +2,31 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { course, inLength, ZONES } from '@/lib/course';
-import { featureHere, HEART, ride } from '@/lib/ride';
+import { pressRhythm } from '@/lib/rhythm';
+import { featureHere, ride } from '@/lib/ride';
 
-// The hit area for the glowing button on the bike (drawn in the canvas, components/three/ride.tsx): a real, invisible
-// <button> kept over it each frame, so it's clickable, focusable and announced. From the landing it covers the whole
-// bike, and clicking gets on: the camera glides to the rider's eye and the page stops scrolling. On the bike it's the
-// throttle: clicking it (or scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or
-// scrolling back brakes. Each zone after the green city adds its own feature to it (lib/course.ts ZONES): in the chrome
-// city pressing and holding it (or Space) surges the bike on; in the hive, tapping it on the heart's beat pumps it on,
-// harder beat by beat; in the desert, dragging it back, down the screen toward the rider (or holding Space), draws it
-// back along its track like a slingshot, and letting go launches the bike. There's no getting off by scrolling (easy to do
-// by accident while finding the controls): the way back is on the map, once in the chrome city (ride.request.back, from
-// the map's green city, components/three/holomap.tsx).
-/** The throttle's feature in the zone the bike's in. */
+// The hit areas for the bike's controls (drawn in the canvas): real, invisible <button>s kept over them each frame, so
+// they're clickable, focusable and announced. From the landing the first covers the whole bike, and clicking gets on: the
+// camera glides to the rider's eye and the page stops scrolling. On the bike it's play and pause: clicking it (or
+// scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or scrolling back brakes.
+// The second's the boost button, the rocket on its pod (components/three/boost-pod.tsx), from the chrome city on, doing
+// each zone's own thing (lib/course.ts ZONES), as does Space: in the chrome city pressing and holding it surges the bike
+// on; in the hive, a press starts the circles coming, to click on the heart's beat (lib/rhythm.ts); in the desert, dragging
+// it back, down the screen toward the rider (or holding Space), draws it back along its rail like a slingshot, and
+// letting go launches the bike. There's no getting off by scrolling (easy to do by accident while finding the controls):
+// the way back is on the map, once in the chrome city (ride.request.back, from the map's green city,
+// components/three/holomap.tsx).
+/** The boost button's feature in the zone the bike's in. */
 const feature = () => featureHere();
-// The hive's heartbeat: a tap on the beat pumps it on, one off it knocks some of the pump off.
-const beatTap = () => {
-  const d = ride.drive;
-  const period = HEART.period - HEART.quicken * d.pump;
-  const off = Math.min(d.phase, 1 - d.phase) * period;
-  d.taps += off < HEART.window || !d.cruise ? 1 : -1;
-};
 
 export function RideButton() {
   const button = useRef<HTMLButtonElement>(null);
+  const boostButton = useRef<HTMLButtonElement>(null);
   const backButton = useRef<HTMLButtonElement>(null);
   const onButton = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
-  const held = useRef(false);
-  const holdTimer = useRef(0);
   // The slingshot: where the press began (null when not pressed) and whether it's become a drag.
   const press = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
-  const release = () => {
-    window.clearTimeout(holdTimer.current);
-    ride.drive.boosting = false;
-  };
 
   // Let go of a draw: far enough back, it launches (as hard as it was drawn); not, it just slides home.
   const letGo = (launch: boolean) => {
@@ -44,7 +34,7 @@ export function RideButton() {
     if (press.current?.dragging && launch && drive.pull > 0.12) drive.release = drive.pull;
     drive.pull = 0;
     press.current = null;
-    release();
+    drive.boosting = false;
   };
 
   // Where the pointer is, for the button's glow.
@@ -80,6 +70,14 @@ export function RideButton() {
         el.style.width = `${Math.max(x1, x + pad) - left}px`;
         el.style.height = `${Math.max(y1, y + pad) - top}px`;
         el.style.visibility = shown ? 'visible' : 'hidden';
+        const boost = boostButton.current;
+        if (boost) {
+          const b = ride.boostScreen;
+          const hit = Math.max(24, b.r * 1.25);
+          boost.style.transform = `translate(${b.x - hit}px, ${b.y - hit}px)`;
+          boost.style.width = boost.style.height = `${hit * 2}px`;
+          boost.style.visibility = b.shown ? 'visible' : 'hidden';
+        }
         for (const [b, r] of [
           [backButton.current, ride.mapBack],
           [onButton.current, ride.mapOn],
@@ -101,7 +99,7 @@ export function RideButton() {
           ride.request.back = false;
           setMounted(false);
         }
-        const want = !ride.mounted ? 'Get on the bike' : ride.drive.cruise ? 'Slow down' : 'Ride on';
+        const want = !ride.mounted ? 'Get on the bike' : ride.drive.cruise ? 'Pause' : 'Ride on';
         if (want !== label) {
           label = want;
           el.setAttribute('aria-label', want);
@@ -138,14 +136,14 @@ export function RideButton() {
         if (e.key === 'n') ride.request.on = true;
       }
       if (e.key === ' ') {
-        // Space is the throttle's feature: it surges, beats, draws back.
+        // Space is the boost button's feature: it surges, keeps the circles' time, draws back.
         e.preventDefault();
         if (e.repeat) return;
         const f = feature();
         if (f === 'surge') {
           ride.drive.cruise = true;
           ride.drive.boosting = true;
-        } else if (f === 'heartbeat') beatTap();
+        } else if (f === 'heartbeat') pressRhythm();
         else if (f === 'slingshot') {
           const from = performance.now();
           window.clearInterval(drawing);
@@ -167,8 +165,8 @@ export function RideButton() {
     };
     let touchY: number | null = null;
     const touchStart = (e: TouchEvent) => {
-      // (Not a drag on the throttle itself: that's the slingshot.)
-      touchY = e.target === button.current ? null : (e.touches[0]?.clientY ?? null);
+      // (Not a drag on the boost button itself: that's the slingshot.)
+      touchY = e.target === boostButton.current ? null : (e.touches[0]?.clientY ?? null);
     };
     // (A finger dragged up the screen is scrolling down: ride on; dragged down is scrolling up.)
     const touchMove = (e: TouchEvent) => {
@@ -214,43 +212,7 @@ export function RideButton() {
         aria-label="Get on the bike"
         onClick={() => {
           if (!mounted) setMounted(true);
-          // (A long press was a surge, not a tap: it leaves the ride going.)
-          else if (held.current) held.current = false;
-          // (In the hive, a tap is a beat: it doesn't stop the bike.)
-          else if (feature() === 'heartbeat') beatTap();
           else ride.drive.cruise = !ride.drive.cruise;
-        }}
-        // On the bike, pressing and holding the button surges it on (riding on first if it was stopped).
-        onPointerDown={(e) => {
-          if (!mounted) return;
-          press.current = { x: e.clientX, y: e.clientY, dragging: false };
-          // (Kept on the button while it's dragged off it.)
-          e.currentTarget.setPointerCapture(e.pointerId);
-          window.clearTimeout(holdTimer.current);
-          if (feature() !== 'surge') return;
-          holdTimer.current = window.setTimeout(() => {
-            held.current = true;
-            ride.drive.cruise = true;
-            ride.drive.boosting = true;
-          }, 220);
-        }}
-        // Dragged back (down the screen, toward the rider): drawn back along its track, the further the harder.
-        onPointerMove={(e) => {
-          const p = press.current;
-          if (!p) return;
-          const back = e.clientY - p.y;
-          if (!p.dragging && feature() === 'slingshot' && back > 8 && back > Math.abs(e.clientX - p.x)) {
-            p.dragging = true;
-            // (A drag, not a tap or a held surge.)
-            held.current = true;
-            release();
-          }
-          if (p.dragging) ride.drive.pull = Math.min(1, Math.max(0, back / Math.max(80, window.innerHeight * 0.16)));
-        }}
-        onPointerUp={() => letGo(true)}
-        onPointerCancel={() => letGo(false)}
-        onLostPointerCapture={() => {
-          if (press.current) letGo(true);
         }}
         onFocus={() => {
           ride.focused = true;
@@ -259,6 +221,43 @@ export function RideButton() {
           ride.focused = false;
         }}
         className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer touch-none outline-none"
+      />
+      {/* Over the rocket on its pod: the boost. */}
+      <button
+        ref={boostButton}
+        type="button"
+        aria-label="Boost"
+        onPointerDown={(e) => {
+          press.current = { x: e.clientX, y: e.clientY, dragging: false };
+          // (Kept on the button while it's dragged off it.)
+          e.currentTarget.setPointerCapture(e.pointerId);
+          const f = feature();
+          if (f === 'surge') {
+            ride.drive.cruise = true;
+            ride.drive.boosting = true;
+          } else if (f === 'heartbeat') pressRhythm();
+        }}
+        // Dragged back (down the screen, toward the rider): drawn back along its rail, the further the harder.
+        onPointerMove={(e) => {
+          const p = press.current;
+          if (!p || feature() !== 'slingshot') return;
+          const back = e.clientY - p.y;
+          if (!p.dragging && back > 8 && back > Math.abs(e.clientX - p.x)) p.dragging = true;
+          if (p.dragging) ride.drive.pull = Math.min(1, Math.max(0, back / Math.max(80, window.innerHeight * 0.16)));
+        }}
+        onPointerUp={() => letGo(true)}
+        onPointerCancel={() => letGo(false)}
+        onLostPointerCapture={() => {
+          if (press.current) letGo(true);
+        }}
+        onKeyDown={(e) => {
+          // (Enter on it, focused from the keyboard: a press. Space is handled for the whole ride.)
+          if (e.key !== 'Enter' || e.repeat) return;
+          const f = feature();
+          if (f === 'heartbeat') pressRhythm();
+          else if (f === 'surge') ride.drive.boost = Math.min(16, ride.drive.boost + 8);
+        }}
+        className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#ffd27a]"
       />
       {/* Over the map's green city: the way back. */}
       <button

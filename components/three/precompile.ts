@@ -15,4 +15,3 @@ export function precompile(gl: WebGLRenderer, object: Object3D, camera: Camera, 
   gl.setRenderTarget(before);
   return done;
 }
-

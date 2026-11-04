@@ -37,8 +37,8 @@ float gFbm(vec2 p) {
   return v;
 }
 
-// One eye in a cell: an almond of dim sclera, a blood-red iris, a black slit pupil; it blinks now and then.
-vec3 eye(vec2 q, float seed, out float coverage) {
+// One eye in a cell: an almond of dim sclera, a coloured iris, a black slit pupil; it blinks now and then.
+vec3 eye(vec2 q, float seed, vec3 irisDeep, vec3 irisBright, out float coverage) {
   coverage = 0.0;
   float open = smoothstep(0.0, 0.25, abs(sin(uTime * (0.25 + 0.3 * seed) + seed * 40.0))) ;
   open *= step(0.35, fract(seed * 7.3 + uTime * 0.05)) * 0.85 + 0.15;
@@ -51,7 +51,7 @@ vec3 eye(vec2 q, float seed, out float coverage) {
   float r = length(iris);
   vec3 c = vec3(0.32, 0.27, 0.22) * (1.0 - smoothstep(0.0, 0.6, abs(q.x)));
   float ring = gNoise(vec2(atan(iris.y, iris.x) * 6.0, r * 14.0));
-  c = mix(c, mix(vec3(0.55, 0.02, 0.02), vec3(1.0, 0.25, 0.08), ring) * (1.0 - r * 2.5), smoothstep(0.24, 0.2, r));
+  c = mix(c, mix(irisDeep, irisBright, ring) * (1.0 - r * 2.5), smoothstep(0.24, 0.2, r));
   // A thin vertical slit pupil, and a wet glint.
   c = mix(c, vec3(0.0), smoothstep(0.05, 0.03, abs(iris.x)) * smoothstep(0.22, 0.16, abs(iris.y)));
   c += vec3(1.0, 0.85, 0.8) * smoothstep(0.045, 0.0, length(iris - vec2(-0.07, 0.08))) * 0.8;
@@ -71,15 +71,26 @@ void main() {
   vec2 cell = floor(p * 4.0);
   vec2 local = fract(p * 4.0) - 0.5;
   float seed = gHash(cell);
-  if (seed > 0.62) {
+  // (The flat puddles, eyes crowding them: they're mostly what's seen of them.)
+  #ifdef PUDDLE
+  float sparse = 0.3;
+  #else
+  float sparse = 0.62;
+  #endif
+  if (seed > sparse) {
     float cov;
     vec2 jitter = (vec2(gHash(cell + 3.1), gHash(cell + 7.7)) - 0.5) * 0.3;
-    vec3 e = eye((local - jitter) * (1.6 + seed), seed, cov);
+    vec3 e = eye((local - jitter) * (1.6 + seed), seed, vec3(0.55, 0.02, 0.02), vec3(1.0, 0.25, 0.08), cov);
     c = mix(c, e, cov);
   }
   // Shadowed toward its borders, where the gloop turns away: the red and the eyes sink into black at the edges.
   float facing = abs(normalize(vGloopNormal).z);
+  #ifdef PUDDLE
+  // (Lying flat, seen at a glancing angle along the road: it faces away nearly everywhere, so it isn't shadowed for it.)
+  c *= smoothstep(0.0, 0.05, facing);
+  #else
   c *= smoothstep(0.08, 0.75, facing);
+  #endif
   gl_FragColor = vec4(c, 1.0);
   #include <colorspace_fragment>
 }`;
@@ -95,6 +106,65 @@ export function voidGloop() {
     fog: false,
   });
   return shared;
+}
+
+let puddle: ShaderMaterial | null = null;
+/** The ooze for the flat eye puddles (lib/ride.ts eyePuddles): crowded with eyes, however low the angle it's seen from. */
+export function eyePuddleMaterial() {
+  if (puddle) return puddle;
+  puddle = new ShaderMaterial({ vertexShader, fragmentShader, defines: { PUDDLE: 1 }, uniforms: voidGloop().uniforms, fog: false });
+  return puddle;
+}
+
+// The chrome plaza's screen: the same eyes, bunched into a mass on it, on its own surface (not a window: it's a picture),
+// looking out in cold cyan and violet rather than blood.
+const screenVertex = /* glsl */ `
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const screenFragment = /* glsl */ `
+uniform float uTime;
+uniform vec2 uLook;
+uniform float uAspect;
+varying vec2 vUv;
+${fragmentShader.slice(fragmentShader.indexOf('float gHash'), fragmentShader.indexOf('void main()'))}
+void main() {
+  vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
+  // The mass: a lumpy blob of them, swelling and shrinking a little, with the screen's dark glowing round it.
+  float lump = length(p * vec2(1.0 / max(uAspect, 1.0), 1.0)) + 0.14 * (gFbm(p * 3.2 + uTime * 0.12) - 0.5);
+  float mass = smoothstep(0.49, 0.36, lump + 0.012 * sin(uTime * 1.1));
+  vec2 flow = p * 3.0 + vec2(0.0, uTime * 0.25);
+  float warp = gFbm(flow + gFbm(flow * 0.7 - uTime * 0.1));
+  vec3 c = vec3(0.03, 0.0, 0.1) + vec3(0.2, 0.03, 0.62) * smoothstep(0.4, 0.8, warp);
+  c += vec3(0.1, 0.5, 0.75) * smoothstep(0.62, 0.36, lump) * 0.25;
+  // Two overlapping grids of them, crowded, big and small, so they jostle.
+  for (int layer = 0; layer < 3; layer++) {
+    float fl = float(layer);
+    float scale = 5.2 + fl * 2.4;
+    vec2 g = p * scale + vec2(0.37, 0.19) * fl;
+    vec2 cell = floor(g);
+    vec2 local = fract(g) - 0.5;
+    float seed = gHash(cell + fl * 13.0);
+    vec2 jitter = (vec2(gHash(cell + 3.1 + fl), gHash(cell + 7.7 + fl)) - 0.5) * 0.35;
+    float cov;
+    vec3 e = eye((local - jitter) * (1.05 + 0.4 * seed), seed, vec3(0.04, 0.2, 0.75), vec3(0.2, 1.0, 0.95), cov);
+    c = mix(c, e * 1.9, cov * mass * step(0.12, seed));
+  }
+  gl_FragColor = vec4(c, 1.0);
+  #include <colorspace_fragment>
+}`;
+let eyeWall: ShaderMaterial | null = null;
+/** The plaza screen's picture: `aspect`, its width over its height. */
+export function eyeScreenMaterial(aspect: number) {
+  if (eyeWall) return eyeWall;
+  eyeWall = new ShaderMaterial({
+    vertexShader: screenVertex,
+    fragmentShader: screenFragment,
+    uniforms: { uTime: voidGloop().uniforms.uTime, uLook: voidGloop().uniforms.uLook, uAspect: { value: aspect } },
+    toneMapped: false,
+    fog: false,
+  });
+  eyeWall.name = 'EyeScreen';
+  return eyeWall;
 }
 
 const forward = new Vector3();
