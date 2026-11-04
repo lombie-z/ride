@@ -24,7 +24,7 @@ import { anchors, featureHere, ride } from '@/lib/ride';
 // shimmers as it's held, the hive's beats with the heart, the desert's slides back along its rail as it's drawn, hot.
 
 /** How far back it slides at full draw (m), and where it sits from the throttle's pill (along the bike, up, to its right). */
-const TRAVEL = 0.1;
+const TRAVEL = 0.055;
 const OFFSET = [-0.015, 0.03, 0.19] as const;
 /** Its tilt back toward the rider (radians). */
 const TILT = 0.62;
