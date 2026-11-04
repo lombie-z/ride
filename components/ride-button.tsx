@@ -11,7 +11,7 @@ import { featureHere, ride } from '@/lib/ride';
 // scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or scrolling back brakes.
 // The second's the boost button, the rocket on its pod (components/three/boost-pod.tsx), from the chrome city on, doing
 // each zone's own thing (lib/course.ts ZONES), as does Space: in the chrome city pressing and holding it surges the bike
-// on; in the hive, a press starts the circles coming, to click on the heart's beat (lib/rhythm.ts); in the desert, dragging
+// on; in the hive, a press starts a run of circles, 111 to 666, to click on the heart's beat, for the boost (lib/rhythm.ts); in the desert, dragging
 // it back, down the screen toward the rider (or holding Space), draws it back along its rail like a slingshot, and
 // letting go launches the bike. There's no getting off by scrolling (easy to do by accident while finding the controls):
 // the way back is on the map, once in the chrome city (ride.request.back, from the map's green city,

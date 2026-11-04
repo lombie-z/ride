@@ -29,7 +29,7 @@ components/three/pill-glyph.ts        # The pill's play/pause symbol (over the g
 components/three/boost-pod.tsx        # The boost button: a rocket on a pod beside the tank, its look per zone, the desert's rail
 components/three/road-join.tsx        # Where one city's road meets the next: the next's surface reaching back in blotches
 components/ride-button.tsx            # The DOM hit areas over the pill, the boost button and the map; gestures per zone
-components/rhythm-overlay.tsx, lib/rhythm.ts  # The hive's boost: circles to click on the heart's beat
+components/rhythm-overlay.tsx, lib/rhythm.ts  # The hive's boost: circles 111 to 666 on the heart's beat, then the boost
 lib/journey.ts                        # Scroll progress, beats, shared per-frame state
 lib/ride.ts                           # Ride state, the chrome city's road helpers, muck, constants
 lib/course.ts                         # ZONES (green, chrome, hive, desert: city, bike, feature, speed) and the course
@@ -52,8 +52,8 @@ Blender z up, metres; three's (x, y, z) is Blender's (x, z, -y). The planter flo
 The ride runs through zones (lib/course.ts ZONES): the green city, then the chrome city (placed down the street once it's
 loaded and the ride's gone on a while), then the hive and the desert, each placed at the end of the one before's
 RoadOut when the visitor picks it on the map. Each zone has its own bike (morphed into), cruising speed and boost
-feature, on the rocket button (the pill's play and pause): start / surge (hold) / heartbeat (click the circles on the
-beat) / slingshot (drag back, let go). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
+feature, on the rocket button (the pill's play and pause): start / surge (hold) / heartbeat (click the circles, 111 to
+666, on the beat) / slingshot (drag back, let go). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
 rides on from one. Every change between zones is one change, centred on the join (where the next city's road takes over):
 sky and light over TRANSITION_LEAD before it to TRANSITION_TAIL after, the bike's morph crossing it as the bike does.
 

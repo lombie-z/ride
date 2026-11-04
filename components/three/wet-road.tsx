@@ -284,7 +284,7 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
     u.uTime.value = state.clock.elapsedTime;
     // (Going dull on the way out, ahead of the next city's road: it's gone by the join, the change's middle.)
     const end = leg.at + inLength(leg) + outLength(leg);
-    u.uMirror.value = strength * (1 - smoothstep(end - TRANSITION_LEAD, end - 40, s));
+    u.uMirror.value = strength * (1 - smoothstep(end - TRANSITION_LEAD - 80, end - 130, s));
     (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
   });
   return <primitive object={mirror} />;

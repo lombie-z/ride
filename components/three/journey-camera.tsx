@@ -165,7 +165,7 @@ export function JourneyCamera() {
       // (Surging, the view stretches wider still; launched, it's punched wider again and shakes, and drawing the
       // throttle back it narrows, a breath held.)
       const { fire, draw } = ride.drive;
-      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV + 12 * Math.min(1, pace * pace) + 10 * ride.drive.surge + 20 * fire - 6 * draw, e);
+      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV + 12 * Math.min(1, pace * pace) + 10 * ride.drive.surge + 14 * ride.drive.pump + 20 * fire - 6 * draw, e);
       if (fire > 0.01) cam.position.y += fire * 0.012 * (Math.sin(t * 53) + 0.7 * Math.sin(t * 89));
       cam.filmOffset *= 1 - e;
     }

@@ -13,10 +13,11 @@ import {
   type MeshStandardMaterial,
   type Object3D,
   type Texture,
+  Vector2,
   Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { course, type Shot, ZONES } from '@/lib/course';
+import { course, legToWorld, type Shot, ZONES } from '@/lib/course';
 import { leftBehind, MUCKY, ride, setZonePaths } from '@/lib/ride';
 import { sunsetEnvMap, zoneEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
@@ -33,6 +34,7 @@ import { CityRoadMirror } from './wet-road';
 // components/three/ride.tsx). Each is placed on the course where its road takes over (lib/course.ts), its own road the
 // ride's from there.
 // (Dev: ?city2=<url> (or city3, city4) loads another model in its place, to try the flow.)
+const joinAt = new Vector3();
 const url = (k: number) => {
   const own = ZONES[k].city as string;
   if (process.env.NODE_ENV !== 'development') return own;
@@ -52,6 +54,30 @@ function shotOf(scene: Object3D, prefix: string): Shot | null {
 
 // Lit materials, by their name's ending: past white for the bloom.
 const GLOWS: Record<string, number> = { Glass: 4, GlassWarm: 4, Lamp: 4, Screen: 3, Sun: 14, Amber: 3.2, Heart: 4.5, Led: 4, Lightning: 0, Fluid: 3 };
+
+/** Which of each city's floors go before the next city's road comes in. */
+const FADING: Record<number, string[]> = { 1: ['Floor', 'Water'], 2: ['Water', 'Mist', 'Haze', 'Sand'] };
+/** Over how far they thin out, to nothing a little short of the join (m). */
+const FADE = { over: 300, short: 40 };
+const joinFade = ZONES.map(() => ({ uJoin: { value: new Vector2() }, uJoinDir: { value: new Vector2(1, 0) }, uFadeOn: { value: 0 } }));
+function fadesOut(m: MeshStandardMaterial, u: (typeof joinFade)[number]) {
+  m.transparent = true;
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vFadeWorld;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvFadeWorld = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec2 uJoin;\nuniform vec2 uJoinDir;\nuniform float uFadeOn;\nvarying vec2 vFadeWorld;')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+float toJoin = dot(uJoin - vFadeWorld, uJoinDir);
+diffuseColor.a *= 1.0 - uFadeOn * (1.0 - smoothstep(${FADE.short.toFixed(1)}, ${(FADE.short + FADE.over).toFixed(1)}, toJoin));`
+      );
+  };
+  m.customProgramCacheKey = () => 'join-fade';
+}
 
 function ZoneCity({ k, src }: { k: number; src: string }) {
   const { prefix } = ZONES[k];
@@ -140,6 +166,8 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
         m.roughness = Math.min(Math.max(m.roughness, 0.12), 0.2);
         m.envMapIntensity = 1.5;
       }
+      // Its floors thin out ahead of where the next city takes over, so they're gone by the change (road-join.tsx).
+      if (FADING[k]?.includes(kind)) fadesOut(m, joinFade[k]);
       // The sandstorm's billboards and the hive's mist sheets: soft, unlit by the sun's glints, never writing depth.
       if (kind === 'Storm' || kind === 'Mist' || kind === 'Haze') {
         m.depthWrite = false;
@@ -264,6 +292,15 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     if (!g.visible) return;
     g.position.copy(leg.origin);
     g.rotation.set(0, leg.yaw, 0);
+    // Its floors' fade: toward where its way out ends, once the next city's coming.
+    const fade = joinFade[k];
+    if (leg.end) {
+      legToWorld(leg, leg.end.x, leg.end.y, joinAt);
+      fade.uJoin.value.set(joinAt.x, joinAt.z);
+      const yaw = leg.yaw + leg.end.heading;
+      fade.uJoinDir.value.set(Math.cos(yaw), -Math.sin(yaw));
+    }
+    fade.uFadeOn.value = course.legs[k + 1]?.placed ? Math.min(1, fade.uFadeOn.value + 0.02) : 0;
     const { heart, lightning } = parts.current;
     // (Relative to its own scale: it's modelled as a unit sphere, scaled up.)
     if (heart) {

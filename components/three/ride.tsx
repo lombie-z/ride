@@ -19,7 +19,7 @@ import {
 import { course, courseCurve, groundAt, inLength, legIndexAt, placeAfter, resetCourse, ZONES } from '@/lib/course';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
 import { updateLook } from '@/lib/look';
-import { rhythm, updateRhythm } from '@/lib/rhythm';
+import { heartPeriod, rhythm, updateRhythm } from '@/lib/rhythm';
 import {
   ACCEL,
   anchors,
@@ -193,16 +193,11 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       }
       drive.launch = Math.max(0, drive.launch - dt / LAUNCH_SECONDS);
       drive.fire += (Math.min(1, drive.launch * 1.5) - drive.fire) * Math.min(1, dt * (drive.launch * 1.5 > drive.fire ? 14 : 3));
-      // The hive's heartbeat: the heart beats on (quicker as it's pumped); each tap on the beat pumps the bike on harder,
-      // beat by beat, a miss knocks some off, and with no taps it ebbs away.
-      drive.phase = (drive.phase + step / (HEART.period - HEART.quicken * drive.pump)) % 1;
+      // The hive's heartbeat: the heart beats on, quicker as the run of circles goes on (lib/rhythm.ts) and with the boost it
+      // ends in, which ebbs away.
+      drive.phase = (drive.phase + step / heartPeriod()) % 1;
       drive.beat =
         Math.exp(-((drive.phase / 0.06) ** 2)) + 0.6 * Math.exp(-(((drive.phase - 0.28) / 0.07) ** 2)) + Math.exp(-(((drive.phase - 1) / 0.06) ** 2));
-      if (feature === 'heartbeat' && drive.taps !== 0) {
-        drive.pump = drive.taps > 0 ? Math.min(1, drive.pump + HEART.pump * drive.taps) : drive.pump * 0.7;
-        drive.cruise = true;
-      }
-      drive.taps = 0;
       drive.pump = Math.max(0, drive.pump - step * (feature === 'heartbeat' ? HEART.ebb : 1));
       const kick = feature === 'surge' ? drive.surge : feature === 'heartbeat' ? drive.pump : feature === 'slingshot' ? drive.launch : 0;
       // (Cruising speed changes with the zone, over the change between them.)
@@ -266,7 +261,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       drive.speed = 0;
       drive.boosting = false;
       drive.surge = 0;
-      Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0, taps: 0, pump: 0, y: 0, vy: 0, air: false, land: 0, pitch: 0 });
+      Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0, pump: 0, y: 0, vy: 0, air: false, land: 0, pitch: 0 });
       if (ride.wash < 0 && drive.s > WASH_FROM) ride.wash = 0;
       if (ride.wash >= 0) {
         // Getting off after a ride: the liquid wash, everything put back once it covers the screen.

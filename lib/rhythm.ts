@@ -1,16 +1,19 @@
 import { HEART, ride } from './ride';
 
-// The hive's boost: a press of the rocket starts circles coming, one every other beat of the heart, each with a ring
-// closing on it, to be clicked as it lands (components/rhythm-overlay.tsx draws them and takes the clicks). Each one hit
-// pumps the bike on a little more (ride.drive.pump, through ride.drive.taps). The first ever, the ride slows right down as
-// its ring closes, and waits there for the click, showing what's wanted. A few missed in a row and they stop coming, until
-// the next press.
+// The hive's boost: a press of the rocket starts a short run of six circles, numbered as angel numbers from 111 up to 666,
+// each with a ring closing on it, to be clicked as it lands on the heart's beat (components/rhythm-overlay.tsx draws them
+// and takes the clicks). They stand at the points of a hexagram, and each one hit draws the next line of it, the heart
+// quickening. On 666 the star burns and the boost hits, as hard as the run was clean (ride.drive.pump). The first ever,
+// the ride slows right down as its ring closes, and waits there for the click, showing what's wanted.
 
-/** How long a ring takes to close (s), how far off its landing a click's perfect or still good, misses before it stops. */
-export const RHYTHM = { approach: 0.95, perfect: 0.11, good: 0.27, misses: 3 };
+/** How long a ring takes to close (s), how far off its landing a click's perfect or still good, and the run's length. */
+export const RHYTHM = { approach: 0.8, perfect: 0.11, good: 0.27, count: 6 };
 
-export type Circle = { x: number; y: number; at: number; number: number };
-export type Burst = { x: number; y: number; age: number; kind: 'perfect' | 'good' | 'miss' };
+export type Circle = { point: number; x: number; y: number; at: number; number: number };
+export type Burst = { x: number; y: number; age: number; kind: 'perfect' | 'good' | 'miss'; number: number };
+
+/** The star's points, in the order it's drawn: two triangles' worth, one stroke at a time. Radius and centre by the overlay. */
+export const STAR_ORDER = [0, 2, 4, 1, 3, 5];
 
 export const rhythm = {
   active: false,
@@ -22,30 +25,38 @@ export const rhythm = {
   slow: 1,
   /** The rhythm's own clock (s): it stops when the ride does. */
   clock: 0,
-  next: 0,
-  misses: 0,
-  combo: 0,
+  /** How far through the run (circles landed, hit or not), and how many were hit. */
+  landed: 0,
+  hits: 0,
+  /** When the next circle should land. */
+  nextAt: 0,
+  /** Which of the star's points were hit, in order. */
+  drawn: [] as (boolean | undefined)[],
   circles: [] as Circle[],
   bursts: [] as Burst[],
-  last: { x: 0.5, y: 0.34 },
+  /** The star burning, and the screen flash with it (1 down to 0), the run having ended: 666 reached. */
+  burn: 0,
+  /** How the run went, for the flash: 0 to 1. */
+  score: 0,
 };
 
-const period = () => HEART.period - HEART.quicken * ride.drive.pump;
+/** The heart's period now: quicker with the pump, and through the run. */
+export const heartPeriod = () => HEART.period - HEART.quicken * Math.max(ride.drive.pump, rhythm.active ? rhythm.landed / RHYTHM.count : 0);
+
+function beatAfter(time: number) {
+  const beat = heartPeriod();
+  const toBeat = (1 - ride.drive.phase) * beat;
+  const from = rhythm.clock + toBeat;
+  return from + Math.ceil(Math.max(0, time - from) / beat) * beat;
+}
 
 function spawn() {
   const r = rhythm;
-  // Near the last one, as a path round the upper screen: clear of the bike and its buttons.
-  const a = Math.random() * Math.PI * 2;
-  const d = 0.17 + Math.random() * 0.13;
-  const x = Math.min(0.84, Math.max(0.16, r.last.x + Math.cos(a) * d));
-  const y = Math.min(0.56, Math.max(0.14, r.last.y + Math.sin(a) * d * 1.3));
-  r.last = { x, y };
-  // (Landing on a beat: the first far enough off for its ring to close in time.)
-  const beat = period();
-  const toBeat = (1 - ride.drive.phase) * beat;
-  const at = r.clock + toBeat + Math.ceil(Math.max(0, RHYTHM.approach - toBeat) / beat) * beat;
-  r.circles.push({ x, y, at, number: r.combo + r.circles.length + 1 });
-  r.next = r.clock + 2 * beat;
+  const n = r.landed + r.circles.length;
+  const point = STAR_ORDER[n];
+  r.circles.push({ point, x: 0, y: 0, at: r.nextAt, number: (n + 1) * 111 });
+  // (Closer and closer: the last few come quick.)
+  r.nextAt = beatAfter(r.nextAt + 0.95 - 0.08 * n);
 }
 
 function stop() {
@@ -54,35 +65,54 @@ function stop() {
   rhythm.circles.length = 0;
 }
 
+/** The run's over, 666 landed: the boost, as hard as it was clean; nothing at all if none were hit. */
+function finish() {
+  const r = rhythm;
+  r.score = r.hits / RHYTHM.count;
+  stop();
+  if (!r.hits) return;
+  r.burn = 1;
+  const d = ride.drive;
+  d.pump = Math.max(d.pump, 0.35 + 0.65 * r.score);
+  d.speed += 55 * r.score;
+}
+
+function land(c: Circle, kind: Burst['kind']) {
+  const r = rhythm;
+  r.circles.splice(r.circles.indexOf(c), 1);
+  r.drawn[r.landed] = kind !== 'miss';
+  r.landed++;
+  if (kind !== 'miss') r.hits++;
+  r.bursts.push({ x: c.x, y: c.y, age: 0, kind, number: c.number });
+  if (r.landed >= RHYTHM.count) finish();
+}
+
 function hit(c: Circle, off: number) {
   const r = rhythm;
-  const kind = off < RHYTHM.perfect || r.teaching ? 'perfect' : 'good';
-  ride.drive.taps += kind === 'perfect' ? 1.4 : 1;
-  // (The first, a real kick: it's what the waiting was for.)
-  if (r.teaching) ride.drive.taps += 1.2;
-  r.bursts.push({ x: c.x, y: c.y, age: 0, kind });
-  r.circles.splice(r.circles.indexOf(c), 1);
-  r.combo++;
-  r.misses = 0;
-  if (r.teaching) {
+  const teaching = r.teaching;
+  land(c, off < RHYTHM.perfect || teaching ? 'perfect' : 'good');
+  if (teaching) {
     r.teaching = false;
     r.taught = true;
-    r.next = r.clock + period();
+    r.nextAt = beatAfter(r.clock + 0.95);
   }
 }
 
 /**
- * A press of the rocket or Space: starts the circles if they've stopped; otherwise, or a click on a circle (`on`, already
- * checked to be over it), hits the one landing next if it's near enough its time.
+ * A press of the rocket or Space: starts a run if none's going and the last boost has mostly run out; otherwise, or a click
+ * on a circle (`on`, already checked to be over it), hits the one landing next if it's near enough its time.
  */
 export function pressRhythm(on?: Circle) {
   const r = rhythm;
   ride.drive.cruise = true;
   if (!r.active) {
+    if (ride.drive.pump > 0.25) return;
     r.active = true;
-    r.misses = 0;
-    r.combo = 0;
+    r.landed = 0;
+    r.hits = 0;
+    r.drawn.length = 0;
     r.teaching = !r.taught;
+    r.nextAt = beatAfter(r.clock + RHYTHM.approach);
     spawn();
     return;
   }
@@ -100,27 +130,17 @@ export function updateRhythm(dt: number, allowed: boolean) {
   const first = r.circles[0];
   if (r.teaching && first) {
     const left = first.at - r.clock;
-    r.slow = left < 0.02 ? 0 : Math.min(r.slow, Math.max(0.02, left / 0.75));
+    r.slow = left < 0.02 ? 0 : Math.min(r.slow, Math.max(0.02, left / 0.6));
   } else r.slow = Math.min(1, r.slow + dt * 3.5);
-  const step = dt * r.slow;
-  r.clock += step;
+  r.clock += dt * r.slow;
+  r.burn = Math.max(0, r.burn - dt / 1.1);
   for (const b of r.bursts) b.age += dt;
   while (r.bursts.length && r.bursts[0].age > 0.6) r.bursts.shift();
-  if (!r.active) return;
-  if (!r.teaching) {
-    for (let i = r.circles.length - 1; i >= 0; i--) {
-      const c = r.circles[i];
-      if (r.clock - c.at <= RHYTHM.good) continue;
-      // Missed: it knocks some of the pump off.
-      r.circles.splice(i, 1);
-      r.bursts.push({ x: c.x, y: c.y, age: 0, kind: 'miss' });
-      ride.drive.taps = -1;
-      r.combo = 0;
-      if (++r.misses >= RHYTHM.misses) {
-        stop();
-        return;
-      }
-    }
-    if (r.clock >= r.next) spawn();
+  if (!r.active || r.teaching) return;
+  for (const c of [...r.circles]) {
+    if (r.clock - c.at <= RHYTHM.good) continue;
+    land(c, 'miss');
+    if (!r.active) return;
   }
+  if (r.landed + r.circles.length < RHYTHM.count && r.clock >= r.nextAt - RHYTHM.approach) spawn();
 }

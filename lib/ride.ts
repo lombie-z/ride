@@ -34,8 +34,8 @@ export const ride = {
    * The slingshot: the button dragged back along its track (`pull`, 0 to 1, from components/ride-button.tsx; `draw`,
    * the same eased, where it's drawn), let go (`release`, its strength, picked up next frame) launches it (`launch`,
    * the kick left, running down over a few seconds; `fire`, the flames round the view, following it).
-   * The heartbeat: tapped on the beat (`taps`, counted by the button, picked up next frame), each tap pumps it on
-   * (`pump`, 0 to 1, built up beat by beat, ebbing away without them); `beat` the heart's pulse now (0 to 1).
+   * The heartbeat: the hive's run of circles (lib/rhythm.ts) done, the boost (`pump`, 0 to 1, as hard as the run was
+   * clean, ebbing away); `beat` the heart's pulse now (0 to 1).
    * Over dunes: how high it is (`y`, m), rising (`vy`, m/s), off the ground (`air`), the thump of landing (`land`, 0 to
    * 1) and its nose's pitch (`pitch`, radians).
    */
@@ -54,7 +54,6 @@ export const ride = {
     release: 0,
     launch: 0,
     fire: 0,
-    taps: 0,
     pump: 0,
     phase: 0,
     beat: 0,
@@ -315,10 +314,10 @@ export const BRAKE = 14;
 /** The slingshot: how long its kick lasts (s). */
 export const LAUNCH_SECONDS = 3.2;
 /**
- * The heartbeat: the heart's period at rest (s) and how much quicker it beats fully pumped, how much each tap on the
- * beat pumps it, how far off the beat a tap still counts (s), and how fast the pump ebbs without them (per s).
+ * The heartbeat: the heart's period at rest (s) and how much quicker it beats fully pumped, and how fast the boost ebbs
+ * (per s).
  */
-export const HEART = { period: 0.82, quicken: 0.3, pump: 0.22, window: 0.17, ebb: 0.09 };
+export const HEART = { period: 0.82, quicken: 0.3, ebb: 0.09 };
 /** Over the dunes: how hard it comes back down (m/s²; more than the real thing, for a jump that lands) and the most it rises. */
 export const JUMP = { gravity: 24, rise: 15 };
 /** Which zones' bikes have loaded (components/three/bike.tsx): the morph into one waits for it. */

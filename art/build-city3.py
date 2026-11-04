@@ -61,7 +61,8 @@ CATH_X = 700.0
 NAVE_END = 860.0
 WEAVE_R = 300.0
 TAIL = 250.0              # the last straight, into the plaza and to the bike
-ROAD_SEQ = [('S', CAUSEWAY), ('A', WEAVE_R, 40), ('S', 200.0), ('A', WEAVE_R, -80), ('S', 200.0), ('A', WEAVE_R, 40),
+ROAD_SEQ = [('S', CAUSEWAY), ('A', WEAVE_R, 40), ('S', 300.0), ('A', WEAVE_R, -80), ('S', 300.0), ('A', WEAVE_R, 80), ('S', 300.0),
+            ('A', WEAVE_R, -80), ('S', 300.0), ('A', WEAVE_R, 40),
             ('S', TAIL)]
 OUT_SEQ = [('S', 160.0), ('A', WEAVE_R, -30), ('S', 400.0)]
 MIST_Z = -60.0            # the floor of the mist the city stands in

@@ -16,6 +16,7 @@ import { useRef } from 'react';
 import { type Mesh, ShaderChunk, type Sphere, Vector3 } from 'three';
 import { devFlag, journey, landingAt, smoothstep } from '@/lib/journey';
 import { look } from '@/lib/look';
+import { RHYTHM, rhythm } from '@/lib/rhythm';
 import { CRUISE, featureHere, ride, washCover } from '@/lib/ride';
 import { Grade, type GradeEffect } from './grade';
 import { LiquidSweep, type LiquidSweepEffect } from './liquid-sweep';
@@ -119,7 +120,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     const fire = ride.mount * ride.drive.fire;
     // (In the hive the veins show the heart's beat faintly even unpumped, so the rhythm's there to tap to.)
     const hive = ride.mount * (featureHere() === 'heartbeat' ? 1 : 0);
-    const veins = hive * (0.18 + 0.82 * ride.drive.pump);
+    const veins = hive * (0.18 + 0.82 * Math.max(ride.drive.pump, rhythm.active ? (0.5 * rhythm.landed) / RHYTHM.count : 0));
     const blur = devFlag('noblur') ? 0 : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 0.6 * ride.drive.pump);
     if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire, veins, ride.drive.beat);
     gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002 || veins > 0.002);
