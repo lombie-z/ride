@@ -43,3 +43,14 @@ next-env.d.ts
 
 # Review renders from each modelling round (the finals are kept)
 art/renders/*-r[0-9]*.png
+
+# Bytecode from the art scripts
+__pycache__/
+# Comparison images from fitting the core's bike and the desert's rebuilds, and working PNG copies of the core's concepts (the webp originals stay)
+art/align-bike5/out/
+art/align4/out/*.png
+art/reference/concept-core-*.png
+art/reference/concept-bike5.png
+art/renders/creature-*.png
+art/renders/core-*.png
+art/renders/site-core-*.jpg

@@ -1,0 +1,8 @@
+{
+ "_": "art/reference/concept-bike5.png's pixels to bike metres: x = 0.78 - (px - px_front_axle) * sx, z = (py_ground - py) * sz. Its axles land on ours (1257 px = 1.56 m), its tyres' height on ours; it's a longer bike than the contract's wheelbase allows, so sx and sz differ.",
+ "size": [1774, 887],
+ "sx": 0.001241,
+ "sz": 0.0015,
+ "px_front_axle": 325,
+ "py_ground": 790
+}

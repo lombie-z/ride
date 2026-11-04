@@ -8,13 +8,20 @@ a stencilled serial plate) in front of a huge rolling sandstorm wall (umber bill
 dissolve into the haze) with lightning, a hot white sun high on the left.
 Builds art/city4.blend from scratch and exports public/models/city4.glb (Draco).
 Run: /opt/homebrew/bin/blender --background --factory-startup --python art/build-city4.py
-     CITY4_ROUND=r1 names the renders (default r0); CITY4_NO_EEVEE=1 skips the EEVEE renders; CITY4_PLAN=0 the plan.
+     CITY4_ROUND=r1 names the renders (default r0); CITY4_NO_EEVEE=1 skips the EEVEE renders; CITY4_PLAN=0 the plan;
+     CITY4_ROADVIEWS=2000,2600 renders the rider's view (z 1.5 m over the ground, looking ahead along the road) at those
+     metres along it (city4-road-<s>-<round>.png); with CITY4_ROADONLY=1, only those (no arrival, approach or scores).
 
 City4's own frame (Blender z up, metres): the road comes in along +X at City4.RoadIn (the local origin, where the
 previous zone's road hands over; its deck top is z 0, 11.8 m wide). x < 0 is the previous zone's and stays empty; so
 does the left (y > 0) of the first ~420 m, where zone 3's coral city stands. From there the road runs long straights and
-gentle sweeps (radius 700-900 m: left, right, left, all told back to heading +X) through the server fields, under a
-gantry, the toppled tower and a second gantry, onto a final ~1.1 km straight at the facility, ~2.75 km in all.
+gentle sweeps (radius 700-900 m, all told back to heading +X) through the server fields, under a gantry and the toppled
+tower, then THE LONG WAY (LONG_WAY below): the open (wide dunes, only cables), the ranks (a buried data hall's aisles, in
+rows), the canyon (monoliths walling a long sweep), the wrecks (a second toppled tower, giants lying and leaning), the
+run-in under a third gantry; then the final ~1.1 km straight at the facility and its gantry, ~5.45 km in all. The long way's
+inserted so everything past it moves by exactly (LONG_DX, 0) and LONG_LEN along the road, whole numbers of every grid and
+texture repeat: the dunes keep their noise (noise_zones), the old stretches their random draws (the plan runs in the road
+as it was without the long way, then_s and then_xy put each piece on the road as it is), so the arrival doesn't move.
 City4.RoadPath carries the bike's line as data ([x, y] every 2 m, RoadIn -> BikeMark, and its length): the road's
 centreline until the last 60 m, where it eases into the right lane and turns the bike in to park, nose 23.7 deg left of
 the road (as the arrival fit has it). City4.RoadOut continues it 200 m: back onto the centreline and straight in
@@ -76,8 +83,53 @@ ROAD_SEQ = [  # ('S', length) | ('A', radius, degrees, + = left)
     ('A', 700.0, -22.0),     # right, round between the server fields
     ('S', 260.0),            # under the toppled tower
     ('A', 800.0, 12.0),      # left, back to heading +X
-    ('S', FINAL_STRAIGHT),   # the second gantry, then the facility dead ahead
+    ('LONG_WAY',),           # (below)
+    ('S', FINAL_STRAIGHT),   # the last gantries, then the facility dead ahead
 ]
+# The long way, between the old road and its final straight. It's LONG_LEN m of road over LONG_DX m of +X and none of y:
+# LONG_LEN a whole number of the deck's 4 m steps and its texture's 27 m, LONG_DX of the dunes' 260 m tiles and of every
+# box-mapped texture's repeat, so the arrival's stay as they were. The straights marked None are solved to make that so.
+LONG_LEN, LONG_DX = 2700.0, 2600.0
+LONG_WAY = [
+    ('S', 400.0),            # the open: nothing but dunes and cables, a jump
+    ('A', 800.0, -23.0),     # right, a long way round
+    ('S', None),             # the ranks: a buried hall's aisles, a gantry, a jump
+    ('A', 720.0, 48.0),      # left, the great sweep: the canyon's walls, a jump between them
+    ('S', None),             # the wrecks: the second toppled tower, giants lying in the sand
+    ('A', 720.0, -31.0),     # right: a jump, the run-in
+    ('S', None),             # the storm and the facility all but dead ahead, a gantry
+    ('A', 800.0, 6.0),       # and onto the final straight's line
+]
+
+
+def solve_long_way(seq):
+    """The None straights' lengths (three, at different headings), so the sequence is LONG_LEN long and ends LONG_DX on."""
+    x, y, ln, h, free = 0.0, 0.0, 0.0, 0.0, []
+    for sg in seq:
+        if sg[0] == 'S' and sg[1] is None:
+            free.append(h)
+        elif sg[0] == 'S':
+            x, y, ln = x + sg[1] * math.cos(h), y + sg[1] * math.sin(h), ln + sg[1]
+        else:
+            d = math.radians(sg[2])
+            side = 1 if d > 0 else -1
+            x += side * sg[1] * (math.sin(h + d) - math.sin(h))
+            y += side * sg[1] * (math.cos(h) - math.cos(h + d))
+            ln += sg[1] * abs(d)
+            h += d
+    A = np.array([[math.cos(f) for f in free], [math.sin(f) for f in free], [1.0] * len(free)])
+    sol = iter(np.linalg.solve(A, [LONG_DX - x, -y, LONG_LEN - ln]).tolist())
+    return [('S', next(sol)) if sg[0] == 'S' and sg[1] is None else sg for sg in seq]
+
+
+LONG_WAY = solve_long_way(LONG_WAY)
+assert all(sg[1] > 100.0 for sg in LONG_WAY if sg[0] == 'S'), LONG_WAY
+_old_seq = ROAD_SEQ[:ROAD_SEQ.index(('LONG_WAY',))]
+ROAD_SEQ = _old_seq + LONG_WAY + ROAD_SEQ[len(_old_seq) + 1:]
+# Where the long way starts, on the road (before it, the road is as it was; past it, LONG_LEN further on).
+LONG_S0 = sum(sg[1] if sg[0] == 'S' else sg[1] * math.radians(abs(sg[2])) for sg in _old_seq)
+LONG_S1 = LONG_S0 + LONG_LEN
+print('the long way: s', round(LONG_S0, 1), '->', round(LONG_S1, 1), [round(sg[1], 1) if sg[0] == 'S' else sg[1:] for sg in LONG_WAY])
 PARK_LEN = 60.0            # the bike line's last stretch: into the right lane and turned in to park
 GATE_X = 170.0             # the facility's gate, metres past the arrival camera (art/align4 road frame)
 ROADOUT_LEN = 200.0
@@ -260,6 +312,26 @@ def road_coords(x, y):
 
 S_CAM = road_coords(X_CAM, Y_F)[0]
 print('arrival camera at s', round(S_CAM, 1))
+# The road as it was without the long way, for what's planned on it: these keep its random draws (and all the arrival's).
+S_CAM_THEN = S_CAM - LONG_LEN
+X_CAM_THEN = X_CAM - LONG_DX
+
+
+def then_s(s):
+    """Where s metres along the road without the long way now is."""
+    return s if s < LONG_S0 else s + LONG_LEN
+
+
+def along_then(s, d):
+    """along(), on the road without the long way."""
+    p = along(then_s(s), d)
+    return p if s < LONG_S0 else p - Vector((LONG_DX, 0, 0))
+
+
+def then_xy(p, s):
+    """A point planned at s along the road without the long way, where it now is."""
+    return p if s < LONG_S0 else p + Vector((LONG_DX, 0, 0))
+
 
 # --- The arrival camera, in City4's frame ---------------------------------------------------------------------------------
 EYE = road_to_city(*RF['EYE'])
@@ -924,7 +996,7 @@ def module_monolith(kind):
     one); 'slab': 12 x 5 x 20 m, rack units over the front, four fans down its right side; 'fanwall': 10 x 5 x 12 m,
     two by two fans and a terminal screen above. Returns the mesh and its fan mounts (local position, radius,
     facing: 'front' or 'side')."""
-    rng = random.Random(hash(kind) % 1000)
+    rng = random.Random({'tower': 631, 'slab': 267, 'fanwall': 551}[kind])  # (fixed: hash() changes run to run)
     bm = bmesh.new()
     fans = []
     if kind == 'tower':
@@ -1197,17 +1269,18 @@ def facade_frame(sx, depth):
     return p, 0.0 + math.radians(-90)  # local -Y -> world -X: facing back down the road
 
 
-def fac_block(bm, sx0, sx1, top, depth, deep, mat=0, batter=0.0, crenel=False, steps=0):
+def fac_block(bm, sx0, sx1, top, depth, deep, mat=0, batter=0.0, crenel=False, steps=0, z_base=None):
     """A concrete block whose front spans screen columns sx0-sx1 at view depth `depth`, up to screen row `top`; `deep`
     metres back. batter: its front face leans back by that fraction of its height (a bunker wall); with steps, it
-    steps back in that many tiers instead (the same outline), a slit window along each tier's face."""
+    steps back in that many tiers instead (the same outline), a slit window along each tier's face. z_base: its foot,
+    where the gate's tunnel runs under it (hidden behind the gate block from the road)."""
     pc, _ = facade_frame((sx0 + sx1) / 2, depth)
     w = px_to_m(sx1 - sx0, depth)
     h = z_of_row((sx0 + sx1) / 2, top, depth) - FAC_Z
     # Fronts face -X (back down the road): build in world axes, x back, y across.
     x0, x1 = pc.x, pc.x + deep
     y0, y1 = pc.y - w / 2, pc.y + w / 2
-    z0, z1 = FAC_Z - 1.0, FAC_Z + h
+    z0, z1 = (FAC_Z - 1.0 if z_base is None else z_base), FAC_Z + h
     if steps:
         for k in range(steps):
             za, zb = FAC_Z + h * k / steps - (1.0 if k == 0 else 0.0), FAC_Z + h * (k + 1) / steps
@@ -1327,14 +1400,14 @@ frng = random.Random(404)
 for args in ((515, 650, 238, 250.0, 6.0), (948, 1072, 227, 250.0, 6.0)):
     pcw, ww, hw = fac_block(bm, *args, crenel=True)
     buttresses(bm, pcw, ww, hw, every=6.0, out=1.4)
-pcbw, wbw, hbw = fac_block(bm, 640, 960, 236, 265.0, 8.0)
+pcbw, wbw, hbw = fac_block(bm, 640, 960, 236, 265.0, 8.0, z_base=11.6)
 vents(bm, pcbw, wbw, hbw, 8, frng, 0.4, 0.8)
 # The bunker walls either side of the gate: stepped back in three tiers, ribbed, slit windows lit along each.
 for args in ((600, 712, 222, 200.0, 26.0), (845, 968, 230, 192.0, 26.0)):
     pcs, ws, hs = fac_block(bm, *args, batter=0.55, steps=3)
     vents(bm, Vector((pcs.x + 0.55 * hs * 0.17, pcs.y, pcs.z)), ws, hs, 3, frng, 0.05, 0.25)
 # The buildings: the dish house (left), the right block and the long right building with its lit strip.
-pcd, wd, hd = fac_block(bm, 706, 782, 192, 205.0, 24.0)
+pcd, wd, hd = fac_block(bm, 706, 782, 192, 205.0, 24.0, z_base=11.6)
 windows(bm, pcd, wd, hd, 3, hd * 0.45, hd * 0.9, 1)
 vents(bm, pcd, wd, hd, 3, frng, 0.1, 0.35)
 antennas(bm, pcd, wd, hd, 24.0, 4, frng, 3.0)
@@ -1346,57 +1419,442 @@ windows(bm, pcl, wl, hl, 1, hl * 0.66, hl * 0.66, 2)
 windows(bm, pcl, wl, hl, 2, hl * 0.25, hl * 0.5, 1)
 antennas(bm, pcl, wl, hl, 20.0, 5, frng, 3.5)
 # The central tower behind the gate, a column of windows, a stepped crown.
-pct, wt, ht = fac_block(bm, 784, 837, 172, 200.0, 20.0)
+pct, wt, ht = fac_block(bm, 784, 837, 172, 200.0, 20.0, z_base=11.6)
 windows(bm, pct, wt * 0.4, ht, 9, ht * 0.38, ht * 0.95, 1)
 vents(bm, pct, wt, ht, 4, frng, 0.15, 0.35)
 add_box(bm, (pct.x - 0.5, pct.y, FAC_Z + ht * 0.36), (1.2, wt + 1.0, 1.0))
-# The gate block: two piers and a lintel round the gate's opening, a tunnel through, blast doors at its end.
+# The gate (concept-core-gate): a monumental portal. Piers and a lintel round a wide door bay, 14 m deep; two rusted, spoked
+# door leaves stand open in it, hinged at the portal's front, their free edges swung in beside the tunnel's mouth; the
+# vault tunnel (art/core/gate.py's PROFILE, 16 x 11 m) runs on from the bay's back wall to where the RoadOut ends.
 GATE = BOXES['gate']
 gd = 172.0
 pg, _ = facade_frame((GATE[0] + GATE[2]) / 2, gd)
-g_w = px_to_m(GATE[2] - GATE[0], gd)
-g_h = z_of_row((GATE[0] + GATE[2]) / 2, GATE[1], gd) - FAC_Z
-blk_w = px_to_m(852 - 705, gd)
-blk_h = z_of_row(778, 236, gd) - FAC_Z
+END_PT = OUT_LINE[-1]
+GX, GY, END_X = pg.x, END_PT.y, END_PT.x
+g_w, g_h = 29.0, 13.5                  # the bay's front
+blk_w, blk_h = 46.0, 18.5              # the block round it
 pier = (blk_w - g_w) / 2
+BAY_HALF = g_w / 2 + 0.05 - 0.1        # the bay's walls (its lining, just inside the concrete)
+MOUTH = GX + 14.0                      # the bay's back wall, the tunnel's mouth
+TUN_HALF, TUN_H, TUN_EAVE, TUN_CROWN = 8.0, 11.0, 7.4, 5.4
+TUN_BAY = 146.0 / 12                   # gate.py's bay length: the ribs keep its beat on into the next zone
+TUN_RIBS = (END_X - TUN_BAY,)          # (the next rib stands at END, the first of art/core/gate.py's)
 for side in (1, -1):
-    yc = pg.y + side * (g_w / 2 + pier / 2)
-    add_box(bm, (pg.x + 9, yc, FAC_Z + blk_h / 2 - 0.5), (18, pier, blk_h + 1))
-add_box(bm, (pg.x + 9, pg.y, FAC_Z + g_h + (blk_h - g_h) / 2), (18, g_w + 0.2, blk_h - g_h))
-for side in (1, -1):  # the tunnel's walls and roof, on to the doors
-    add_box(bm, (pg.x + 18 + 16, pg.y + side * (g_w / 2 + 0.6), FAC_Z + g_h / 2), (32, 1.2, g_h + 0.4))
-add_box(bm, (pg.x + 18 + 16, pg.y, FAC_Z + g_h + 0.6), (32, g_w + 2.4, 1.2))
+    yc = GY + side * (g_w / 2 + pier / 2)
+    add_box(bm, (GX + 9, yc, FAC_Z + blk_h / 2 - 0.5), (18, pier, blk_h + 1))
+    add_box(bm, (GX + 0.6, GY + side * (g_w / 2 - 0.3), FAC_Z + g_h / 2 - 0.5), (1.6, 0.8, g_h + 1))  # the hinge posts
+    # Behind the bay's back wall, either side of the tunnel.
+    add_box(bm, (MOUTH + 2, GY + side * (TUN_HALF + 0.05 + (g_w / 2 - TUN_HALF) / 2), FAC_Z + g_h / 2 - 0.5),
+            (4, g_w / 2 - TUN_HALF, g_h + 1))
+    # The tunnel's casing, on to its end.
+    add_box(bm, ((GX + 18 + END_X) / 2, GY + side * (TUN_HALF + 0.65), FAC_Z + TUN_H / 2),
+            (END_X - GX - 18, 1.2, TUN_H + 1.4))
+add_box(bm, (GX + 9, GY, FAC_Z + g_h + (blk_h - g_h) / 2), (18, g_w + 0.2, blk_h - g_h))
+add_box(bm, (MOUTH + 2, GY, FAC_Z + (TUN_H + 0.05 + g_h) / 2), (4, 2 * TUN_HALF + 0.2, g_h - TUN_H - 0.05))
+add_box(bm, ((GX + 18 + END_X) / 2, GY, FAC_Z + TUN_H + 0.65), (END_X - GX - 18, 2 * TUN_HALF + 2.4, 1.2))
 for side in (1, -1):  # the piers' buttresses and a heavy coping over the lintel
-    buttresses(bm, Vector((pg.x, pg.y + side * (g_w / 2 + pier * 0.75), FAC_Z)), pier * 0.5, blk_h, every=10.0, out=2.2,
+    buttresses(bm, Vector((GX, GY + side * (g_w / 2 + pier * 0.75), FAC_Z)), pier * 0.5, blk_h, every=10.0, out=2.2,
                frac=0.9)
-add_box(bm, (pg.x - 0.4, pg.y, FAC_Z + blk_h - 0.5), (1.2, blk_w + 1.0, 1.0))
-add_box(bm, (pg.x - 0.3, pg.y, FAC_Z + g_h + 0.2), (0.8, g_w + 1.6, 0.4))
+add_box(bm, (GX - 0.4, GY, FAC_Z + blk_h - 0.5), (1.2, blk_w + 1.0, 1.0))
+add_box(bm, (GX - 0.3, GY, FAC_Z + g_h + 0.2), (0.8, g_w + 1.6, 0.4))
+for side in (1, -1):  # a stepped frame round the bay
+    add_box(bm, (GX - 0.25, GY + side * (g_w / 2 + 0.55), FAC_Z + g_h / 2 - 0.5), (0.7, 1.1, g_h + 1))
+add_box(bm, (GX - 0.25, GY, FAC_Z + g_h + 0.9), (0.7, g_w + 2.2, 1.0))
 FAC.append((pg, blk_w, 18.0, blk_h))
+# Nothing of the buildings behind may stand in the tunnel, this side of END or in the next zone's on from it.
+_corr = [f for f in bm.faces if all(GX + 18.0 < v.co.x < END_X + 150.0 and abs(v.co.y - GY) < TUN_HALF and
+                                    v.co.z < TUN_H for v in f.verts)]
+bmesh.ops.delete(bm, geom=_corr, context='FACES_ONLY')
 fac_me = mesh_from('City4.Facility', bm, [MAT['concrete'], MAT['glass'], MAT['led'], MAT['rust']])
 box_uvs(fac_me, 0.08)
 obj('City4.Facility', fac_me, G['Facility'], ident='facility')
-print('gate', [round(v, 1) for v in pg], 'opening', round(g_w, 1), 'x', round(g_h, 1), 'block', round(blk_w, 1), 'x',
-      round(blk_h, 1))
+print('gate', [round(v, 1) for v in pg], 'road y', round(GY, 2), 'bay', g_w, 'x', g_h, 'block', blk_w, 'x', blk_h,
+      'tunnel', round(MOUTH - GX, 1), 'to', round(END_X - GX, 1), 'm past the portal')
+# Sand heaped against the piers' feet (where the cables go in), clear of the road.
+for side in (1, -1):
+    MOUNDS.append((GX - 2.0, GY + side * 30.0, 17.0, 2.6))
+    MOUNDS.append((GX - 12.0, GY + side * 21.0, 9.0, 0.9))
 
-# The blast doors deep in the tunnel (dark steel), a light bar over the opening, the insignia on the lintel.
+GATE_LAMP = material('City4Lamp', (0.72, 1.0, 0.7), 0.4, vcol=False, emission=(0.72, 1.0, 0.7), strength=3.0)
+GATE_STEEL = material('City4GateSteel', (0.12, 0.12, 0.105), 0.55, 0.55)
+_rust_img = bpy.data.images.load(os.path.join(ROOT_DIR, 'art', 'core', 'tex', 'rust.jpg'))  # (the core's rust, smaller)
+_rust_img.name = 'City4GateRustTex'
+_rust_img.scale(256, 256)
+_rust_img.file_format = 'JPEG'
+_rust_img.pack()
+TEX['gate_rust'] = _rust_img
+GATE_PLATE = material('City4GatePlate', (0.13, 0.125, 0.12), 0.7, 0.35, tex='gate_rust')
+# (The frame, spokes and brackets: the same rust, its contrast eased toward orange so their shapes read at speed.)
+_rp = np.empty(256 * 256 * 4, np.float32)
+_rust_img.pixels.foreach_get(_rp)
+_rp = _rp.reshape(256, 256, 4)[::-1, :, :3]
+TEX['gate_trim'] = make_image('City4GateTrimTex', _rp * 0.42 + np.array([0.8, 0.47, 0.24]) * 0.58)
+GATE_TRIM = material('City4GateTrim', (1.0, 0.9, 0.8), 0.68, 0.3, tex='gate_trim')
+GATE_GREEN = material('City4GateGreen', (0.1, 0.8, 0.18), 0.4, vcol=False, emission=(0.1, 1.0, 0.18), strength=4.0)
+GATE_DARK = material('City4GateDark', (0.018, 0.022, 0.02), 0.7, 0.3)
+_GREEN, _PALE = (0.3, 1.0, 0.38), (0.6, 1.0, 0.66)
+GATE_LIGHTS = []
+_x_day = [GX - 2.0, GX + 6.0, MOUTH, MOUTH + 5.0, END_X]
+_day = [1.0, 0.8, 0.46, 0.14, 0.05]
+
+
+def gate_bake(me, tint=(1.0, 0.88, 0.74), floor=0.03, day=None, sky_factor=1.0):
+    """Paints a gate mesh's vertex colours: daylight from the portal falling off into the tunnel, the lamps' green pools."""
+    n = len(me.vertices)
+    co, no = np.zeros(n * 3), np.zeros(n * 3)
+    me.vertices.foreach_get('co', co)
+    me.vertex_normals.foreach_get('vector', no)
+    co, no = co.reshape(-1, 3), no.reshape(-1, 3)
+    d = np.interp(co[:, 0], _x_day, _day if day is None else day) * sky_factor
+    d = d * (1 - 0.65 * np.clip(-no[:, 2], 0, 1))  # (what looks down sees the floor's shade, not the sky)
+    out = np.outer(d, np.asarray(tint)) + floor * np.array([0.8, 1.0, 0.85])
+    for pos, col, radius, power in GATE_LIGHTS:
+        v = np.asarray(pos, float) - co
+        r2 = (v * v).sum(1)
+        nl = np.clip((v * no).sum(1) / np.sqrt(r2 + 1e-6), 0, 1) * 0.8 + 0.2
+        out += np.outer(power * nl / (1 + r2 / (radius * radius)) ** 1.5, np.asarray(col))
+    ca = me.color_attributes.new('AO', 'BYTE_COLOR', 'CORNER')
+    vi = np.zeros(len(me.loops), np.int64)
+    me.loops.foreach_get('vertex_index', vi)
+    v = np.clip(out, 0, 1).astype(np.float32)[vi]
+    ca.data.foreach_set('color', np.concatenate([v, np.ones((len(v), 1), np.float32)], axis=1).ravel())
+    me.color_attributes.active_color = ca
+
+
+def gate_dice(bm_, size):
+    for _ in range(8):
+        long_edges = [e for e in bm_.edges if e.calc_length() > size]
+        if not long_edges:
+            break
+        bmesh.ops.subdivide_edges(bm_, edges=long_edges, cuts=1, use_grid_fill=True)
+
+
+def G3(x, d, z):
+    return Vector((x, GY + d, z))
+
+
+def _tun_prof(p=0.0):
+    h, e, c = TUN_HALF - p, TUN_EAVE - 0.322 * p, TUN_CROWN - 0.51 * p
+    return [(-h, -0.3), (-h, e), (-c, TUN_H - p), (c, TUN_H - p), (h, e), (h, -0.3)]
+
+
+# The lamps: the bay's three panels, then the tunnel's, its wall lamps and the green strips in its kerbs.
+_panels = [(GX + 7.0, a, g_h - 0.45) for a in (-7.5, 0.0, 7.5)]
+_panel_x = [TUN_RIBS[0] + 2.2 + (TUN_BAY - 2.2) / 2]
+_kerb_x = [x for r in TUN_RIBS for x in (r + 5.3, r + 9.4)]
+for x, d, z in _panels:
+    GATE_LIGHTS.append(((x, GY + d, z - 0.6), _PALE, 5.5, 1.1))
+for x in _panel_x:
+    GATE_LIGHTS.append(((x, GY, 9.0), _PALE, 4.6, 1.5))
+for side in (1, -1):
+    for r in TUN_RIBS:
+        GATE_LIGHTS.append(((r + 1.1, GY + side * 6.35, 5.4), _GREEN, 2.0, 1.0))
+    for x in _panel_x:
+        GATE_LIGHTS.append(((x, GY + side * 7.4, 2.5), _GREEN, 1.5, 0.6))
+    for x in _kerb_x:
+        GATE_LIGHTS.append(((x, GY + side * 5.7, 0.5), _GREEN, 1.1, 0.55))
+
+# The bay's lining and the tunnel, dark inside: one mesh, its parts by material.
 bm = bmesh.new()
-add_box(bm, (pg.x + 50.5, pg.y, FAC_Z + g_h / 2), (1.0, g_w, g_h))
-add_box(bm, (pg.x + 50.0, pg.y, FAC_Z + g_h * 0.5), (0.4, 0.3, g_h * 0.95), 1)
-gate_me = mesh_from('City4.GateDoors', bm, [MAT['rust'], MAT['led']])
-box_uvs(gate_me, 0.2)
-obj('City4.GateDoors', gate_me, G['Facility'], ident='gate')
-# The gate's dark opening (score.py's 'gate' feature): a matte black card just inside the opening.
+_bx0, _bx1 = GX + 1.4, MOUTH - 0.03
+for side in (1, -1):
+    y = side * BAY_HALF
+    add_quad(bm, [G3(_bx0, y, -0.2), G3(_bx1, y, -0.2), G3(_bx1, y, g_h - 0.05), G3(_bx0, y, g_h - 0.05)])  # its wall
+    add_quad(bm, [G3(_bx1, side * TUN_HALF, -0.2), G3(_bx1, y, -0.2), G3(_bx1, y, g_h - 0.05),
+                  G3(_bx1, side * TUN_HALF, g_h - 0.05)])                                                   # back wall
+    add_quad(bm, [G3(_bx1, side * TUN_HALF, TUN_EAVE), G3(_bx1, side * TUN_CROWN, TUN_H),
+                  G3(_bx1, side * TUN_HALF, TUN_H)])                                                        # its corner
+add_quad(bm, [G3(_bx1, -TUN_HALF, TUN_H), G3(_bx1, TUN_HALF, TUN_H), G3(_bx1, TUN_HALF, g_h - 0.05),
+              G3(_bx1, -TUN_HALF, g_h - 0.05)])
+add_quad(bm, [G3(GX + 0.2, -BAY_HALF, g_h - 0.05), G3(MOUTH, -BAY_HALF, g_h - 0.05), G3(MOUTH, BAY_HALF, g_h - 0.05),
+              G3(GX + 0.2, BAY_HALF, g_h - 0.05)])                                                          # its roof
+_prof = _tun_prof()
+for (d0, z0), (d1, z1) in zip(_prof, _prof[1:]):
+    add_quad(bm, [G3(MOUTH, d0, z0), G3(END_X, d0, z0), G3(END_X, d1, z1), G3(MOUTH, d1, z1)])
+gate_dice(bm, 1.7)
+bm.normal_update()
+for f in bm.faces:  # all facing the road's axis and the roadway
+    c = f.calc_center_median()
+    if f.normal.dot(Vector((GX - 30.0 - c.x if c.x <= MOUTH else 0.0, GY - c.y, 5.0 - c.z))) < 0:
+        f.normal_flip()
+# The ribs (the concept's frames), kerbs and fittings: closed boxes.
+for r in TUN_RIBS:
+    for proud, x0, x1 in ((0.85, r, r + 2.2), (1.3, r + 0.45, r + 1.75)):
+        out_, in_ = _prof, _tun_prof(proud)
+        for a in range(len(_prof) - 1):
+            q = [out_[a], out_[a + 1], in_[a + 1], in_[a]]
+            v0 = [bm.verts.new(G3(x0, d, z)) for d, z in q]
+            v1 = [bm.verts.new(G3(x1, d, z)) for d, z in q]
+            for i in range(4):
+                j = (i + 1) % 4
+                bm.faces.new((v0[i], v0[j], v1[j], v1[i]))
+            bm.faces.new(v0)
+            bm.faces.new(list(reversed(v1)))
+    for side in (1, -1):
+        add_box(bm, G3(r + 1.1, side * 7.25, 1.4), (3.2, 1.6, 2.8))
+for side in (1, -1):
+    for a, b in ((TUN_RIBS[0] + 2.6, END_X - 0.4),):  # the kerb on from the rib
+        add_box(bm, ((a + b) / 2, GY + side * 6.58, 0.42), (b - a, 1.06, 0.84))
+        add_box(bm, ((a + b) / 2, GY + side * 6.62, 0.91), (b - a + 0.1, 1.2, 0.14))
+# The bay's frame round the tunnel's mouth: a heavy concrete collar.
+for side in (1, -1):
+    add_box(bm, (MOUTH - 0.5, GY + side * (TUN_HALF + 0.5), g_h / 2 - 0.4), (1.0, 1.0, g_h - 0.6))
+add_box(bm, (MOUTH - 0.5, GY, TUN_H + 0.5), (1.0, 2 * TUN_HALF + 2.0, 1.0))
+
+
+def _pipe(p0, p1, r, sides=6, mat=1):
+    res = sweep(bm, [p0, p0.lerp(p1, 0.33), p0.lerp(p1, 0.66), p1], circle_profile(r, sides), caps=False)
+    for ring in res:
+        for v in ring:
+            for f in v.link_faces:
+                f.material_index = mat
+
+
+for side in (1, -1):
+    for k, (d, r) in enumerate(((2.65, 0.2), (3.3, 0.15), (3.85, 0.24), (4.55, 0.15))):
+        z = 9.45 - 0.16 * k
+        _pipe(G3(MOUTH, side * d, z), G3(END_X, side * d, z), r)
+        # On over the bay, higher up, from the mouth's header.
+        _pipe(G3(GX + 2.0, side * d, g_h - 0.55 - 0.16 * k), G3(MOUTH, side * d, g_h - 0.55 - 0.16 * k), r)
+    _pipe(G3(MOUTH, side * 6.3, 8.1), G3(END_X, side * 6.3, 8.1), 0.3)
+    add_box(bm, G3((MOUTH + END_X) / 2, side * 7.42, 6.3), (END_X - MOUTH, 1.12, 0.07), 1)   # the cable tray
+    add_box(bm, G3((MOUTH + END_X) / 2, side * 6.88, 6.4), (END_X - MOUTH, 0.05, 0.22), 1)
+    for d, r in ((7.15, 0.09), (7.42, 0.12), (7.72, 0.1)):
+        _pipe(G3(MOUTH, side * d, 6.33 + r), G3(END_X, side * d, 6.33 + r), r, 5, 4)
+    for r in TUN_RIBS:  # wall lamps on the ribs
+        add_box(bm, G3(r + 1.1, side * 6.62, 5.4), (1.5, 0.16, 0.75), 1)
+        y = side * 6.53
+        add_quad(bm, [G3(r + 0.48, y, 5.12), G3(r + 1.72, y, 5.12), G3(r + 1.72, y, 5.68), G3(r + 0.48, y, 5.68)], 3)
+    for x in _kerb_x:  # the green strips in the kerbs
+        add_box(bm, G3(x, side * 6.03, 0.45), (1.75, 0.05, 0.42), 1)
+        y = side * 6.0
+        for z0, z1 in ((0.32, 0.42), (0.48, 0.58)):
+            add_quad(bm, [G3(x - 0.75, y, z0), G3(x + 0.75, y, z0), G3(x + 0.75, y, z1), G3(x - 0.75, y, z1)], 3)
+    for x in _panel_x:  # low wall lamps
+        add_box(bm, G3(x, side * 7.88, 2.5), (0.9, 0.22, 0.42), 1)
+        y = side * 7.76
+        add_quad(bm, [G3(x - 0.36, y, 2.34), G3(x + 0.36, y, 2.34), G3(x + 0.36, y, 2.66), G3(x - 0.36, y, 2.66)], 3)
+    for z in (2.4, 6.0):  # lamps by the mouth, on the collar
+        add_box(bm, (MOUTH - 1.1, GY + side * (TUN_HALF + 0.5), z), (0.2, 0.7, 0.4), 1)
+        add_quad(bm, [(MOUTH - 1.22, GY + side * (TUN_HALF + 0.25), z - 0.13), (MOUTH - 1.22, GY + side * (TUN_HALF + 0.75), z - 0.13),
+                      (MOUTH - 1.22, GY + side * (TUN_HALF + 0.75), z + 0.13), (MOUTH - 1.22, GY + side * (TUN_HALF + 0.25), z + 0.13)], 3)
+# The ceiling's light panels: a dark frame, lit cells 4 x 2 with bars between.
+for x, d, z in _panels + [(x, 0.0, 9.5) for x in _panel_x]:
+    add_box(bm, G3(x, d, z + 0.16), (3.0, 3.8, 0.3), 1)
+    for a in range(4):
+        for b in range(2):
+            yy, xx = (a - 1.5) * 0.9, (b - 0.5) * 1.36
+            add_quad(bm, [G3(x + xx - 0.64, d + yy - 0.41, z), G3(x + xx - 0.64, d + yy + 0.41, z),
+                          G3(x + xx + 0.64, d + yy + 0.41, z), G3(x + xx + 0.64, d + yy - 0.41, z)], 2)
+# Cross beams over the bay.
+for x in (GX + 3.0, GX + 11.0):
+    add_box(bm, (x, GY, g_h - 0.4), (0.6, 2 * BAY_HALF, 0.7), 1)
+vault_me = mesh_from('City4.GateVault', bm, [MAT['concrete'], GATE_STEEL, GATE_LAMP, GATE_GREEN, MAT['cable']], recalc=False)
+box_uvs(vault_me, 0.08)
+gate_bake(vault_me)
+obj('City4.GateVault', vault_me, G['Facility'], ident='gate')
+
+# The door leaves, standing open: rust-streaked plate, a heavy riveted frame, a hub near the free edge, spokes fanning out
+# from it; the hinge post with its great brackets. In each leaf's frame: u along it from the hinge, v up, w toward the road.
+LEAF_L, LEAF_H, LEAF_TH = 11.6, g_h - 0.6, math.radians(32.0)
 bm = bmesh.new()
-add_quad(bm, [(pg.x + 1.0, pg.y - g_w / 2, FAC_Z), (pg.x + 1.0, pg.y + g_w / 2, FAC_Z),
-              (pg.x + 1.0, pg.y + g_w / 2, FAC_Z + g_h), (pg.x + 1.0, pg.y - g_w / 2, FAC_Z + g_h)])
+for s_ in (1, -1):
+    c_, sn_ = math.cos(LEAF_TH), math.sin(LEAF_TH)
+    H0 = G3(GX + 1.4, s_ * 14.0, 0.0)
+    du, dw = Vector((c_, -s_ * sn_, 0)), Vector((-sn_, -s_ * c_, 0))
+
+    def W(u, v, w):
+        return H0 + du * u + dw * w + Vector((0, 0, v))
+
+    def lbox(u0, u1, v0, v1, w0, w1, mat=1):
+        vs = [bm.verts.new(W(u, v, w)) for u in (u0, u1) for v in (v0, v1) for w in (w0, w1)]
+        for f in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
+            bm.faces.new([vs[i] for i in f]).material_index = mat
+
+    def spoke(u0, v0, u1, v1, b, w0, w1, mat=1):
+        a = Vector((u1 - u0, v1 - v0))
+        p = Vector((-a.y, a.x)).normalized() * b / 2
+        cs = [(u0 - p.x, v0 - p.y), (u0 + p.x, v0 + p.y), (u1 + p.x, v1 + p.y), (u1 - p.x, v1 - p.y)]
+        lo = [bm.verts.new(W(u, v, w0)) for u, v in cs]
+        hi = [bm.verts.new(W(u, v, w1)) for u, v in cs]
+        for i in range(4):
+            j = (i + 1) % 4
+            bm.faces.new((lo[i], lo[j], hi[j], hi[i])).material_index = mat
+        bm.faces.new(list(reversed(lo))).material_index = mat
+        bm.faces.new(hi).material_index = mat
+
+    def rivet(u, v, w, r=0.19):
+        b = [bm.verts.new(W(u + a * r, v + e * r, w)) for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        top = bm.verts.new(W(u, v, w + r))
+        for i in range(4):
+            bm.faces.new((b[i], b[(i + 1) % 4], top)).material_index = 1
+
+    lbox(0.0, LEAF_L, 0.0, LEAF_H, -0.9, 0.0, 0)                                    # the plate
+    lbox(0.0, LEAF_L, 0.0, 0.9, 0.0, 0.42)                                          # the frame: foot, head, free edge
+    lbox(0.0, LEAF_L, LEAF_H - 0.9, LEAF_H, 0.0, 0.42)
+    lbox(LEAF_L - 0.8, LEAF_L, 0.9, LEAF_H - 0.9, 0.0, 0.42)
+    lbox(0.0, 1.5, 0.0, LEAF_H, 0.0, 0.8)                                           # the hinge post, thick
+    lbox(0.0, 1.5, 0.0, LEAF_H, -1.2, 0.0, 0)
+    for v in (1.5, 4.0, 6.5, 9.0, 11.5):                                            # hinge brackets, orange and huge
+        vv = v * LEAF_H / 12.9
+        lbox(-1.0, 1.9, vv - 0.5, vv + 0.5, -0.3, 1.1)
+        rivet(1.55, vv + 0.25, 1.1, 0.18)
+        rivet(1.55, vv - 0.25, 1.1, 0.18)
+    hu, hv, hr = LEAF_L - 3.0, LEAF_H * 0.47, 2.3
+    for k in range(10):                                                             # the spokes, out to the frame
+        a = math.radians(18 + 36 * k)
+        cu, cv = math.cos(a), math.sin(a)
+        t = min((((1.4 if cu < 0 else LEAF_L - 0.5) - hu) / cu) if abs(cu) > 1e-3 else 99,
+                (((0.6 if cv < 0 else LEAF_H - 0.6) - hv) / cv) if abs(cv) > 1e-3 else 99)
+        spoke(hu + cu * hr * 0.8, hv + cv * hr * 0.8, hu + cu * t, hv + cv * t, 1.0, 0.0, 0.6)
+    for r_w in ((hr, 0.72), (0.95, 1.1)):                                          # the hub
+        n_ = 16 if r_w[0] > 1 else 8
+        lo = [bm.verts.new(W(hu + r_w[0] * math.cos(2 * math.pi * i / n_), hv + r_w[0] * math.sin(2 * math.pi * i / n_), 0.0)) for i in range(n_)]
+        hi = [bm.verts.new(W(hu + r_w[0] * math.cos(2 * math.pi * i / n_), hv + r_w[0] * math.sin(2 * math.pi * i / n_), r_w[1])) for i in range(n_)]
+        for i in range(n_):
+            bm.faces.new((lo[i], lo[(i + 1) % n_], hi[(i + 1) % n_], hi[i])).material_index = 1
+        bm.faces.new(hi).material_index = 1
+    for i in range(10):
+        a = 2 * math.pi * i / 10
+        rivet(hu + 1.65 * math.cos(a), hv + 1.65 * math.sin(a), 0.72)
+    for t in frange(2.4, LEAF_L - 1.0, 1.25):                                       # rivets along the frame
+        rivet(t, 0.45, 0.42)
+        rivet(t, LEAF_H - 0.45, 0.42)
+    for t in frange(1.2, LEAF_H - 1.2, 1.25):
+        rivet(0.75, t, 0.8)
+        rivet(LEAF_L - 0.4, t, 0.42)
+gate_leaves = mesh_from('City4.GateLeaves', bm, [GATE_PLATE, GATE_TRIM])
+box_uvs(gate_leaves, 0.085)
+gate_bake(gate_leaves, tint=(1.0, 0.95, 0.88), day=[1.0, 1.0, 0.85, 0.4, 0.1])
+obj('City4.GateLeaves', gate_leaves, G['Facility'], ident='facility')
+
+# Sand blown in: banks beside the deck, up the bay to the doors' feet and along the tunnel's walls (art/core/gate.py carries
+# the same bank on from END), and thin flat tongues over the deck's edges, off its centre (z < 0.08).
+def gate_sand_h(x, a):
+    t = max(0.0, a - 5.8) / 2.2
+    if x >= MOUTH:
+        return 0.02 + 0.8 * t ** 1.25                         # (art/core/gate.py's bank, from END on)
+    h = 0.02 + float(smoothstep(GX - 9.0, GX - 1.0, x)) * (0.8 * min(t, 1.0) ** 1.25 + 0.22 * max(min(t, 3.0) - 1.0, 0.0))
+    return h * (1 - float(smoothstep(GX + 1.0, GX - 6.0, x)) * float(smoothstep(10.0, 14.5, a)))
+
+
+bm = bmesh.new()
+_xs_bay = frange(GX - 9.0, MOUTH - 0.01, 2.6) + [MOUTH]
+_xs_tun = [MOUTH + (END_X - MOUTH) * k / 8 for k in range(1, 9)]
+for side in (1, -1):
+    col_all = [5.82, 6.2, 6.9, 7.5, TUN_HALF - 0.02, 8.9, 10.2, 12.0, BAY_HALF]
+    grid = {}
+    for i, x in enumerate(_xs_bay + _xs_tun):
+        for j, a in enumerate(col_all):
+            if x > MOUTH + 0.01 and j > 4:
+                continue
+            grid[i, j] = bm.verts.new(G3(x, side * a, gate_sand_h(x, a)))
+    for i in range(len(_xs_bay + _xs_tun) - 1):
+        for j in range(len(col_all) - 1):
+            if all(k in grid for k in ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1))):
+                bm.faces.new((grid[i, j], grid[i + 1, j], grid[i + 1, j + 1], grid[i, j + 1]))
+    _r = random.Random(77 + side)
+    x = GX - 42.0
+    while x < END_X - 8.0:
+        length = _r.uniform(7.0, 15.0)
+        reach = _r.uniform(1.4, 3.9)
+        z = _r.uniform(0.03, 0.07)
+        edge, _foot = [], []
+        _ph = _r.uniform(0, 6.3)
+        for i in range(9):
+            t = i / 8
+            wd = math.sin(math.pi * t) ** 0.7 * (0.82 + 0.26 * math.sin(i * 1.3 + _ph))
+            edge.append(bm.verts.new(G3(x + length * t + 1.8 * wd, side * (5.95 - min(reach * wd, 4.15)), z)))
+            _foot.append(bm.verts.new(G3(x + length * t, side * 5.95, z * 0.5)))
+        for i in range(8):
+            bm.faces.new((_foot[i], _foot[i + 1], edge[i + 1], edge[i]))
+        x += length * _r.uniform(0.7, 1.15)
+gate_sand = mesh_from('City4.GateSand', bm, MAT['sand'], smooth=True, recalc=False)
+for poly in gate_sand.polygons:
+    if poly.normal.z < 0:
+        poly.flip()
+planar_uvs(gate_sand, 1 / 8.0)
+gate_bake(gate_sand, tint=(1.0, 0.92, 0.82), day=[1.0, 0.8, 0.42, 0.14, 0.07])
+obj('City4.GateSand', gate_sand, G['Drifts'])
+
+# The cable bundles: thick and ribbed, off the block's flanks and down the piers' fronts, into the heaped sand.
+def ribbed_cable(bm_, pts, r, ring=0.7):
+    """A ribbed hose along a smooth path through pts (Catmull-Rom), its radius stepping in and out every other ring."""
+    dense = []
+    ps = [pts[0]] + list(pts) + [pts[-1]]
+    for i in range(1, len(ps) - 2):
+        p0, p1, p2, p3 = ps[i - 1], ps[i], ps[i + 1], ps[i + 2]
+        for k in range(10):
+            t = k / 10
+            dense.append(0.5 * ((2 * p1) + (p2 - p0) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t +
+                                (3 * p1 - p0 - 3 * p2 + p3) * t ** 3))
+    dense.append(pts[-1])
+    path = resample_exact(dense, ring)
+    rings = []
+    for i, p in enumerate(path):
+        tn = (path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]).normalized()
+        sd = tn.cross(Vector((0, 1, 0)))
+        if sd.length < 1e-4:
+            sd = tn.cross(Vector((1, 0, 0)))
+        sd.normalize()
+        u_ = sd.cross(tn).normalized()
+        rr = r * (1.0 if i % 2 else 0.82)
+        rings.append([bm_.verts.new(p + sd * (rr * math.cos(a)) + u_ * (rr * math.sin(a))) for a in
+                      [2 * math.pi * k / 6 for k in range(6)]])
+    for a, b in zip(rings, rings[1:]):
+        for k in range(6):
+            j = (k + 1) % 6
+            bm_.faces.new((a[k], a[j], b[j], b[k]))
+
+
+bm = bmesh.new()
+_crng = random.Random(9)
+for side in (1, -1):
+    y0 = side * (blk_w / 2 + 0.5)   # off the flank of the block
+    for k in range(4):
+        y = y0 + side * k * 0.95
+        z_top = 13.0 - k * 0.5
+        ribbed_cable(bm, [G3(GX + 7.0, y, z_top), G3(GX + 4.5, y, z_top - 0.3), G3(GX + 1.5, y + side * 0.2, z_top - 2.2),
+                          G3(GX - 0.5, y + side * 0.5, 6.0), G3(GX - 2.5, y + side * 1.0, 3.2),
+                          G3(GX - 7.0 - k, y + side * 1.8, 1.0), G3(GX - 12.5 - k, y + side * 2.6, -0.5)], 0.34 - 0.02 * k)
+    y0 = side * (g_w / 2 + pier * 0.27)   # down the pier's front, under the plate
+    for k in range(3):
+        y = y0 + side * k * 0.95
+        z_top = 6.4
+        ribbed_cable(bm, [G3(GX + 0.2, y, z_top + 0.3), G3(GX - 0.45, y, z_top), G3(GX - 0.6, y, 3.8),
+                          G3(GX - 1.6, y + side * 0.2, 1.6), G3(GX - 4.8 - k, y + side * 0.6, 0.3),
+                          G3(GX - 8.5 - k, y + side * 1.0, -0.5)], 0.36 - 0.03 * k)
+    add_box(bm, G3(GX - 0.35, y0 + side * 0.8, 5.0), (0.7, 3.0, 0.5))     # a clamp over them
+cab_me = mesh_from('City4.GateCables', bm, MAT['cable'], recalc=False)
+set_vcol(cab_me, np.full(len(cab_me.vertices), 0.85))
+obj('City4.GateCables', cab_me, G['Cables'], ident='facility')
+
+# Green-lit server slits let into the piers, racks of pinpoints.
+bm = bmesh.new()
+_srng = random.Random(14)
+for side, z0, z1 in ((1, 1.2, 6.0), (-1, 1.2, 12.6)):
+    yc_ = GY + side * (g_w / 2 + pier * 0.27 + 0.8)
+    add_box(bm, (GX - 0.06, yc_, (z0 + z1) / 2), (0.12, 2.3, z1 - z0))
+    for r_ in frange(z0 + 0.3, z1 - 0.3, 0.46):
+        for c_ in range(5):
+            if _srng.random() < 0.62:
+                yy = yc_ + (c_ - 2) * 0.42
+                add_quad(bm, [(GX - 0.14, yy - 0.15, r_ - 0.05), (GX - 0.14, yy + 0.15, r_ - 0.05),
+                              (GX - 0.14, yy + 0.15, r_ + 0.05), (GX - 0.14, yy - 0.15, r_ + 0.05)], 1)
+slit_me = mesh_from('City4.GateSlits', bm, [GATE_DARK, GATE_GREEN], recalc=False)
+set_vcol(slit_me, np.ones(len(slit_me.vertices)))
+obj('City4.GateSlits', slit_me, G['Facility'], ident='facility')
+
+# The dark card at the tunnel's far end, where the RoadOut ends (score.py's 'gate' feature was this): the site hides it
+# once the next zone is placed, so the tunnel carries on with no seam to see.
+bm = bmesh.new()
+add_quad(bm, [(END_X - 0.02, GY - TUN_HALF - 0.05, FAC_Z - 0.3), (END_X - 0.02, GY + TUN_HALF + 0.05, FAC_Z - 0.3),
+              (END_X - 0.02, GY + TUN_HALF + 0.05, FAC_Z + TUN_H + 0.05), (END_X - 0.02, GY - TUN_HALF - 0.05, FAC_Z + TUN_H + 0.05)])
 dark = material('City4GateShadow', (0.02, 0.02, 0.018), 1.0, vcol=False)
 gsh = obj('City4.GateShadow', mesh_from('City4.GateShadow', bm, dark), G['Facility'], ident='gate')
-gsh['note'] = 'the shadow in the gate opening; hide it if the site lights the tunnel'
+gsh['note'] = 'the dark at the tunnel\'s far end (at RoadOut END); hidden once the next zone is placed'
 bm = bmesh.new()
-add_box(bm, (pg.x - 0.15, pg.y, FAC_Z + g_h + 0.6), (0.2, g_w * 0.9, 0.35))       # the light bar
-for k in range(-3, 4):                                                          # lamps in the opening's jambs
-    for side in (1, -1):
-        add_box(bm, (pg.x + 3 + abs(k) * 4, pg.y + side * (g_w / 2 - 0.1), FAC_Z + g_h * 0.8), (0.6, 0.15, 0.3))
+add_box(bm, (GX - 0.66, GY, FAC_Z + g_h + 0.9), (0.2, g_w * 0.62, 0.3))         # the light bar over the opening
 # The insignia (original): a hexagon standing on its point round a vertical double helix (two strands, four rungs),
 # green-lit on the lintel; and a stencilled serial plate, D4, on the left pier.
 ic = Vector((pg.x - 0.12, pg.y, FAC_Z + g_h + (blk_h - g_h) * 0.55))
@@ -1414,10 +1872,12 @@ for t in (0.07, 0.21, 0.36, 0.5, 0.64, 0.79, 0.93):
     if abs(yv) > ir * 0.08:
         add_box(bm, (ic.x - 0.02, ic.y, ic.z + ir * 0.7 * (2 * t - 1)), (0.2, abs(yv) * 2, 0.09))
 # The serial plate: a dark steel plate, the code in lit stencil pixels.
-plate_c = Vector((pg.x - 0.3, pg.y + g_w / 2 + pier * 0.5, FAC_Z + g_h * 0.62))
+plate_c = Vector((pg.x - 2.45, pg.y + g_w / 2 + pier * 0.5, FAC_Z + 9.0))  # (proud of the buttresses, on brackets)
 code = 'D4'
 px_m = 0.5
 add_box(bm, (plate_c.x + 0.12, plate_c.y, plate_c.z), (0.15, px_m * (len(code) * 6 + 2), px_m * 10), 1)
+for _dy in (-2.6, 2.6):
+    add_box(bm, (plate_c.x + 1.3, plate_c.y + _dy, plate_c.z), (2.4, 0.3, 0.5), 1)
 for ci, ch in enumerate(code):
     for k, bit in enumerate(FONT[ch]):
         if bit == '1':
@@ -1649,7 +2109,7 @@ print('storm puffs', len(edge_cards), '+', len(tail_cards))
 # The haze's top: only ~45 m.
 for v in hz.data.vertices:
     if v.co.z > 0:
-        v.co.z = 46.0 + 14.0 * math.sin(v.co.x * 0.01 + v.co.y * 0.013)
+        v.co.z = 46.0 + 14.0 * math.sin((v.co.x - LONG_DX) * 0.01 + v.co.y * 0.013)
 
 
 def bolt(bm, pts, width, branches=2, rng=None):
@@ -1718,6 +2178,23 @@ def fbm2(x, y, seed, octaves=4):
     return out / tot
 
 
+# The noise under the dunes: the old road's up to the long way, a fresh patch along it, the old road's (offset by LONG_DX)
+# past it, so the final straight's dunes are the ones they were.
+NOISE_FADES = (1800.0, 2200.0, 3750.0, 4150.0)
+NOISE_MID = (-9100.0, -5300.0)
+
+
+def noise_zones(fn, x, y):
+    """fn(x, y) in the noise's zone at each x, crossfaded between zones."""
+    b, c = smoothstep(*NOISE_FADES[:2], x), smoothstep(*NOISE_FADES[2:], x)
+    out = np.zeros(len(x))
+    for w, (dx, dy) in ((1 - b, (0.0, 0.0)), (b * (1 - c), NOISE_MID), (c, (LONG_DX, 0.0))):
+        sel = w > 0
+        if sel.any():
+            out[sel] += w[sel] * fn(x[sel] - dx, y[sel] - dy)
+    return out
+
+
 def dune_field(x, y):
     """0..1: transverse dune ridges across the wind (the storm blows from +X): long gentle windward slopes, short
     steep slip faces, their crests warped and broken by noise; broad swells and small dunes over them."""
@@ -1739,9 +2216,18 @@ def road_coords_many(X, Y):
 
 
 # (Along the road, m, and their height; long up the windward side, short down the slip face.)
-RAMPS = ((620.0, 2.4), (1850.0, 3.0), (2360.0, 3.4))
+RAMPS = ((620.0, 2.4), (then_s(1850.0), 3.0), (then_s(2360.0), 3.4),
+         (1985.0, 2.8), (2615.0, 3.2), (3235.0, 2.8), (3900.0, 3.4))    # (the last four on the long way)
 RAMP_UP, RAMP_DOWN = 46.0, 18.0
 ROAD_SAND_MAX = 3.4
+# The long way's character in its dunes: how big they run, by metres along the road (1 anywhere else).
+DUNE_GAIN = ((1740.0, 1.0), (1860.0, 1.75), (2300.0, 1.75), (2420.0, 0.75), (2830.0, 0.7), (3380.0, 0.6), (3480.0, 1.2),
+             (3820.0, 1.25), (3950.0, 1.0))
+
+
+def ripples(x, y):
+    rip = (0.5 + 0.5 * np.sin(2 * np.pi * ((x * 0.85 + y * 0.35) / 26.0 + 2.5 * fbm2(x / 90, y / 90, 11, 2)))) ** 2
+    return rip * (0.6 + 0.4 * fbm2(x / 40, y / 40, 12, 2))
 
 
 def terrain_h(X, Y):
@@ -1749,7 +2235,8 @@ def terrain_h(X, Y):
     S, L = road_coords_many(X, Y)
     d = np.abs(L)
     amp = smoothstep(9.0, 32.0, d) * (11.0 + 26.0 * smoothstep(30.0, 450.0, d))
-    h = -0.15 + 0.5 * np.exp(-((d - 8.6) / 2.0) ** 2) + amp * dune_field(X, Y)
+    amp = amp * np.interp(S, [g[0] for g in DUNE_GAIN], [g[1] for g in DUNE_GAIN])
+    h = -0.15 + 0.5 * np.exp(-((d - 8.6) / 2.0) ** 2) + amp * noise_zones(dune_field, X, Y)
     # Zone 3's side: left of the first ~420 m stays low and flat (its city stands there).
     w3 = (L > 0) * (1 - smoothstep(380.0, 470.0, S)) * smoothstep(6.8, 10.0, d)
     h = h * (1 - w3) - 1.2 * w3
@@ -1761,8 +2248,7 @@ def terrain_h(X, Y):
     h = h * (1 - 0.75 * corridor)
     # Wind ripples near the road: low sand waves 26 m apart either side of it, fading out by ~150 m.
     rip_w = smoothstep(7.5, 13.0, d) * (1 - smoothstep(70.0, 150.0, d)) * (1 - 0.45 * corridor)
-    rip = (0.5 + 0.5 * np.sin(2 * np.pi * ((X * 0.85 + Y * 0.35) / 26.0 + 2.5 * fbm2(X / 90, Y / 90, 11, 2)))) ** 2
-    h = h + rip_w * 0.95 * rip * (0.6 + 0.4 * fbm2(X / 40, Y / 40, 12, 2))
+    h = h + rip_w * 0.95 * noise_zones(ripples, X, Y)
     # The ramps: dunes blown right across the road (the bike rides up them and takes off: City4.RoadPath's heights).
     for (rs, rh) in RAMPS:
         rise = smoothstep(rs - RAMP_UP, rs, S) * (1 - smoothstep(rs, rs + RAMP_DOWN, S))
@@ -1779,47 +2265,57 @@ def terrain_h(X, Y):
 
 
 # --- The approach, planned before the dunes are made (its monoliths and the toppled tower heap sand round them) ----------
-GANTRY_S = (820.0, 2050.0)
+GANTRY_S_THEN = (820.0, 2050.0)                  # (on the road without the long way)
+GANTRY_S = (820.0, 2480.0, 4200.0, then_s(2050.0))
 TOPPLED_S = 1380.0
+TOPPLED_S2 = 3565.0
 PLANNED = []   # (kind, pos (base), yaw, scale, tilt, tag)
-FOOT = []      # (x, y, r): footprints taken
+FOOT = []      # (x, y, r): footprints taken (while the old stretches are planned: on the road without the long way)
 for key, (kind, pos, yaw, sc, tilt) in COMPOSED.items():
-    FOOT.append((pos.x, pos.y, max(DIMS[kind][0], DIMS[kind][1]) * sc[0] * 0.7 + 4))
+    FOOT.append((pos.x - LONG_DX, pos.y, max(DIMS[kind][0], DIMS[kind][1]) * sc[0] * 0.7 + 4))
 
 
-def foot_free(x, y, r):
-    return all(math.hypot(x - fx, y - fy) > r + fr + 8 for fx, fy, fr in FOOT)
+def foot_free(x, y, r, margin=8.0):
+    return all(math.hypot(x - fx, y - fy) > r + fr + margin for fx, fy, fr in FOOT)
 
 
 def base_dune(x, y):
     return float(terrain_h(np.array([x]), np.array([y]))[0])
 
 
-def plan_monolith(kind, x, y, scale, yaw, tilt, tag, sink_k=0.12):
+def plan_monolith(kind, x, y, scale, yaw, tilt, tag, sink_k=0.12, foot_at=None, mound_r=None):
     W, D, Hh = DIMS[kind]
     zb = base_dune(x, y)
     sink = sink_k * Hh * scale
-    MOUNDS.append((x, y, max(W, D) * scale * 0.8 + 9.0, zb + 0.5 * scale))
-    FOOT.append((x, y, max(W, D) * scale * 0.7))
+    r = max(W, D) * scale * 0.8 + 9.0
+    MOUNDS.append((x, y, r if mound_r is None else min(r, mound_r), zb + 0.5 * scale))
+    FOOT.append((*(foot_at or (x, y)), max(W, D) * scale * 0.7))
     PLANNED.append((kind, Vector((x, y, zb + 0.5 * scale - sink)), yaw, scale, tilt, tag))
 
 
-# The toppled tower: a tower module 2.6x as long, fallen across the road at 55 deg, its fans facing down onto the road,
+def plan_fallen(s, lat, angle, sc, z_mid, ends=((0.1, 8.0), (0.92, 11.5)), pitch=6.0, end_r=34.0):
+    """A tower module fallen flat: its middle at z_mid over the point `lat` off the road at s, `angle` degrees round from
+    the road's line (its base end back along that), sand heaped under its ends (t along it, z). Returns (base, dirn, sc,
+    pitch), for fallen_tower below."""
+    p, t, _ = road_frame(s)
+    c = along(s, lat)
+    dirn = (Matrix.Rotation(math.radians(angle), 3, 'Z') @ t).normalized()
+    length = DIMS['tower'][2] * sc[2]
+    base = Vector((c.x, c.y, z_mid)) - dirn * (length * 0.45)
+    base.z = z_mid - math.sin(math.radians(pitch)) * length * 0.45
+    for u, zz in ends:
+        e = base + dirn * (length * u)
+        MOUNDS.append((e.x, e.y, end_r, zz))
+        FOOT.append((e.x, e.y, 22.0))
+    FOOT.append((c.x, c.y, 30.0))
+    return base, dirn, sc, pitch
+
+
+# The toppled towers: a tower module 2.6x as long, fallen across the road at 55 deg, its fans facing down onto the road,
 # its ends on dunes either side; the road passes ~9 m under it.
-_tp, _tt, _tn = road_frame(TOPPLED_S)
-TOPPLED_DIR = (Matrix.Rotation(math.radians(55), 3, 'Z') @ _tt).normalized()
-TOPPLED_SC = (1.6, 1.6, 2.6)
-_tlen = DIMS['tower'][2] * TOPPLED_SC[2]
-_tz = 14.0
-TOPPLED_BASE = Vector((_tp.x, _tp.y, _tz)) - TOPPLED_DIR * (_tlen * 0.45)
-TOPPLED_BASE.z = _tz - math.sin(math.radians(6)) * _tlen * 0.45
-for t, zz in ((0.1, 8.0), (0.92, 11.5)):
-    e = TOPPLED_BASE + TOPPLED_DIR * (_tlen * t)
-    MOUNDS.append((e.x, e.y, 34.0, zz))
-    FOOT.append((e.x, e.y, 22.0))
-FOOT.append((_tp.x, _tp.y, 30.0))
-for gs in GANTRY_S:
-    gp, _, _ = road_frame(gs)
+FALLEN = [plan_fallen(TOPPLED_S, 0.0, 55.0, (1.6, 1.6, 2.6), 14.0)]
+for gs in GANTRY_S_THEN:
+    gp = along_then(gs, 0.0)
     FOOT.append((gp.x, gp.y, 16.0))
 
 # The hero server close on the right at the start (concept-transition-desert's: fans and a terminal, leaning).
@@ -1827,7 +2323,7 @@ _hp = along(176.0, -25.0)
 plan_monolith('fanwall', _hp.x, _hp.y, 1.45, face_yaw((APP_EYE - _hp).normalized()) - math.radians(8),
               (math.radians(-5), math.radians(5)), 'hero', sink_k=0.02)
 # Server fields: clusters every ~70 m, either side (not the left of the first 450 m), 26-200 m off the road.
-for s in frange(60.0, S_CAM - 40.0, 70.0):
+for s in frange(60.0, S_CAM_THEN - 40.0, 70.0):
     for side in (-1, 1):
         if side > 0 and s < 470:
             continue
@@ -1844,18 +2340,19 @@ for s in frange(60.0, S_CAM - 40.0, 70.0):
                 r = max(W, D) * scale * 0.7
                 if abs(lat) < ROAD_W / 2 + 18 + r:
                     continue
-                p = along(ss, lat)
-                if p.x < 20 or p.x > X_CAM - 20 or not foot_free(p.x, p.y, r):
+                p = along_then(ss, lat)
+                if p.x < 20 or p.x > X_CAM_THEN - 20 or not foot_free(p.x, p.y, r):
                     continue
-                to_road = (along(ss, 0) - p).normalized()
+                to_road = (along_then(ss, 0) - p).normalized()
                 yaw = face_yaw((Matrix.Rotation(rnd.uniform(-0.9, 0.9), 3, 'Z') @ to_road).normalized())
                 tilt = (math.radians(rnd.uniform(-9, 9)), math.radians(rnd.uniform(-9, 9)))
-                plan_monolith(kind, p.x, p.y, scale, yaw, tilt, f'field{int(s)}')
+                q = then_xy(p, ss)
+                plan_monolith(kind, q.x, q.y, scale, yaw, tilt, f'field{int(s)}', foot_at=(p.x, p.y))
                 break
 # Close by the road: half-buried, leaning monoliths every ~46 m, alternating sides, 15-45 m off the deck, so the ride
 # threads between them.
 side = -1
-for s in frange(90.0, S_CAM - 45.0, 46.0):
+for s in frange(90.0, S_CAM_THEN - 45.0, 46.0):
     side = -side if rnd.random() < 0.75 else side
     sd = side if not (side > 0 and s < 480) else -1
     if rnd.random() > 0.8:
@@ -1867,32 +2364,156 @@ for s in frange(90.0, S_CAM - 45.0, 46.0):
         r = max(W, D) * scale * 0.7
         lat = sd * (ROAD_W / 2 + rnd.uniform(9.0, 30.0) + r)
         ss = s + rnd.uniform(-12, 12)
-        p = along(ss, lat)
-        if p.x < 20 or p.x > X_CAM - 25 or not foot_free(p.x, p.y, r):
+        p = along_then(ss, lat)
+        if p.x < 20 or p.x > X_CAM_THEN - 25 or not foot_free(p.x, p.y, r):
             continue
-        to_road = (along(ss, 0) - p).normalized()
+        to_road = (along_then(ss, 0) - p).normalized()
         yaw = face_yaw((Matrix.Rotation(rnd.uniform(-1.0, 1.0), 3, 'Z') @ to_road).normalized())
         tilt = (math.radians(rnd.uniform(-16, 16)), math.radians(rnd.uniform(-16, 16)))
-        plan_monolith(kind, p.x, p.y, scale, yaw, tilt, f'near{int(s)}', sink_k=rnd.uniform(0.28, 0.5))
+        q = then_xy(p, ss)
+        plan_monolith(kind, q.x, q.y, scale, yaw, tilt, f'near{int(s)}', sink_k=rnd.uniform(0.28, 0.5), foot_at=(p.x, p.y))
         break
 # Far silhouettes: big ones out in the dunes, 280-900 m off the road.
 for k in range(44):
     for _try in range(30):
-        ss = rnd.uniform(0, S_CAM - 60)
+        ss = rnd.uniform(0, S_CAM_THEN - 60)
         side = rnd.choice((-1, 1))
         if side > 0 and ss < 520:
             side = -1
         lat = side * rnd.uniform(280, 900)
-        p = along(ss, lat)
+        p = along_then(ss, lat)
         kind = rnd.choice(('tower', 'slab', 'slab', 'fanwall'))
         scale = rnd.uniform(1.4, 2.6)
         r = max(DIMS[kind][0], DIMS[kind][1]) * scale * 0.7
-        if p.x < 40 or p.x > X_CAM - 40 or not foot_free(p.x, p.y, r):
+        if p.x < 40 or p.x > X_CAM_THEN - 40 or not foot_free(p.x, p.y, r):
             continue
         tilt = (math.radians(rnd.uniform(-12, 12)), math.radians(rnd.uniform(-12, 12)))
-        plan_monolith(kind, p.x, p.y, scale, rnd.uniform(0, 6.28), tilt, f'far{k}', sink_k=0.2)
+        q = then_xy(p, ss)
+        plan_monolith(kind, q.x, q.y, scale, rnd.uniform(0, 6.28), tilt, f'far{k}', sink_k=0.2, foot_at=(p.x, p.y))
         break
-print('planned monoliths', len(PLANNED))
+N_THEN = len(PLANNED)
+
+# --- The long way: its own random stream, so nothing above changes. The footprints from here on are where things are. ---
+rl = random.Random(2700)
+FOOT.clear()
+for key, (kind, pos, yaw, sc, tilt) in COMPOSED.items():
+    FOOT.append((pos.x, pos.y, max(DIMS[kind][0], DIMS[kind][1]) * sc[0] * 0.7 + 4))
+for kind, pos, yaw, scale, tilt, tag in PLANNED:
+    FOOT.append((pos.x, pos.y, max(DIMS[kind][0], DIMS[kind][1]) * scale * 0.7))
+for gs in GANTRY_S:
+    gp, _, _ = road_frame(gs)
+    FOOT.append((gp.x, gp.y, 16.0))
+FALLEN.append(plan_fallen(TOPPLED_S2, 0.0, -52.0, (1.5, 1.5, 2.5), 15.5, ends=((0.08, 9.0), (0.93, 13.5)), end_r=28.0))
+# Two more lying in the sand beside the road, half sunk, sand drifted up their flanks.
+FALLEN.append(plan_fallen(3470.0, 62.0, 14.0, (1.9, 1.9, 2.2), 7.0, ends=((0.15, 8.5), (0.5, 8.0), (0.85, 7.0)), pitch=3.0,
+                          end_r=30.0))
+FALLEN.append(plan_fallen(3745.0, -78.0, -24.0, (2.2, 2.2, 1.9), 8.0, ends=((0.2, 10.0), (0.8, 9.5)), pitch=-4.0,
+                          end_r=30.0))
+
+
+def long_piece(kind, ss, lat, scale, turn, tilt, tag, sink_k=0.12, margin=8.0):
+    """A monolith `lat` off the road at ss, facing it (give or take `turn` radians), leaning by tilt (deg, + toward the
+    road about x); its sand kept off the deck. False if the spot's taken."""
+    p = along(ss, lat)
+    r = max(DIMS[kind][0], DIMS[kind][1]) * scale * 0.7
+    if not foot_free(p.x, p.y, r, margin):
+        return False
+    to_road = (along(ss, 0) - p).normalized()
+    yaw = face_yaw((Matrix.Rotation(turn, 3, 'Z') @ to_road).normalized())
+    plan_monolith(kind, p.x, p.y, scale, yaw, (math.radians(tilt[0]), math.radians(tilt[1])), tag, sink_k=sink_k,
+                  mound_r=abs(lat) - ROAD_W / 2 - 2.0)
+    return True
+
+
+# The ranks: a buried hall's aisle. Fan walls in a line down each side of the road, facing it across the deck, slabs in the
+# row behind them, towers behind those, all square to the road and to each other, a few gone.
+RANK_COLS = ((27.0, 'fanwall', 1.15), (61.0, 'slab', 1.25), (97.0, 'tower', 1.35), (140.0, 'slab', 1.7))
+for i, s in enumerate(frange(2440.0, 2815.0, 37.0)):
+    for side in (-1, 1):
+        for col, (lat0, kind, sc0) in enumerate(RANK_COLS):
+            if rl.random() < 0.12 + 0.05 * col:
+                continue
+            sink = rl.uniform(0.04, 0.3) if kind == 'fanwall' else rl.uniform(0.04, 0.16)
+            long_piece(kind, s + rl.uniform(-1.5, 1.5), side * (lat0 + rl.uniform(-1.5, 1.5)), sc0 * rl.uniform(0.96, 1.04),
+                       rl.uniform(-0.02, 0.02), (rl.uniform(-1.2, 1.2), rl.uniform(-1.2, 1.2)), 'ranks', sink_k=sink,
+                       margin=2.0)
+# The canyon: down the great sweep, the tallest walling the road, rising to it and falling away after.
+def canyon_env(s):
+    return float(smoothstep(2830.0, 2930.0, s)) * (1 - float(smoothstep(3310.0, 3400.0, s)))
+
+
+for side in (-1, 1):
+    for wall, (lat0, lat1, sc0, sc1, every) in enumerate(((10.5, 15.0, 0.8, 1.9, 1.0), (40.0, 62.0, 1.0, 2.4, 1.15),
+                                                          (105.0, 170.0, 1.6, 3.0, 1.6))):
+        s = 2835.0 + rl.uniform(0.0, 8.0)
+        while s < 3395.0:
+            e = canyon_env(s)
+            kind = rl.choices(('tower', 'slab', 'fanwall'), (0.6, 0.32, 0.08))[0]
+            scale = (sc0 + (sc1 - sc0) * e) * rl.uniform(0.85, 1.15)
+            W = DIMS[kind][0]
+            lat = side * (W * scale * 0.7 + rl.uniform(lat0, lat1))
+            long_piece(kind, s, lat, scale, rl.uniform(-0.3, 0.3), (rl.uniform(-2.0, 8.0), rl.uniform(-4.0, 4.0)), 'canyon',
+                       sink_k=rl.uniform(0.04, 0.14), margin=-2.0)
+            s += W * scale * every * rl.uniform(0.85, 1.2) + rl.uniform(0.0, 4.0)
+# The wrecks: giants out in the sand, leaning hard.
+for k in range(9):
+    for _try in range(12):
+        ss = rl.uniform(3410.0, 3800.0)
+        side = rl.choice((-1, 1))
+        kind = rl.choice(('tower', 'tower', 'slab'))
+        scale = rl.uniform(1.4, 2.5)
+        W = DIMS[kind][0]
+        lat = side * (W * scale * 0.7 + rl.uniform(16.0, 90.0))
+        if long_piece(kind, ss, lat, scale, rl.uniform(-1.2, 1.2), (rl.uniform(-18.0, 18.0), rl.uniform(-18.0, 18.0)), 'wreck',
+                      sink_k=rl.uniform(0.15, 0.3)):
+            break
+# And the scatter of the old stretches, thinning into the open and through it, back on the way in.
+LONG_DENSITY = ((LONG_S0, 0.8), (LONG_S0 + 80.0, 0.0), (2385.0, 0.0), (2430.0, 0.05), (2830.0, 0.05), (2900.0, 0.1), (3380.0, 0.1),
+                (3450.0, 0.4), (3800.0, 0.5), (4050.0, 0.8))
+
+
+def long_density(s):
+    return float(np.interp(s, [d[0] for d in LONG_DENSITY], [d[1] for d in LONG_DENSITY]))
+
+
+for s in frange(LONG_S0 + 10.0, LONG_S1 - 30.0, 70.0):
+    for side in (-1, 1):
+        if rl.random() > long_density(s):
+            continue
+        for _ in range(rl.choice((1, 2, 2, 3, 3, 4))):
+            kind = rl.choices(('tower', 'slab', 'fanwall'), (0.35, 0.4, 0.25))[0]
+            lat = side * rl.uniform(26, 200)
+            scale = rl.uniform(0.45, 1.3) * (1.0 + 0.004 * max(0.0, abs(lat) - 60))
+            W, D, Hh = DIMS[kind]
+            if abs(lat) < ROAD_W / 2 + 18 + max(W, D) * scale * 0.7:
+                continue
+            long_piece(kind, s + rl.uniform(-40, 40), lat, scale, rl.uniform(-0.9, 0.9), (rl.uniform(-9, 9), rl.uniform(-9, 9)),
+                       'field')
+side = -1
+for s in frange(LONG_S0 + 20.0, LONG_S1 - 30.0, 46.0):
+    side = -side if rl.random() < 0.75 else side
+    if rl.random() > long_density(s):
+        continue
+    kind = rl.choices(('tower', 'slab', 'fanwall'), (0.4, 0.35, 0.25))[0]
+    scale = rl.uniform(0.4, 0.85)
+    lat = side * (ROAD_W / 2 + rl.uniform(9.0, 30.0) + max(DIMS[kind][0], DIMS[kind][1]) * scale * 0.7)
+    long_piece(kind, s + rl.uniform(-12, 12), lat, scale, rl.uniform(-1.0, 1.0), (rl.uniform(-16, 16), rl.uniform(-16, 16)), 'near',
+               sink_k=rl.uniform(0.28, 0.5))
+# Far silhouettes, as above (further out from the open).
+for k in range(40):
+    for _try in range(30):
+        ss = rl.uniform(LONG_S0, LONG_S1)
+        lat = rl.choice((-1, 1)) * rl.uniform(480 if ss < 2420.0 else 280, 900)
+        p = along(ss, lat)
+        kind = rl.choice(('tower', 'slab', 'slab', 'fanwall'))
+        scale = rl.uniform(1.4, 2.6)
+        r = max(DIMS[kind][0], DIMS[kind][1]) * scale * 0.7
+        if p.x < 1000 or p.x > X_CAM - 40 or abs(road_coords(p.x, p.y)[1]) < 270 or not foot_free(p.x, p.y, r):
+            continue
+        plan_monolith(kind, p.x, p.y, scale, rl.uniform(0, 6.28), (math.radians(rl.uniform(-12, 12)), math.radians(rl.uniform(-12, 12))),
+                      f'far{k}', sink_k=0.2)
+        break
+print('planned monoliths', N_THEN, '+', len(PLANNED) - N_THEN, 'on the long way', {k: sum(1 for p in PLANNED[N_THEN:] if p[5].startswith(k)) for k in ('ranks', 'canyon', 'wreck', 'field', 'near', 'far')})
 
 
 TAG[0] = None
@@ -1978,11 +2599,16 @@ def far_keep(X, Y):
 
 def far_sink(X, Y):
     S, L = road_coords_many(X, Y)
-    return 3.0 * (1 - smoothstep(BAND - 60, BAND + 40, np.abs(L)))
+    # (Under the long way's bigger dunes it's sunk well clear, or its coarse cells come up through the road.)
+    on_long = smoothstep(LONG_S0, LONG_S0 + 60.0, S) * (1 - smoothstep(LONG_S1 - 60.0, LONG_S1, S))
+    return 3.0 * (1 - smoothstep(BAND - 60, BAND + 40, np.abs(L))) + \
+        40.0 * on_long * (1 - smoothstep(BAND - 140, BAND - 60, np.abs(L)))
 
 
-for k, fx in enumerate(frange(0.0, FAR_X1 - 1, 1040.0)):
-    o = grid_mesh(f'City4.DunesFar.{k:02d}', fx, min(fx + 1040.0, FAR_X1), Y_F - FAR_Y, Y_F + FAR_Y, 80.0, far_keep,
+# (Its chunks fall where they did: as they were along the old road, LONG_DX on from them past the long way.)
+_far_edges = [0.0, 1040.0, 2080.0] + frange(LONG_DX, FAR_X1 - 1, 1040.0) + [FAR_X1]
+for k, (fx, fx1) in enumerate(zip(_far_edges, _far_edges[1:])):
+    o = grid_mesh(f'City4.DunesFar.{k:02d}', fx, fx1, Y_F - FAR_Y, Y_F + FAR_Y, 80.0, far_keep,
                   G['Dunes'], sink=far_sink)
     if o:
         terrain_objs.append(o)
@@ -2060,19 +2686,29 @@ def drift(bm, s0, s1, l0, l1, hmax, seed, ns=None, nl=None, skew=0.0):
 # Drifts every so often down the road, from one side or the other (the bike line stays clear: at most 1.5 m from the
 # centre); heavier toward the facility. The arrival's left lane is under a big one, the CRTs lying in it.
 drift_cells = {}
-for k, s in enumerate(frange(90.0, S_CAM - 60, 55.0)):
+for k, s_then in enumerate(frange(90.0, S_CAM_THEN - 60, 55.0)):
     if rnd.random() < 0.55:
         side = rnd.choice((-1, 1))
         L = rnd.uniform(10, 34)
         reach = rnd.uniform(2.5, 4.4)
+        s = then_s(s_then)
         drift_cells.setdefault(int(along(s, 0).x // TILE), []).append(
             (s, s + L, side * (ROAD_W / 2 + 0.3), side * (ROAD_W / 2 - reach), rnd.uniform(0.04, 0.09), k,
              rnd.uniform(-0.3, 0.3)))
+for k, s in enumerate(frange(LONG_S0 + 15.0, LONG_S1 - 40.0, 55.0)):  # (the long way's: most of all across the open)
+    the_open = LONG_S0 < s < 2420.0
+    if rl.random() < (0.85 if the_open else 0.5):
+        side = rl.choice((-1, 1))
+        L = rl.uniform(14, 44) if the_open else rl.uniform(10, 34)
+        reach = rl.uniform(3.0, 4.4) if the_open else rl.uniform(2.5, 4.4)
+        drift_cells.setdefault(int(along(s, 0).x // TILE), []).append(
+            (s, s + L, side * (ROAD_W / 2 + 0.3), side * (ROAD_W / 2 - reach), rl.uniform(0.04, 0.09), 5000 + k,
+             rl.uniform(-0.3, 0.3)))
 for (s0, s1, l0, l1, hm) in ((S_CAM - 30, S_CAM + 34, ROAD_W / 2 + 0.3, 1.6, 0.16),
                               (S_CAM + 20, S_CAM + 95, ROAD_W / 2 + 0.3, 2.2, 0.12),
                               (S_CAM + 2, S_CAM + 40, -ROAD_W / 2 - 0.3, -3.6, 0.10),
                               (S_CAM + 60, S_CAM + 130, -ROAD_W / 2 - 0.3, -2.6, 0.09)):
-    drift_cells.setdefault(int(along(s0, 0).x // TILE), []).append((s0, s1, l0, l1, hm, int(s0), 0.1))
+    drift_cells.setdefault(int(along(s0, 0).x // TILE), []).append((s0, s1, l0, l1, hm, int(s0 - LONG_LEN), 0.1))
 for cell, lst in drift_cells.items():
     bm = bmesh.new()
     for (s0, s1, l0, l1, hm, seed, skew) in lst:
@@ -2098,24 +2734,41 @@ obj('City4.CrtBeds', me, G['Drifts'])
 
 # Barriers: 6 m blocks along both edges (the right from 150 m in, the left once zone 3's city is behind, at 440 m),
 # a few missing or knocked askew; unbroken through the arrival; stopping short of the facility's apron.
-S_BAR_END = S_CAM + 150.0
+S_BAR_END = S_CAM_THEN + 186.0   # (on up to the gate's mouth, between the doors; on the road without the long way)
 CRT_GAPS = []
+
+
+def barrier(s, side, askew):
+    p, t, n = road_frame(s)
+    lat = side * (BARRIER_Y + 0.1)
+    pos = Vector((p.x + n.x * lat, p.y + n.y * lat, 0.0))
+    yaw = math.atan2(t.y, t.x) + (0.0 if side > 0 else math.pi)
+    tilt = (0.0, 0.0)
+    if askew:
+        yaw += askew[0]
+        tilt = (side * askew[1], 0.0)
+    inst('barrier', pos, 1.0, (tilt[0], tilt[1], yaw), G['Barriers'])
+
+
 for side, s_start in ((-1, 150.0), (1, 440.0)):
     for s in frange(s_start, S_BAR_END, 6.15):
-        if any(abs(s - g) < 12 for g in GANTRY_S) or abs(s - TOPPLED_S) < 10:
+        if any(abs(s - g) < 12 for g in GANTRY_S_THEN) or abs(s - TOPPLED_S) < 10:
             continue
-        arrival = s > S_CAM - 40
+        arrival = s > S_CAM_THEN - 40
         if not arrival and rnd.random() < 0.1:
             continue
-        p, t, n = road_frame(s)
-        lat = side * (BARRIER_Y + 0.1)
-        pos = Vector((p.x + n.x * lat, p.y + n.y * lat, 0.0))
-        yaw = math.atan2(t.y, t.x) + (0.0 if side > 0 else math.pi)
-        tilt = (0.0, 0.0)
-        if not arrival and rnd.random() < 0.06:
-            yaw += rnd.uniform(-0.35, 0.35)
-            tilt = (side * rnd.uniform(0.1, 0.4), 0.0)
-        inst('barrier', pos, 1.0, (tilt[0], tilt[1], yaw), G['Barriers'])
+        askew = (rnd.uniform(-0.35, 0.35), rnd.uniform(0.1, 0.4)) if not arrival and rnd.random() < 0.06 else None
+        barrier(then_s(s), side, askew)
+    # The long way's, on the same 6.15 m from where the old ones stop: long gaps across the open, where the sand's had
+    # them, and whole down the ranks and the canyon.
+    s = s_start + math.ceil((LONG_S0 - s_start) / 6.15) * 6.15
+    while s < LONG_S1 - 6.0:
+        the_open = s < 2420.0
+        gone = (0.35 if the_open else 0.05 if s < 3400.0 else 0.2) + (0.7 if the_open and math.sin(s / 41.0 + side) > 0.3 else 0.0)
+        if rl.random() >= gone and not any(abs(s - g) < 12 for g in GANTRY_S) and abs(s - TOPPLED_S2) >= 10:
+            askew = (rl.uniform(-0.35, 0.35), rl.uniform(0.1, 0.4)) if rl.random() < (0.14 if the_open else 0.05) else None
+            barrier(s, side, askew)
+        s += 6.15
 
 
 # =========================================================================================================================
@@ -2125,34 +2778,47 @@ for kind, pos, yaw, scale, tilt, tag in PLANNED:
     TAG[0] = 'behind' if pos.x < X_CAM - 3 else None
     place_monolith(kind, pos, yaw, scale, tilt)
 TAG[0] = 'behind'
-# The toppled tower.
-_e1 = Vector((0, 0, 1)).cross(TOPPLED_DIR).normalized()
-_rotm = Matrix((_e1, Vector((0, 0, 1)), TOPPLED_DIR)).transposed()  # columns: local X, Y, Z in world
-_tilt = Matrix.Rotation(math.radians(-6), 3, _e1)  # (the far end up)
-_rotm = _tilt @ _rotm
-_up = _rotm @ Vector((0, 1, 0))
-if _up.z < 0:
-    _rotm = _rotm @ Matrix.Diagonal((-1, -1, 1))
-_q = _rotm.to_quaternion()
-_tt_o = inst('tower', TOPPLED_BASE, TOPPLED_SC, (0, 0, 0), G['Servers'], name='City4.ToppledTower')
-_tt_o.rotation_mode = 'QUATERNION'
-_tt_o.rotation_quaternion = _q
-_Mo = Matrix.Translation(TOPPLED_BASE) @ _q.to_matrix().to_4x4() @ Matrix.Diagonal((*TOPPLED_SC, 1))
-_R = Matrix.Translation(TOPPLED_BASE) @ _q.to_matrix().to_4x4()
-for (mx, my, mz), r, facing in FAN_MOUNTS['tower']:
-    Mf = Matrix.Translation(_Mo @ Vector((mx, my, mz))) @ _q.to_matrix().to_4x4() @ \
-        Matrix.Diagonal((r * 1.6, r * 1.6, r * 1.6, 1))
-    loc, q, fsc = Mf.decompose()
-    f = inst('fan', loc, fsc.x, q.to_euler(), G['Fans'])
-_ax = (_tp - TOPPLED_BASE).dot(_q.to_matrix() @ Vector((0, 0, 1)))
-_mid = TOPPLED_BASE + (_q.to_matrix() @ Vector((0, 0, 1))) * _ax
-TOPPLED_CLEAR = _mid.z - DIMS['tower'][1] * TOPPLED_SC[1] / 2 - 0.35 * 1.6 * 1.9
-print('toppled tower: its fans clear the deck by', round(TOPPLED_CLEAR, 1), 'm at s', TOPPLED_S)
 
 
-def gantry(s, name):
-    """A rusted steel gantry over the road at s: lattice legs either side, a truss beam, dead signs hanging (screens)."""
-    p, t, n = road_frame(s)
+def fallen_tower(base, dirn, sc, pitch, name):
+    """A tower module lying along dirn from its base, the far end pitched up (degrees), its fans facing down."""
+    e1 = Vector((0, 0, 1)).cross(dirn).normalized()
+    rotm = Matrix((e1, Vector((0, 0, 1)), dirn)).transposed()  # columns: local X, Y, Z in world
+    rotm = Matrix.Rotation(math.radians(-pitch), 3, e1) @ rotm  # (the far end up)
+    if (rotm @ Vector((0, 1, 0))).z < 0:
+        rotm = rotm @ Matrix.Diagonal((-1, -1, 1))
+    q = rotm.to_quaternion()
+    o = inst('tower', base, sc, (0, 0, 0), G['Servers'], name=name)
+    o.rotation_mode = 'QUATERNION'
+    o.rotation_quaternion = q
+    Mo = Matrix.Translation(base) @ q.to_matrix().to_4x4() @ Matrix.Diagonal((*sc, 1))
+    for (mx, my, mz), r, facing in FAN_MOUNTS['tower']:
+        Mf = Matrix.Translation(Mo @ Vector((mx, my, mz))) @ q.to_matrix().to_4x4() @ \
+            Matrix.Diagonal((r * sc[0], r * sc[0], r * sc[0], 1))
+        loc, qf, fsc = Mf.decompose()
+        inst('fan', loc, fsc.x, qf.to_euler(), G['Fans'])
+    return q
+
+
+for k, (base, dirn, sc, pitch) in enumerate(FALLEN):
+    q = fallen_tower(base, dirn, sc, pitch, 'City4.ToppledTower' if k == 0 else f'City4.ToppledTower.{k + 1}')
+    if k < 2:
+        s_ = TOPPLED_S if k == 0 else TOPPLED_S2
+        tp, _, _ = road_frame(s_)
+        ax = (tp - base).dot(q.to_matrix() @ Vector((0, 0, 1)))
+        mid = base + (q.to_matrix() @ Vector((0, 0, 1))) * ax
+        clear = mid.z - DIMS['tower'][1] * sc[1] / 2 - 0.35 * sc[0] * 1.9
+        print('toppled tower: its fans clear the deck by', round(clear, 1), 'm at s', s_)
+        if k == 0:
+            TOPPLED_CLEAR = clear
+        else:
+            TOPPLED_CLEAR2 = clear
+
+
+def module_gantry(signs, name):
+    """A rusted steel gantry over the road (its line local +X, the road's left +Y, base at z 0): lattice legs either side, a
+    truss beam, dead signs hanging (screens) at those offsets and a hanging cable."""
+    p, t, n = Vector((0, 0, 0)), Vector((1, 0, 0)), Vector((0, 1, 0))
     bm = bmesh.new()
     span = BARRIER_Y + 3.0
     hb = 9.0
@@ -2173,12 +2839,14 @@ def gantry(s, name):
         lat = span - 2 * span * k / 12
         lat2 = span - 2 * span * (k + 1) / 12
         sweep(bm, [p + n * lat + Vector((0, 0, hb)), p + n * lat2 + Vector((0, 0, hb + 1.4))], thin, caps=False)
-    # Two signs (dark boxes, screens on their road faces) and a hanging cable.
-    for lat in (-3.2, 3.4):
-        c = p + n * lat + Vector((0, 0, hb - 1.2))
-        add_box(bm, c, (0.4, 4.2, 2.0), rot=Matrix.Rotation(math.atan2(t.y, t.x), 3, 'Z'))
-        f = add_quad(bm, [c - t * 0.21 + n * 1.9 + Vector((0, 0, -0.8)), c - t * 0.21 - n * 1.9 + Vector((0, 0, -0.8)),
-                          c - t * 0.21 - n * 1.9 + Vector((0, 0, 0.8)), c - t * 0.21 + n * 1.9 + Vector((0, 0, 0.8))], 2)
+    # The signs (dark boxes, screens on their road faces) and a hanging cable.
+    for lat, drop in signs:
+        c = p + n * lat + Vector((0, 0, hb - 1.2 - drop))
+        rot = Matrix.Rotation(math.atan2(t.y, t.x), 3, 'Z') @ Matrix.Rotation(math.radians(drop * 6.0), 3, 'X')
+        add_box(bm, c, (0.4, 4.2, 2.0), rot=rot)
+        q = rot.to_4x4()
+        f = add_quad(bm, [c + q @ Vector((-0.21, 1.9, -0.8)), c + q @ Vector((-0.21, -1.9, -0.8)),
+                          c + q @ Vector((-0.21, -1.9, 0.8)), c + q @ Vector((-0.21, 1.9, 0.8))], 2)
     cab = [p + n * (span - 0.3) + Vector((0, 0, hb)), p + n * (span - 3) + Vector((0, 0, hb - 3.2)),
            p + n * (span - 5.5) + Vector((0, 0, hb - 3.6)), p + n * (span - 7) + Vector((0, 0, hb - 2.4)),
            p + n * (span - 8) + Vector((0, 0, hb - 0.2))]
@@ -2192,15 +2860,19 @@ def gantry(s, name):
         if poly.material_index == 2:
             for li, c in zip(poly.loop_indices, ((0, 0), (1, 0), (1, 1), (0, 1))):
                 uv.data[li].uv = c
-    return obj(name, me, G['Gantries'])
+    return me
 
 
+M['gantry'] = module_gantry(((-3.2, 0.0), (3.4, 0.0)), 'City4.M.Gantry')
+M['gantry2'] = module_gantry(((3.4, 0.9),), 'City4.M.Gantry2')   # one sign gone, the other hanging by a bolt
 for k, gs in enumerate(GANTRY_S):
-    gantry(gs, f'City4.Gantry.{k + 1}')
+    p, t, n = road_frame(gs)
+    inst('gantry2' if gs == GANTRY_S[1] else 'gantry', p, 1.0, (0, 0, math.atan2(t.y, t.x)), G['Gantries'],
+         name=f'City4.Gantry.{k + 1}')
 
 # CRTs: by monolith bases near the road, and along the shoulders.
 crt_spots = []
-for kind, pos, yaw, scale, tilt, tag in PLANNED:
+for kind, pos, yaw, scale, tilt, tag in PLANNED[:N_THEN]:
     s, lat = road_coords(pos.x, pos.y)
     if abs(lat) < 90 and rnd.random() < 0.55:
         to_road = Vector((-1 if lat > 0 else 1, 0, 0))
@@ -2209,29 +2881,52 @@ for kind, pos, yaw, scale, tilt, tag in PLANNED:
         off = DIMS[kind][1] * scale * 0.5 + rnd.uniform(3, 7)
         c = pos + dirn * off + t * rnd.uniform(-6, 6)
         crt_spots.append((c, rnd.uniform(1.4, 3.4), face_yaw(dirn) + rnd.uniform(-0.6, 0.6)))
-for s in frange(170.0, S_CAM - 50, 95.0):
+for s_then in frange(170.0, S_CAM_THEN - 50, 95.0):
     if rnd.random() < 0.6:
-        side = rnd.choice((-1, 1)) if s > 470 else -1
-        c = along(s + rnd.uniform(-20, 20), side * rnd.uniform(9, 16))
-        _, t, n = road_frame(s)
+        side = rnd.choice((-1, 1)) if s_then > 470 else -1
+        c = along(then_s(s_then + rnd.uniform(-20, 20)), side * rnd.uniform(9, 16))
+        _, t, n = road_frame(then_s(s_then))
         crt_spots.append((c, rnd.uniform(0.9, 1.8), face_yaw(-n * side) + rnd.uniform(-0.8, 0.8)))
 _cz = terrain_h(np.array([c.x for c, _, _ in crt_spots]), np.array([c.y for c, _, _ in crt_spots]))
 for (c, sc, yaw), z in zip(crt_spots, _cz):
     TAG[0] = 'behind' if c.x < X_CAM - 3 else None
     inst('crt', Vector((c.x, c.y, z - 0.12 * sc)), sc, (rnd.uniform(-0.45, -0.1), rnd.uniform(-0.2, 0.2), yaw),
          G['Screens'])
+# The long way's: the same, thin across the open, and a graveyard of them where the wrecks start.
+crt_spots = []
+for kind, pos, yaw, scale, tilt, tag in PLANNED[N_THEN:]:
+    s, lat = road_coords(pos.x, pos.y)
+    if abs(lat) < 90 and rl.random() < 0.4:
+        _, t, n = road_frame(s)
+        dirn = (-n if lat > 0 else n)
+        off = DIMS[kind][1] * scale * 0.5 + rl.uniform(3, 7)
+        crt_spots.append((pos + dirn * off + t * rl.uniform(-6, 6), rl.uniform(1.4, 3.4), face_yaw(dirn) + rl.uniform(-0.6, 0.6)))
+for s in frange(LONG_S0 + 30.0, LONG_S1 - 40.0, 95.0):
+    if rl.random() < (0.35 if s < 2420.0 else 0.6):
+        side = rl.choice((-1, 1))
+        _, t, n = road_frame(s)
+        crt_spots.append((along(s + rl.uniform(-20, 20), side * rl.uniform(9, 16)), rl.uniform(0.9, 1.8),
+                          face_yaw(-n * side) + rl.uniform(-0.8, 0.8)))
+for k in range(16):
+    s, side = rl.uniform(3395.0, 3480.0), rl.choice((-1, 1))
+    _, t, n = road_frame(s)
+    crt_spots.append((along(s, side * rl.uniform(10, 34)), rl.uniform(1.2, 3.0), face_yaw(-n * side) + rl.uniform(-1.2, 1.2)))
+_cz = terrain_h(np.array([c.x for c, _, _ in crt_spots]), np.array([c.y for c, _, _ in crt_spots]))
+TAG[0] = 'behind'
+for (c, sc, yaw), z in zip(crt_spots, _cz):
+    inst('crt', Vector((c.x, c.y, z - 0.12 * sc)), sc, (rl.uniform(-0.45, -0.1), rl.uniform(-0.2, 0.2), yaw), G['Screens'])
 TAG[0] = None
 
 
 # Cables: from each monolith's foot out over the sand like roots, half sunk in it (one mesh per 260 m cell).
-def cable_path(start, dirn, length, rng, z_off=-0.1):
+def cable_path(start, dirn, length, rng, z_off=-0.1, seg=2.2, wander=0.22):
     pts = []
     a = math.atan2(dirn.y, dirn.x)
     p = Vector((start.x, start.y, 0))
-    n = max(6, int(length / 2.2))
+    n = max(6, int(length / seg))
     for i in range(n + 1):
         pts.append(p.copy())
-        a += rng.gauss(0, 0.22)
+        a += rng.gauss(0, wander)
         p += Vector((math.cos(a), math.sin(a), 0)) * (length / n)
     for i, q in enumerate(pts):  # never over the deck: cut where it reaches the road's shoulder
         if abs(road_coords(q.x, q.y)[1]) < ROAD_W / 2 + 1.5:
@@ -2275,19 +2970,94 @@ for key, (kind, pos, yaw, sc, tilt) in COMPOSED.items():
     if kind == 'crt':
         continue
     add_cables(pos, yaw, sc[0], kind, 10 if key in ('LN', 'L2', 'R1') else 5, crng, reach=(14, 40), radius=(0.16, 0.3))
-for kind, pos, yaw, scale, tilt, tag in PLANNED:
+for kind, pos, yaw, scale, tilt, tag in PLANNED[:N_THEN]:
     s, lat = road_coords(pos.x, pos.y)
     n = 4 if abs(lat) < 120 else (1 if abs(lat) < 400 else 0)
     if n:
         add_cables(pos, yaw, scale, kind, n, crng)
+crng = random.Random(2702)
+
+
+def module_roots(seed):
+    """A sprawl of cables, out from a monolith's foot (the origin) along -Y, its base at about z 0; ~21 m long."""
+    r = random.Random(seed)
+    bm = bmesh.new()
+    for k in range(r.randint(3, 4)):
+        a = -math.pi / 2 + r.uniform(-1.0, 1.0)
+        p = Vector((r.uniform(-3.5, 3.5), 0.0, 0.0))
+        pts = []
+        for i in range(r.randint(6, 9)):
+            pts.append(Vector((p.x, p.y, 0.55 * (1 - i / 2.5) if i < 2 else 0.14 * math.sin(i * 1.7 + k))))
+            a += r.gauss(0, 0.26)
+            p = p + Vector((math.cos(a), math.sin(a), 0)) * 2.7
+        sweep(bm, pts, circle_profile(r.uniform(0.22, 0.42), 5))
+    me = mesh_from(f'City4.M.Roots{seed}', bm, MAT['cable'], smooth=True)
+    set_vcol(me, np.full(len(me.vertices), 0.8))
+    return me
+
+
+for k in range(4):
+    M[f'roots{k}'] = module_roots(k)
+ROOT_REACH = 21.0
+
+
+def lay_roots(foot, yaw, sc):
+    """A sprawl laid on the dune it's on, sunk a little: tilted to the ground's slope under its middle."""
+    fwd = Vector((math.sin(yaw), -math.cos(yaw), 0))
+    c = foot + fwd * (ROOT_REACH * 0.5 * sc)
+    e = 8.0 * sc
+    z = terrain_h(np.array([c.x, c.x + e, c.x - e, c.x, c.x]), np.array([c.y, c.y, c.y, c.y + e, c.y - e]))
+    nrm = Vector(((z[2] - z[1]) / (2 * e), (z[4] - z[3]) / (2 * e), 1.0)).normalized()
+    q = Vector((0, 0, 1)).rotation_difference(nrm) @ Matrix.Rotation(yaw, 4, 'Z').to_quaternion()
+    o = inst(f'roots{crng.randrange(4)}', Vector((c.x, c.y, float(z[0]) - 0.16)) - q @ Vector((0, -ROOT_REACH * 0.5 * sc, 0)), sc, (0, 0, 0),
+             G['Cables'])
+    o.rotation_mode = 'QUATERNION'
+    o.rotation_quaternion = q
+
+
+TAG[0] = 'behind'
+for kind, pos, yaw, scale, tilt, tag in PLANNED[N_THEN:]:
+    s, lat = road_coords(pos.x, pos.y)
+    if abs(lat) > 220:
+        continue
+    W, D, Hh = DIMS[kind]
+    room = abs(lat) - D * scale * 0.5 - ROAD_W / 2 - 3.0     # (never over the deck, whichever way it's turned)
+    sc = min(0.75 + 0.45 * scale, room / ROOT_REACH)
+    if sc < 0.35:
+        continue
+    fwd, side_ = Vector((math.sin(yaw), -math.cos(yaw), 0)), Vector((math.cos(yaw), math.sin(yaw), 0))
+    lay_roots(pos + fwd * (D * scale * 0.5), yaw + crng.uniform(-0.3, 0.3), sc)
+    if abs(lat) < 90:
+        sgn = crng.choice((-1, 1))
+        lay_roots(pos + side_ * sgn * (W * scale * 0.5), yaw + sgn * 1.57 + crng.uniform(-0.3, 0.3), sc * 0.85)
+TAG[0] = None
+# The open's only company: long trunks of cable running through the dunes, from nowhere to nowhere, along by the road and
+# away over the crests; some in threes.
+def cable_trunk(s, lat, turn, length, radius, rng):
+    p, t, n = along(s, lat), *road_frame(s)[1:]
+    d = Matrix.Rotation(turn, 3, 'Z') @ t
+    path = cable_path(Vector((p.x, p.y, -9.0)), d, length, rng, seg=5.6, wander=0.18)
+    if path is not None:
+        for i, dz in ((0, 0.9), (1, 0.35), (-1, 0.9), (-2, 0.35)):   # (its ends go down into the sand)
+            path[i].z -= dz
+        CABLE_CELLS.setdefault(int(p.x // TILE), []).append((path, radius))
+
+
+for k in range(30):
+    s, side = crng.uniform(LONG_S0 + 40.0, 2410.0), crng.choice((-1, 1))
+    lat, turn = side * crng.uniform(10.0, 80.0), crng.uniform(-0.6, 0.6) + (crng.choice((0.0, math.pi)))
+    for j in range(crng.choice((1, 1, 3))):
+        cable_trunk(s + j * 2.0, lat + j * crng.uniform(1.2, 2.2), turn + j * 0.03, crng.uniform(70.0, 170.0), crng.uniform(0.22, 0.48), crng)
+for k in range(20):
+    s, side = crng.uniform(LONG_S0 + 40.0, 2410.0), crng.choice((-1, 1))
+    cable_trunk(s, side * crng.uniform(80.0, 300.0), crng.uniform(0.0, 6.28), crng.uniform(100.0, 220.0), crng.uniform(0.35, 0.75), crng)
 cable_objs = []
 for cell, lst in CABLE_CELLS.items():
     bm = bmesh.new()
     for path, r in lst:
         sweep(bm, path, circle_profile(r, 5))
     TAG[0] = 'behind' if (cell + 1) * TILE < X_CAM - 3 else None
-    me = mesh_from(f'City4.Cables.{cell:02d}', bm, MAT['cable'], smooth=True)
-    box_uvs(me, 0.5)
+    me = mesh_from(f'City4.Cables.{cell:02d}', bm, MAT['cable'], smooth=True)   # (no UVs: its material's plain)
     cable_objs.append(obj(f'City4.Cables.{cell:02d}', me, G['Cables']))
 TAG[0] = None
 print('cables', sum(len(v) for v in CABLE_CELLS.values()), 'in', len(CABLE_CELLS), 'cells')
@@ -2298,14 +3068,19 @@ print('cables', sum(len(v) for v in CABLE_CELLS.values()), 'in', len(CABLE_CELLS
 # =========================================================================================================================
 for key in ('fan', 'crt', 'barrier', 'mast', 'tower', 'slab', 'fanwall'):
     bake_ao(M[key], rays=16, floor=0.42)
+for key in ('gantry', 'gantry2'):
+    bake_ao(M[key], rays=14, floor=0.4, dist=8.0)
 for o in [o for o in root.children_recursive if o.type == 'MESH']:
     nm = o.name
-    if nm.startswith(('City4.Facility', 'City4.Gantry', 'City4.GateDoors')):
+    if nm.startswith('City4.Facility'):
         bake_ao(o.data, rays=14, floor=0.4, dist=8.0, extra=FAC_Z - 0.05 if 'Facility' in nm else None)
     elif nm.startswith(('City4.Cables', 'City4.Drifts', 'City4.CrtBeds')):
         set_vcol(o.data, np.full(len(o.data.vertices), 0.92 if 'Cables' not in nm else 0.8))
     elif nm.startswith('City4.Deck'):
         set_vcol(o.data, np.full(len(o.data.vertices), 1.0))
+        if o.matrix_world.translation.x + max(v.co.x for v in o.data.vertices) > GX:  # dark on through the gate
+            o.data.color_attributes.remove(o.data.color_attributes['AO'])
+            gate_bake(o.data, tint=(1.0, 1.0, 1.0), floor=0.05, day=[1.0, 0.72, 0.34, 0.12, 0.06])
 
 for me in {o.data for o in root.children_recursive if o.type == 'MESH'}:
     if 'AO' not in me.color_attributes and not me.name.startswith(('City4.Storm', 'City4.Dust', 'City4.Sun',
@@ -2421,6 +3196,40 @@ def sand_under(p):
 _h = [sand_under(p) for p in ROAD_LINE]
 ROAD_HEIGHTS = [round((_h[max(i - 1, 0)] + 2 * _h[i] + _h[min(i + 1, len(_h) - 1)]) / 4, 2) for i in range(len(_h))]
 print('road heights: max', max(ROAD_HEIGHTS), 'over the deck for', sum(1 for h in ROAD_HEIGHTS if h > 0.05) * 2, 'm')
+
+
+def flights(speed, gravity=24.0, rise=15.0, dt=1 / 60):
+    """The ride's jump (components/three/ride.tsx, lib/ride.ts JUMP) at a speed: [(takeoff s, landing s, top z)], and the
+    bike's height at every s it flew."""
+    def ground(s):
+        return float(np.interp(s, [2.0 * i for i in range(len(ROAD_HEIGHTS))], ROAD_HEIGHTS))
+    s, y, vy, air, out, zs, top, s0 = 0.0, 0.0, 0.0, False, [], [], 0.0, 0.0
+    while s < ROAD_LEN - 5:
+        s += speed * dt
+        gr = max(ground(s), ground(s + 3))
+        falling = y + vy * dt - gravity * dt * dt / 2
+        if falling <= gr:
+            if air:
+                out.append((round(s0), round(s), round(top, 1)))
+            air, vy, y = False, max(-rise, min(rise, (gr - y) / dt)), gr
+        else:
+            if not air:
+                s0, top = s, y
+            air, y = True, falling
+            vy -= gravity * dt
+            top = max(top, y)
+        zs.append((s, y))
+    return out, zs
+
+
+for _v in (50.0, 160.0):   # (the desert's cruise, and its slingshot's boost)
+    _fl, _zs = flights(_v)
+    print(f'flights at {_v:.0f} m/s:', [f for f in _fl if f[1] - f[0] > 8])
+    _sz = np.array(_zs)
+    for _nm, _ss, _hit in [(f'gantry at {g:.0f}', g, 5.6) for g in GANTRY_S] + [('toppled 1', TOPPLED_S, TOPPLED_CLEAR - 1.3),
+                                                                                ('toppled 2', TOPPLED_S2, TOPPLED_CLEAR2 - 1.3)]:
+        _m = float(_sz[np.abs(_sz[:, 0] - _ss) < 22, 1].max())
+        print(f'  {_nm}: the bike at most {_m:.1f} m up (clear to {_hit:.1f})', '' if _m < _hit else ' ** HIT **')
 empty('City4.RoadPath', Vector((0, 0, 0)),
       props={'points': [[round(p.x, 3), round(p.y, 3)] for p in ROAD_LINE], 'length': round(ROAD_LEN, 2),
              'step': 2.0, 'width': ROAD_W, 'heights': ROAD_HEIGHTS,
@@ -2432,8 +3241,8 @@ empty('City4.RoadOut', Vector((0, 0, 0)),
       props={'points': [[round(p.x, 3), round(p.y, 3)] for p in OUT_LINE], 'length': round(OUT_LEN, 2), 'step': 2.0,
              'width': ROAD_W, 'END': [round(OUT_END.x, 3), round(OUT_END.y, 3)], 'END_HEADING': 0.0,
              'note': 'the way on, BikeMark -> END, [x, y] in City4 local Blender frame every 2 m: back onto the '
-                     'centreline and straight in through the facility\'s gate (its tunnel runs on to blast doors '
-                     '~50 m in); END_HEADING radians anticlockwise from +x'})
+                     'centreline and straight in through the facility\'s gate, between its open doors, down its tunnel '
+                     'to END; END_HEADING radians anticlockwise from +x'})
 empty('City4.DeckTop', Vector((0, 0, 0)), props={'note': 'deck top z 0 (RoadIn)'})
 
 # --- Stats, save, export -----------------------------------------------------------------------------------------------
@@ -2448,6 +3257,21 @@ def tris(me):
 TRI_UNIQUE = sum(tris(me) for me in uniq.values())
 TRI_DRAWN = sum(tris(o.data) for o in meshes)
 print('objects', len(meshes), 'unique meshes', len(uniq), 'unique tris', TRI_UNIQUE, 'drawn tris', TRI_DRAWN)
+print('gate parts tris', {o.name: tris(o.data) for o in meshes if o.name.startswith('City4.Gate')})
+_in_tunnel = {}  # nothing of the desert's may stand in the tunnel past the mouth (on past END, in the next zone's)
+for o in meshes:
+    if o.name.startswith(('City4.Gate', 'City4.Dunes', 'City4.Deck')) or o.name == 'City4.Insignia':
+        continue
+    mw = o.matrix_world
+    if len(o.data.vertices) > 40000:
+        continue
+    bb = [mw @ Vector(c) for c in o.bound_box]
+    if max(v.x for v in bb) < MOUTH or min(v.x for v in bb) > END_X + 150 or min(abs(v.y - GY) for v in bb) > 60:
+        continue
+    k = sum(1 for v in o.data.vertices if MOUTH < (mw @ v.co).x < END_X + 150 and abs((mw @ v.co).y - GY) < TUN_HALF and (mw @ v.co).z < TUN_H)
+    if k:
+        _in_tunnel[o.name] = k
+print('standing in the tunnel:', _in_tunnel or 'nothing')
 print('arrival EYE', r4(EYE), 'LOOK', r4(LOOK), 'FOV', FOV, 'bike', r4(BIKE_AT), BIKE_YAW)
 print('arrival three: eye', [round(EYE.x, 4), round(EYE.z, 4), round(-EYE.y, 4)], 'look',
       [round(LOOK.x, 4), round(LOOK.z, 4), round(-LOOK.y, 4)])
@@ -2565,11 +3389,13 @@ def add_bike():
 
 bike_objs = add_bike()
 os.makedirs(RENDERS, exist_ok=True)
+ROAD_VIEWS = [float(v) for v in os.environ.get('CITY4_ROADVIEWS', '').split(',') if v]
+ROAD_ONLY = os.environ.get('CITY4_ROADONLY') == '1'
 
 # 1. Object IDs (flat colours) for score.py: sky transparent; see art/align4/score.py IDS.
 ID_COL = json.load(open(os.path.join(ALIGN, 'ids.json')))
 hidden_ids = []
-for o in scene.objects:
+for o in [] if ROAD_ONLY else scene.objects:
     if o.type != 'MESH':
         continue
     k = 'other'
@@ -2596,7 +3422,8 @@ scene.render.film_transparent = True
 scene.render.image_settings.color_mode = 'RGBA'
 scene.view_settings.view_transform = 'Standard'
 scene.render.filepath = os.path.join(RENDERS, f'city4-arrival-ids-{ROUND}.png')
-bpy.ops.render.render(write_still=True)
+if not ROAD_ONLY:
+    bpy.ops.render.render(write_still=True)
 scene.render.film_transparent = False
 scene.render.image_settings.color_mode = 'RGB'
 for o in hidden_ids:
@@ -2651,8 +3478,23 @@ if os.environ.get('CITY4_NO_EEVEE') != '1':
     so.rotation_mode = 'QUATERNION'
     so.rotation_quaternion = (-SUN_LIGHT_DIR).to_track_quat('-Z', 'Y')
     scene.render.filepath = os.path.join(RENDERS, f'city4-arrival-{ROUND}.png')
-    bpy.ops.render.render(write_still=True)
-    if os.environ.get('CITY4_APPROACH', '1') == '1':
+    if not ROAD_ONLY:
+        bpy.ops.render.render(write_still=True)
+    if ROAD_VIEWS:
+        for o in bike_objs:
+            o.hide_render = True
+        _hs = [2.0 * i for i in range(len(ROAD_HEIGHTS))]
+        for s_ in ROAD_VIEWS:
+            e_ = along(s_, 0.0, float(np.interp(s_, _hs, ROAD_HEIGHTS)) + 1.5)
+            set_cam(e_, along(s_ + 80.0, 0.0, 1.5 + float(np.interp(s_ + 80.0, _hs, ROAD_HEIGHTS)) * 0.3), 62.0)
+            haze_o.location = e_
+            scene.render.filepath = os.path.join(RENDERS, f'city4-road-{int(s_):04d}-{ROUND}.png')
+            bpy.ops.render.render(write_still=True)
+        set_cam(EYE, LOOK, FOV)
+        haze_o.location = EYE
+        for o in bike_objs:
+            o.hide_render = False
+    if os.environ.get('CITY4_APPROACH', '1') == '1' and not ROAD_ONLY:
         for o in bike_objs:
             o.hide_render = True
         set_cam(APP_EYE, APP_LOOK, APP_FOV)
@@ -2660,9 +3502,21 @@ if os.environ.get('CITY4_NO_EEVEE') != '1':
         scene.render.filepath = os.path.join(RENDERS, f'city4-approach-{ROUND}.png')
         bpy.ops.render.render(write_still=True)
         set_cam(EYE, LOOK, FOV)
+    # CITY4_VIEW=1: the gate from the road (a rider's height, the rider's lens).
+    if os.environ.get('CITY4_VIEW'):
+        for o in bike_objs:
+            o.hide_render = True
+        for nm_, back, off, fov_ in (('near', 34.0, -1.5, 80.0), ('hero', 18.0, 0.0, 88.0), ('door', 8.0, -1.5, 85.0),
+                                     ('mouth', -16.0, -1.5, 80.0), ('side', 26.0, 13.0, 80.0)):
+            e_ = G3(GX - back, off, 1.5)
+            set_cam(e_, G3(GX + 30.0, 0.0, 4.2 if back > 20 else 3.4), fov_)
+            haze_o.location = e_
+            scene.render.filepath = os.path.join(RENDERS, f'city4-gate-{nm_}-{ROUND}.png')
+            bpy.ops.render.render(write_still=True)
+        set_cam(EYE, LOOK, FOV)
 
 # 3. The plan: straight down, orthographic, the road's line, BikeMark, RoadIn and the cameras drawn over it.
-if os.environ.get('CITY4_PLAN', '1') == '1':
+if os.environ.get('CITY4_PLAN', '1') == '1' and not ROAD_ONLY:
     for o in bike_objs:
         o.hide_render = True
     for o in scene.objects:
@@ -2696,7 +3550,7 @@ if os.environ.get('CITY4_PLAN', '1') == '1':
     marks = {'line': [px(p) for p in ROAD_LINE], 'out': [px(p) for p in OUT_LINE], 'bike': px(BIKE_AT),
              'roadin': px((0, 0)), 'arrival': px(EYE), 'arrival_look': px(EYE + (LOOK - EYE).normalized() * 120),
              'approach': px(APP_EYE), 'approach_look': px(APP_EYE + (APP_LOOK - APP_EYE).normalized() * 120),
-             'end': px(OUT_END),
+             'end': px(OUT_END), 'ramps': [px(along(s_, 0)) for s_, _h_ in RAMPS], 'gantries': [px(along(s_, 0)) for s_ in GANTRY_S],
              'title': f'City4 plan: road {ROAD_LEN:.0f} m, {len(ROAD_LINE)} path points (every 2 m), RoadOut '
                       f'{OUT_LEN:.0f} m; 1 px = {PLAN_S / PLAN_PX:.2f} m'}
     draw = """
@@ -2712,9 +3566,12 @@ for k, col in (('arrival', (0, 255, 255)), ('approach', (255, 255, 0))):
     d.ellipse([m[k][0] - 5, m[k][1] - 5, m[k][0] + 5, m[k][1] + 5], outline=col, width=2)
 for k, col in (('bike', (255, 0, 255)), ('roadin', (0, 255, 0)), ('end', (255, 255, 255))):
     d.ellipse([m[k][0] - 6, m[k][1] - 6, m[k][0] + 6, m[k][1] + 6], fill=col)
+for k, col in (('ramps', (255, 255, 0)), ('gantries', (0, 255, 255))):
+    for p in m[k]:
+        d.ellipse([p[0] - 5, p[1] - 5, p[0] + 5, p[1] + 5], outline=col, width=2)
 d.rectangle([0, 0, im.size[0], 26], fill=(0, 0, 0))
 d.text((8, 7), m['title'] + '   red: RoadPath  orange: RoadOut  green: RoadIn  magenta: BikeMark  white: END  cyan: '
-       'ArrivalCam  yellow: ApproachCam', fill=(255, 255, 255))
+       'ArrivalCam  yellow: ApproachCam, ramps  cyan rings: gantries', fill=(255, 255, 255))
 im.save(sys.argv[1])
 """
     mj = os.path.join(ALIGN, 'out', 'plan-marks.json')
@@ -2732,7 +3589,7 @@ json.dump({'round': ROUND, 'road_length': round(ROAD_LEN, 2), 'roadout_length': 
                              'look': [round(LOOK.x, 4), round(LOOK.z, 4), round(-LOOK.y, 4)], 'fov': round(FOV, 3)},
            'bike': r4(BIKE_AT), 'bike_yaw': BIKE_YAW, 'end': r4(OUT_END), 'leaks': leaks},
           open(os.path.join(ALIGN, 'out', f'build-{ROUND}.json'), 'w'), indent=1)
-for script in (['score.py', ROUND], ['approach_check.py', ROUND]):
+for script in () if ROAD_ONLY else (['score.py', ROUND], ['approach_check.py', ROUND]):
     try:
         subprocess.run(['python3', os.path.join(ALIGN, script[0]), *script[1:]], check=True, cwd=ALIGN)
     except Exception as exc:
