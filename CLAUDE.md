@@ -26,13 +26,15 @@ components/three/zone-city.tsx        # Loads/places each city after the green o
 components/three/holomap.tsx, holomap-materials.ts  # The map terminal in the rider's hands (hands.glb): 3D land, way back, ride on
 components/three/precompile.ts        # Compiles a model's shaders ahead of time, for the post's linear buffer
 components/three/pill-glyph.ts        # The pill's play/pause symbol (over the glbs' modelled chevrons)
-components/three/boost-pod.tsx        # The boost button: a rocket on a pod beside the tank, its look per zone, the desert's rail
+components/three/boost-pod.tsx        # The boost button: a rocket on a pod beside the tank, its look per zone, the desert's rail, the core's recharge arc
+components/three/digital-ghost.tsx    # The core's boost: the bike into blocks of light, the creature (creature.glb) running in its place
 components/three/road-join.tsx        # Where one city's road meets the next: the next's surface reaching back in blotches
 components/ride-button.tsx            # The DOM hit areas over the pill, the boost button and the map; gestures per zone
 components/rhythm-overlay.tsx, lib/rhythm.ts  # The hive's boost: circles 111 to 666 on the heart's beat, then the boost
+lib/music.ts                          # The music: each zone's loop, crossfaded over the road, from the press that gets on the bike (public/audio)
 lib/journey.ts                        # Scroll progress, beats, shared per-frame state
 lib/ride.ts                           # Ride state, the chrome city's road helpers, muck, constants
-lib/course.ts                         # ZONES (green, chrome, hive, desert: city, bike, feature, speed) and the course
+lib/course.ts                         # ZONES (green, chrome, hive, desert, core: city, bike, feature, speed) and the course
 lib/look.ts                           # Each zone's light (sky, sun, fog, grade, fill), blended across changes
 art/micro-biome.blend                 # Planter, falls and JourneyCam (FogDrog's canyon objects are still in it, hidden on the site)
 art/build-journey.py, export-journey.py  # Key JourneyCam, export public/journey.json
@@ -40,6 +42,9 @@ art/build-city.py                     # The city from scratch -> art/city.blend,
 art/build-bike.py                     # The bike from scratch -> art/bike.blend, public/models/bike.glb
 art/build-city{2,3,4}.py, build-bike{2,3,4}.py  # Each later zone's city and bike (same contract: RoadIn/RoadPath/RoadOut,
                                       # BikeMark, ArrivalCam; bikes in bike.glb's frame), fitted via art/align*/
+art/build-city5.py, art/core/          # The core: assembled from its groups' modules (gate, lab, tanks, servers, chamber) on art/core/kit.py
+art/build-bike5.py, art/build-creature.py  # The core's bike and the thing that runs in its place
+art/audio/                            # The sound: PLAN.md, drums/ (Syntakt), hydrasynth/ (score.py, mix.py, chrome_dream.py), previews/
 art/reference/                        # Concept art (concept-green-city is the landing's target)
 ```
 
@@ -50,10 +55,10 @@ Blender z up, metres; three's (x, y, z) is Blender's (x, z, -y). The planter flo
 ## Zones
 
 The ride runs through zones (lib/course.ts ZONES): the green city, then the chrome city (placed down the street once it's
-loaded and the ride's gone on a while), then the hive and the desert, each placed at the end of the one before's
+loaded and the ride's gone on a while), then the hive, the desert and the core, each placed at the end of the one before's
 RoadOut when the visitor picks it on the map. Each zone has its own bike (morphed into), cruising speed and boost
-feature, on the rocket button (the pill's play and pause): start / surge (hold) / heartbeat (click the circles, 111 to
-666, on the beat) / slingshot (drag back, let go). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
+feature, on the rocket button (the pill's play and pause): start / surge (hold on and trace a star: lib/trace.ts, components/trace-overlay.tsx) / heartbeat (click the circles, 111 to
+666, on the beat) / slingshot (drag back, let go) / ghost (press: lib/ride.ts ride.ghost, a few seconds as data at far greater speed, then a recharge). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
 rides on from one. Every change between zones is one change, centred on the join (where the next city's road takes over):
 sky and light over TRANSITION_LEAD before it to TRANSITION_TAIL after, the bike's morph crossing it as the bike does.
 

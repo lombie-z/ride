@@ -6,6 +6,7 @@ import { RhythmOverlay } from '@/components/rhythm-overlay';
 import { RideButton } from '@/components/ride-button';
 import { SmoothScroll } from '@/components/smooth-scroll';
 import { Ticket } from '@/components/ticket';
+import { TraceOverlay } from '@/components/trace-overlay';
 import { cn } from '@/lib/utils';
 
 // three.js and the model load in the browser after the page is up; the overlay holds the hero still until then.
@@ -28,6 +29,7 @@ export function Journey() {
       {ready && <SmoothScroll />}
       {ready && <Ticket />}
       {ready && <RhythmOverlay />}
+      {ready && <TraceOverlay />}
       {ready && <RideButton />}
       {/* Loading: the hero as a Blender still (same box as the live hero, lib/journey.ts heroStageSize), with a hairline
           of progress; it all fades away once the model is in and its shaders are ready. */}

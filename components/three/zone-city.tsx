@@ -4,6 +4,7 @@ import { useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  type BufferGeometry,
   type Group,
   InstancedMesh,
   type Material,
@@ -18,7 +19,8 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { course, legToWorld, type Shot, ZONES } from '@/lib/course';
-import { leftBehind, MUCKY, ride, setZonePaths } from '@/lib/ride';
+import { NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
+import { LAB_DOOR, leftBehind, MUCKY, ride, setZonePaths } from '@/lib/ride';
 import { sunsetEnvMap, zoneEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
 import { Muck } from './muck';
@@ -35,6 +37,7 @@ import { CityRoadMirror } from './wet-road';
 // ride's from there.
 // (Dev: ?city2=<url> (or city3, city4) loads another model in its place, to try the flow.)
 const joinAt = new Vector3();
+const SPECIMENS_SEEN = 300;
 const url = (k: number) => {
   const own = ZONES[k].city as string;
   if (process.env.NODE_ENV !== 'development') return own;
@@ -53,7 +56,24 @@ function shotOf(scene: Object3D, prefix: string): Shot | null {
 }
 
 // Lit materials, by their name's ending: past white for the bloom.
-const GLOWS: Record<string, number> = { Glass: 4, GlassWarm: 4, Lamp: 4, Screen: 3, Sun: 14, Amber: 3.2, Heart: 4.5, Led: 4, Lightning: 0, Fluid: 3 };
+const GLOWS: Record<string, number> = {
+  Glass: 4,
+  GlassWarm: 4,
+  Lamp: 4,
+  Screen: 3,
+  Sun: 14,
+  Amber: 3.2,
+  Heart: 4.5,
+  Led: 4,
+  Lightning: 0,
+  Fluid: 3,
+  Red: 5,
+  Panel: 3,
+  Code: 2.6,
+};
+
+const GLOWS_CORE = ['Panel', 'Red', 'Led', 'Screen', 'Code', 'Heart', 'Fluid'];
+const CORE_KINDS = ['Panel', 'Red', 'Led', 'Screen', 'Code', 'Heart', 'Fluid', 'TankGlass', 'Mist'];
 
 /** Which of each city's floors go before the next city's road comes in. */
 const FADING: Record<number, string[]> = { 1: ['Floor', 'Water'], 2: ['Water', 'Mist', 'Haze', 'Sand'] };
@@ -79,6 +99,28 @@ diffuseColor.a *= 1.0 - uFadeOn * (1.0 - smoothstep(${FADE.short.toFixed(1)}, ${
   m.customProgramCacheKey = () => 'join-fade';
 }
 
+/**
+ * The desert's sand and road, cut off where the core's building takes over: its dunes run on through where the core's
+ * floors are, and its deck overlaps the next. Only for a strip the building's width, and only once the core's placed.
+ */
+function clipsPast(m: MeshStandardMaterial, u: (typeof joinFade)[number]) {
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vFadeWorld;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvFadeWorld = (modelMatrix * vec4(transformed, 1.0)).xz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec2 uJoin;\nuniform vec2 uJoinDir;\nuniform float uFadeOn;\nvarying vec2 vFadeWorld;')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+vec2 pastJoin = vFadeWorld - uJoin;
+if (uFadeOn > 0.0 && dot(pastJoin, uJoinDir) > 0.0 && abs(dot(pastJoin, vec2(-uJoinDir.y, uJoinDir.x))) < 60.0) discard;`
+      );
+  };
+  m.customProgramCacheKey = () => 'join-clip';
+}
+
 function ZoneCity({ k, src }: { k: number; src: string }) {
   const { prefix } = ZONES[k];
   const { scene } = useGLTF(src, DRACO_PATH);
@@ -86,7 +128,15 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
   const world = useThree((s) => s.scene);
-  const parts = useRef<{ heart: Object3D | null; lightning: MeshStandardMaterial[] }>({ heart: null, lightning: [] });
+  const parts = useRef<{
+    heart: Object3D | null;
+    lightning: MeshStandardMaterial[];
+    pulse: MeshStandardMaterial[];
+    code: Texture[];
+    doors: Object3D[];
+    gateCard: Object3D | null;
+    sections: Record<string, Object3D[]>;
+  }>({ heart: null, lightning: [], pulse: [], code: [], doors: [], gateCard: null, sections: {} });
   useVoidGloop();
   // Its road's centreline in and on out, for the bike to follow (before anything that places itself along it renders),
   // where its way out ends (the next zone carries on from there), and its arrival shot.
@@ -130,10 +180,20 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       const m = mesh.material as MeshStandardMaterial;
       m.envMap = env;
       m.envMapIntensity = 1.2;
-      const kind = m.name.startsWith(prefix) ? m.name.slice(prefix.length) : m.name;
-      if (kind in GLOWS) {
+      let kind = m.name.startsWith(prefix) ? m.name.slice(prefix.length) : m.name;
+      // (The core's are named for their part and end in their kind: LabBrokenPanel, LabFloorMist.)
+      if (k === 4) kind = CORE_KINDS.find((e) => kind.endsWith(e)) ?? kind;
+      // (The core's come with their own strengths, set against its previews: only let past white.)
+      if (k === 4 && GLOWS_CORE.includes(kind)) m.toneMapped = false;
+      else if (k !== 4 && kind in GLOWS) {
         m.emissiveIntensity = GLOWS[kind];
         m.toneMapped = false;
+      }
+      // The core's tanks, drawn see-through, not sorted among themselves.
+      if (kind === 'Fluid' && k === 4) m.depthWrite = false;
+      if (kind === 'TankGlass') {
+        m.depthWrite = false;
+        m.envMapIntensity = 2;
       }
       if (kind === 'Sun') m.fog = false;
       // The ooze (the drips, its puddles) reflects nothing: it's a window onto somewhere else
@@ -168,20 +228,33 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       }
       // Its floors thin out ahead of where the next city takes over, so they're gone by the change (road-join.tsx).
       if (FADING[k]?.includes(kind)) fadesOut(m, joinFade[k]);
+      if (k === 3 && (kind === 'Sand' || kind === 'Asphalt')) clipsPast(m, joinFade[k]);
       // The sandstorm's billboards and the hive's mist sheets: soft, unlit by the sun's glints, never writing depth.
       if (kind === 'Storm' || kind === 'Mist' || kind === 'Haze') {
         m.depthWrite = false;
         m.envMapIntensity = 0;
       }
+      // (The core's glossy floors, at a grazing look, mirrored the environment's green panels as a flat bright band: their
+      // shine's the road's mirror's to give, and their spill's painted on.)
+      if (k === 4 && /Floor|Wet/.test(kind)) m.envMapIntensity = 0.12;
+      // (The hall's floor fog, under the fill from the hemisphere, read as a flat bright band.)
+      if (m.name.endsWith('HallMist')) {
+        m.color.multiplyScalar(0.3);
+        m.opacity = 0.7;
+      }
       m.needsUpdate = true;
     });
     // The hive's heart, beating (components/three/ride.tsx: the heartbeat), and the desert's lightning.
     // (Found by its material: its name's shared with the ooze it hangs under.)
-    parts.current = { heart: null, lightning: [] as MeshStandardMaterial[] };
+    parts.current = { heart: null, lightning: [], pulse: [], code: [], doors: [], gateCard: node(scene, 'City4.GateShadow') ?? null, sections: {} };
     scene.traverse((o) => {
       const m = (o as Mesh).material as MeshStandardMaterial | undefined;
       if (m?.name === `${prefix}Heart`) parts.current.heart = o;
       if (m?.name === `${prefix}Lightning` && !parts.current.lightning.includes(m)) parts.current.lightning.push(m);
+      // The core's: its lit bands beat (not a heart hung on its own, to scale), its towers' code runs up them.
+      if (k === 4 && m?.name.endsWith('Heart') && !parts.current.pulse.includes(m)) parts.current.pulse.push(m);
+      if (m?.name === `${prefix}Code`) for (const tex of [m.map, m.emissiveMap]) if (tex && !parts.current.code.includes(tex)) parts.current.code.push(tex);
+      if (o.name === 'City5LabDoorL' || o.name === 'City5LabDoorR') parts.current.doors.push(o);
     });
   }, [scene, gl, prefix, k]);
 
@@ -200,13 +273,22 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     const plain = new Map<string, Mesh[]>();
     const instanced = new Map<string, { source: InstancedMesh; matrices: Matrix4[] }>();
     const each = new Matrix4();
+    // (The core's sections stand behind one another's walls: each is drawn only while it can be seen, below. The same
+    // going for what's only dark, in the road's reflection: there it's the lights that show.)
+    const sectionOf = (o: Object3D) => {
+      for (let p: Object3D | null = o; p; p = p.parent) if (/^City5(Gate|Lab|Tanks|Hall|Core)$/.test(p.name)) return p.name.slice(5);
+      return 'Road';
+    };
     const sources: Mesh[] = [];
     scene.traverse((o) => {
       const mesh = o as Mesh;
       if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+      // (The lab's doors slide: not merged into anything.)
+      if (o.name.includes('LabDoor') || o.parent?.name.includes('LabDoor')) return;
       sources.push(mesh);
     });
     for (const mesh of sources) {
+      if (k === 4) mesh.userData.section = sectionOf(mesh);
       const material = mesh.material as Material;
       if ((mesh as InstancedMesh).isInstancedMesh) {
         const im = mesh as InstancedMesh;
@@ -231,14 +313,28 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       const key = `${material.uuid}|${Object.keys(g.attributes).sort().join()}|${!!g.index}|${cellOf(centre.x, centre.z)}`;
       plain.set(key, [...(plain.get(key) ?? []), mesh]);
     }
+    const sections = parts.current.sections;
+    const addTo = (name: string, o: Object3D) => {
+      if (!sections[name]) sections[name] = [];
+      sections[name].push(o);
+    };
     const place = (o: Mesh, from: Mesh) => {
+      if (k === 4) {
+        addTo(from.userData.section as string, o);
+        const kind = (o.material as Material).name;
+        if (/Cable|Dark|Rust|Plate|Concrete|Steel|Specimen|Flesh|Sand/.test(kind)) o.layers.set(NO_MIRROR_LAYER);
+      }
       o.castShadow = from.castShadow;
       o.receiveShadow = from.receiveShadow;
       o.renderOrder = from.renderOrder;
       scene.add(o);
     };
     for (const meshes of plain.values()) {
-      if (meshes.length < 2) continue;
+      if (meshes.length < 2) {
+        // (Left as it is, but still its section's to show or hide.)
+        if (k === 4 && meshes[0]) addTo(meshes[0].userData.section as string, meshes[0]);
+        continue;
+      }
       const merged = mergeGeometries(meshes.map((m) => m.geometry.clone().applyMatrix4(toScene.clone().multiply(m.matrixWorld))));
       if (!merged) continue;
       const one = new MeshClass(merged, meshes[0].material);
@@ -253,7 +349,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       one.computeBoundingSphere();
       place(one, source);
     }
-  }, [scene]);
+  }, [scene, k]);
 
   useEffect(() => {
     let live = true;
@@ -284,7 +380,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
   // Placed where its road takes over on the course, turned to run on from the road before (local +x along it); drawn
   // while it's the zone the ride's heading for or the one it's just left.
   const flash = useRef({ next: 3, at: -1 });
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const g = group.current;
     const leg = course.legs[k];
     if (!g || !leg.ready) return;
@@ -301,9 +397,43 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       fade.uJoinDir.value.set(Math.cos(yaw), -Math.sin(yaw));
     }
     fade.uFadeOn.value = course.legs[k + 1]?.placed ? Math.min(1, fade.uFadeOn.value + 0.02) : 0;
-    const { heart, lightning } = parts.current;
+    const { heart, lightning, pulse, code, doors, gateCard, sections } = parts.current;
+    for (const m of pulse) {
+      m.userData.lit ??= m.emissiveIntensity;
+      m.emissiveIntensity = (m.userData.lit as number) * (0.75 + 0.6 * ride.drive.beat);
+    }
+    for (const tex of code) tex.offset.y = (tex.offset.y - delta * 0.28) % 1;
+    // (The desert's gate is a black card until there's a tunnel behind it.)
+    if (gateCard) gateCard.visible = !course.legs[k + 1]?.placed;
+    // The lab's doors open as the ride comes up on them.
+    if (doors.length) {
+      const toDoor = leg.at + LAB_DOOR - ride.drive.s;
+      // Each section only while it can be seen: one's walls hide the next until its door's opening.
+      const u = ride.drive.s - leg.at;
+      // (Where the chamber's mouth stands, short of the road's end: art/core/kit.py MOUTH.)
+      const mouth = (leg.in?.length ?? 0) - 130;
+      const shown: Record<string, boolean> = {
+        Gate: u < 170,
+        Lab: u < 700,
+        Tanks: u < 700,
+        Hall: toDoor < Math.max(190, ride.drive.speed * 2.5) && u < mouth + 54,
+        Core: u > mouth - 1100,
+        Road: true,
+      };
+      for (const [name, list] of Object.entries(sections)) for (const o of list) o.visible = shown[name] ?? true;
+      // (The specimens only near enough to make out, past that just lit tanks in the fog. The lab's straight, along +x.)
+      if (shown.Tanks) {
+        for (const o of sections.Tanks ?? []) {
+          const sphere = (o as InstancedMesh).boundingSphere;
+          if (sphere && /Specimen/.test((o as Mesh<BufferGeometry, Material>).material.name))
+            o.visible = Math.abs(sphere.center.x - u) - sphere.radius < SPECIMENS_SEEN;
+        }
+      }
+      const open = 1 - smoothstep(Math.max(40, ride.drive.speed * 0.8), Math.max(180, ride.drive.speed * 2.4), toDoor);
+      for (const d of doors) d.position.z = (d.name.endsWith('L') ? -1 : 1) * 7.5 * open;
+    }
     // (Relative to its own scale: it's modelled as a unit sphere, scaled up.)
-    if (heart) {
+    if (heart && k !== 4) {
       if (!heart.userData.size) heart.userData.size = heart.scale.clone();
       heart.scale.copy(heart.userData.size).multiplyScalar(1 + 0.06 * ride.drive.beat);
     }
@@ -339,7 +469,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
  * How much of a mirror each city's road is: the chrome city's pure mirror. (Not the hive's: reflecting that dense city
  * a second time doubled the frame's cost, 6 to 23 ms; its polished stone catches the dawn from its environment instead.)
  */
-const MIRROR = [0, 1, 0, 0];
+const MIRROR = [0, 1, 0, 0, 0.62];
 
 /**
  * Starts loading a city when the ride's on its way toward the one before (the chrome city once the visitor's on the

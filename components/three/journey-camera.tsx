@@ -158,14 +158,20 @@ export function JourneyCamera() {
       const pace = Math.min(1, ride.drive.speed / CRUISE);
       const t = state.clock.elapsedTime;
       // (Not off the ground, and not with the ride slowed to a stop; a landing's thump, though.)
-      const buzz = pace * 0.006 * (ride.drive.air ? 0 : rhythm.slow);
+      const buzz = pace * 0.006 * (ride.drive.air ? 0 : rhythm.slow) * (1 - ride.ghost.amount);
       riderEye.y += buzz * (Math.sin(t * 41) + 0.6 * Math.sin(t * 67)) - 0.16 * ride.drive.land;
+      // (Riding the thing that runs in the bike's place: its gallop, up through the rider.)
+      riderEye.y += ride.ghost.amount * 0.035 * Math.abs(Math.sin(t * 13));
       cam.position.lerp(riderEye, e);
       cam.quaternion.slerp(riderQuaternion, e);
       // (Surging, the view stretches wider still; launched, it's punched wider again and shakes, and drawing the
       // throttle back it narrows, a breath held.)
       const { fire, draw } = ride.drive;
-      cam.fov = MathUtils.lerp(cam.fov, RIDER_FOV + 12 * Math.min(1, pace * pace) + 10 * ride.drive.surge + 14 * ride.drive.pump + 20 * fire - 6 * draw, e);
+      cam.fov = MathUtils.lerp(
+        cam.fov,
+        RIDER_FOV + 12 * Math.min(1, pace * pace) + 10 * ride.drive.surge + 14 * ride.drive.pump + 20 * fire + 6 * ride.ghost.amount - 6 * draw,
+        e
+      );
       if (fire > 0.01) cam.position.y += fire * 0.012 * (Math.sin(t * 53) + 0.7 * Math.sin(t * 89));
       cam.filmOffset *= 1 - e;
     }
@@ -195,8 +201,9 @@ export function JourneyCamera() {
     }
     // (Close in on the bike, the near plane has to be too, however far the ride has gone from the planter.)
     cam.near = ride.mount > 0 ? 0.04 : Math.max(0.03, cam.position.distanceTo(HERO_TARGET) * 0.002);
-    // (Further once the cities are out there: their suns stand kilometres off.)
-    cam.far = ride.transition.placed || ride.zone > 1 ? 6000 : 2000;
+    // (Further once the cities are out there: their suns stand kilometres off, the desert's the furthest.)
+    // (Indoors, in the core, nothing past its fog need be drawn: most of its 7 km is culled by this.)
+    cam.far = ride.zone === 4 && tr.placed && ride.drive.s > tr.at + 41 ? 1000 : ride.zone === 3 ? 9500 : ride.transition.placed || ride.zone > 1 ? 6000 : 2000;
     cam.updateProjectionMatrix();
     if (process.env.NODE_ENV === 'development') (window as unknown as { __journeyCamera?: unknown }).__journeyCamera = cam;
   }, -1);

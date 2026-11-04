@@ -259,7 +259,8 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
         index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       }
     };
-    for (let u = 0; u < into.length; u += 3) lay(pathAt(into, u));
+    // (The core's starts past its gate tunnel, on the dusty road: the wet begins in the lab.)
+    for (let u = k === 4 ? 136 : 0; u < into.length; u += 3) lay(pathAt(into, u));
     lay(pathAt(into, into.length));
     if (leg.out) for (let u = 3; u <= leg.out.length; u += 3) lay(pathAt(leg.out, u));
     const geometry = new BufferGeometry();
@@ -284,7 +285,8 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
     u.uTime.value = state.clock.elapsedTime;
     // (Going dull on the way out, ahead of the next city's road: it's gone by the join, the change's middle.)
     const end = leg.at + inLength(leg) + outLength(leg);
-    u.uMirror.value = strength * (1 - smoothstep(end - TRANSITION_LEAD - 80, end - 130, s));
+    // (The last zone has no way out: it stays.)
+    u.uMirror.value = strength * (course.legs[k + 1] ? 1 - smoothstep(end - TRANSITION_LEAD - 80, end - 130, s) : 1);
     (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
   });
   return <primitive object={mirror} />;

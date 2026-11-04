@@ -105,6 +105,28 @@ export const LOOKS: (Look | null)[] = [
     hemiGround: new Color('#c98a4a'),
     hemi: 1.0,
   },
+  // Inside the core (concept-core-lab, -servers, -plaza): no sun, a dark green air thick enough to lose the hall's far end
+  // in; everything's own light does the rest.
+  {
+    top: new Color('#050d08'),
+    horizon: new Color('#0a1d10'),
+    glow: new Color('#3cff6a').multiplyScalar(0.2),
+    cloudLit: new Color('#0a1d10'),
+    cloudShade: new Color('#050d08'),
+    haze: new Color('#0a2312'),
+    light: new Color('#cfeed2'),
+    lightIntensity: 0.28,
+    sun: v3(0.2, 1, 0.1).normalize(),
+    fogNear: 40,
+    fogFar: 900,
+    clouds: 0,
+    tone: { shadow: v3(0.94, 1.02, 0.96), mid: v3(0.98, 1.01, 0.97), highlight: v3(1.0, 1.0, 0.97) },
+    saturation: 1.12,
+    exposure: 0.04,
+    hemiSky: new Color('#cfead2'),
+    hemiGround: new Color('#27452d'),
+    hemi: 0.45,
+  },
 ];
 
 /**

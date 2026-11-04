@@ -105,7 +105,77 @@ export const ride = {
    * rider's hands coming up, the hologram map opening out; components/three/holomap.tsx).
    */
   transition: { placed: false, at: 0, t: 0, arrived: false, arrive: 0, clear: 0, held: 0, map: 0 },
+  /**
+   * The core's boost: the bike comes apart into blocks of light (`amount`, 0 whole to 1 all blocks), something runs ahead in its
+   * place and the ride goes far faster than anywhere (`kick`) for a few seconds; it reforms, and the boost recharges
+   * (`charge`, 0 to 1). `t`: seconds into the state; `denied`: a press while it's sealed off, dying away (1 to 0).
+   */
+  ghost: { state: 'ready' as 'ready' | 'out' | 'run' | 'back' | 'cool', t: 0, amount: 0, kick: 0, charge: 1, denied: 0 },
 };
+
+/** The ghost boost's timing (s): coming apart, running, reforming, recharging. */
+export const GHOST = { out: 0.5, run: 3.2, back: 0.8, cool: 6 } as const;
+/** How much harder it brakes coming out of it: from about 420 m/s back to cruising in a couple of seconds. */
+export const GHOST_SHED = 14;
+
+/** How far along the core's road its lab's doors stand (art/core/kit.py LAB.door_s). */
+export const LAB_DOOR = 1392;
+/** Sealed off: there's no phasing out through the core's gate and lab. They're there to be seen; it comes alive past the doors. */
+export const ghostLocked = () => ride.zone === 4 && ride.transition.placed && ride.drive.s < ride.transition.at + LAB_DOOR;
+
+/** A press of the boost button in the core: goes if it's charged. */
+export function pressGhost() {
+  const g = ride.ghost;
+  if (ghostLocked()) {
+    g.denied = 1;
+    return;
+  }
+  if (g.state !== 'ready' || !ride.mounted || ride.mount < 0.95 || ride.transition.arrived) return;
+  ride.drive.cruise = true;
+  g.state = 'out';
+  g.t = 0;
+}
+
+/** Cut short (a new zone, pulled up): straight to reforming. */
+export function cutGhost() {
+  const g = ride.ghost;
+  if (g.state === 'out' || g.state === 'run') {
+    g.state = 'back';
+    g.t = 0;
+    g.kick = 0;
+    ride.drive.shedding = true;
+  }
+}
+
+export function updateGhost(dt: number) {
+  const g = ride.ghost;
+  g.denied = Math.max(0, g.denied - dt * 2.5);
+  g.t += dt;
+  if (g.state === 'out') {
+    const f = Math.min(1, g.t / GHOST.out);
+    g.amount = f;
+    g.kick = Math.max(0, (f - 0.3) / 0.7);
+    if (f >= 1) Object.assign(g, { state: 'run', t: 0 });
+  } else if (g.state === 'run') {
+    g.amount = 1;
+    g.kick = 1;
+    if (g.t >= GHOST.run) {
+      Object.assign(g, { state: 'back', t: 0, kick: 0 });
+      ride.drive.shedding = true;
+    }
+  } else if (g.state === 'back') {
+    g.kick = 0;
+    g.amount = Math.max(0, 1 - g.t / GHOST.back);
+    if (g.amount <= 0) Object.assign(g, { state: 'cool', t: 0, charge: 0 });
+  } else if (g.state === 'cool') {
+    g.charge = Math.min(1, g.t / GHOST.cool);
+    if (g.charge >= 1) Object.assign(g, { state: 'ready', t: 0 });
+  }
+}
+
+export function resetGhost() {
+  Object.assign(ride.ghost, { state: 'ready', t: 0, amount: 0, kick: 0, charge: 1 });
+}
 
 /**
  * A city's own road from where it takes over (art/build-city2.py City2.RoadPath and on: its centreline every 2 m, in
@@ -168,7 +238,8 @@ const LEFT_BEHIND = 400;
 /** Whether the ride's gone far enough into the city after zone `k` (0 the green city) that `k` needn't be drawn. */
 export function leftBehind(k: number) {
   const next = course.legs[k + 1];
-  return !!next?.placed && ride.drive.s > next.at + LEFT_BEHIND;
+  // (Once in the core's tunnel the desert's gone: it's walled off, and its dunes run on under the building.)
+  return !!next?.placed && ride.drive.s > next.at + (k === 3 ? 40 : LEFT_BEHIND);
 }
 
 /**
@@ -176,7 +247,7 @@ export function leftBehind(k: number) {
  * road's last stretch, each an ellipse (along and across the road, m) with a height. Riding through one the bike slows,
  * as through muck (components/three/ride.tsx), and rides up on it. In the zones that ooze (the chrome city, the hive).
  */
-export const MUCKY = [false, true, true, false];
+export const MUCKY = [false, true, true, false, false];
 const slicks = new Map<number, Slick[]>();
 export type Slick = { u: number; across: number; along: number; wide: number; height: number; turn: number };
 export function muckSlicks(k = 1) {
@@ -276,13 +347,20 @@ export function muckUnder(u: number, k = 1) {
  */
 export const TRANSITION_LEAD = 320;
 export const TRANSITION_TAIL = 160;
+/**
+ * Each zone's window where it isn't those: into the core it's a matter of going indoors, so the light only starts to go
+ * as the bike nears the gate, not out in the sun.
+ */
+export const transitionLead = (k: number) => (k === 4 ? 90 : TRANSITION_LEAD);
+export const transitionTail = (k: number) => (k === 4 ? 120 : TRANSITION_TAIL);
 /** Seconds for the morph's seam to sweep the bike. */
 export const CHROME_SECONDS = 2.6;
 /**
  * The change to the second city (and the bike's morph with it) waits for the city to load, and for at least this long
- * riding (s), so a fast load doesn't cut the ride short.
+ * riding (s), so a fast load doesn't cut the ride short. Long enough to hear the green city's music come round twice
+ * (a 24 s loop, art/audio/hydrasynth).
  */
-export const MORPH_AFTER = 12;
+export const MORPH_AFTER = 48;
 
 /**
  * Well into the second city: the rain (the green city's weather) isn't drawn at all. (The green city itself stays, seen
@@ -323,7 +401,7 @@ export const HEART = { period: 0.82, quicken: 0.3, ebb: 0.09 };
 /** Over the dunes: how hard it comes back down (m/s²; more than the real thing, for a jump that lands) and the most it rises. */
 export const JUMP = { gravity: 24, rise: 15 };
 /** Which zones' bikes have loaded (components/three/bike.tsx): the morph into one waits for it. */
-export const bikeReady = [true, false, false, false];
+export const bikeReady = [true, false, false, false, false];
 /** The zone the bike's in now: the one it's heading for once that's mostly come in, else the one before. */
 export const zoneHere = () => (ride.transition.placed && ride.transition.t > 0.5 ? ride.zone : ride.zone - 1);
 // (Dev: ?feature=surge|heartbeat|slingshot puts that feature on the throttle everywhere, to try it.)

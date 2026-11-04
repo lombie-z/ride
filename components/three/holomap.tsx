@@ -35,13 +35,14 @@ const corner = new Vector3();
 
 /**
  * The places on the map, in its drawing's units (360 by 260), along a road winding up from the bottom left: the green
- * city, the chrome city, the hive, the desert. Each with its phosphor.
+ * city, the chrome city, the hive, the desert, the core. Each with its phosphor.
  */
 const PLACES = [
   { x: 60, y: 212, accent: '#3dff6a' },
   { x: 150, y: 152, accent: '#6ff2ff' },
   { x: 236, y: 104, accent: '#ffb02e' },
   { x: 308, y: 50, accent: '#ff6a1f' },
+  { x: 338, y: 24, accent: '#7dff6a' },
 ];
 
 /** The land's height at a point on the map. */

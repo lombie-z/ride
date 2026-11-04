@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { type Circle, pressRhythm, RHYTHM, rhythm, STAR_ORDER } from '@/lib/rhythm';
+import { type Circle, pressRhythm, RHYTHM, rhythm, SIGILS } from '@/lib/rhythm';
 import { ride } from '@/lib/ride';
 
 // The hive's run of angel numbers (lib/rhythm.ts), on a canvas of its own over the scene: its motion blur would smear
 // them, and they have to be read at a glance. At a quarter of the resolution, drawn up in chunky pixels to sit with the
-// rest. A six-pointed star being drawn over the view in one line (unicursal, the occult one), point by point: each point an all-seeing wheel, its number in it, gold
-// at 111 turning to blood by 666; when it's done the boost hits, and the star burns over the road for as long as it lasts.
+// rest. A sigil being drawn over the view in one line, a different one each run, point by point: each point an all-seeing
+// wheel, its number in it, gold at 111 turning to blood by 666. When it's done the boost hits, and for as long as it lasts
+// groups of eyes hold open in every corner of the view, in shadow, staring in, closing as it runs out. Miss, and they open
+// then too, blood-red.
 
 const PIXEL = 4;
 const MISS = '#ff2238';
@@ -18,11 +20,100 @@ const FONT = 'Georgia, "Times New Roman", serif';
 const mix = (t: number) => GOLD.map((a, i) => Math.round(a + (BLOOD[i] - a) * t));
 const rgb = (c: number[], a = 1) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
 
-/** The star's points on the screen: the six points over the upper middle, clear of the bike (as shares of the view). */
+/** A point of this run's sigil on the screen: over the upper middle, clear of the bike (as shares of the view). */
 function point(i: number, w: number, h: number) {
-  const r = Math.min(w * 0.3, h * 0.25);
-  const a = -Math.PI / 2 + (i * Math.PI) / 3;
-  return { x: (w / 2 + Math.cos(a) * r) / w, y: (h * 0.33 + Math.sin(a) * r) / h };
+  const R = Math.min(w * 0.3, h * 0.25);
+  const [ux, uy] = SIGILS[rhythm.sigil].points[i];
+  const edge = w / 2 - Math.min(w, h) * 0.11;
+  return { x: (w / 2 + Math.max(-edge, Math.min(edge, ux * R * 1.25))) / w, y: (h * 0.33 + uy * R) / h };
+}
+
+/** The sigil's line through its points, as far as `n` of them. */
+function sigilPath(g: CanvasRenderingContext2D, n: number, w: number, h: number) {
+  g.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p = point(i, w, h);
+    if (i === 0) g.moveTo(p.x * w, p.y * h);
+    else g.lineTo(p.x * w, p.y * h);
+  }
+  if (n === RHYTHM.count && SIGILS[rhythm.sigil].closed) g.closePath();
+}
+
+type Eye = { corner: number; x: number; y: number; size: number; tilt: number; delay: number; seed: number };
+/** The eyes in the corners: bunched round each, biggest in it, as shares of the view's shorter side from that corner. */
+const EYES: Eye[] = (() => {
+  const list: Eye[] = [];
+  const hash = (i: number) => {
+    const h = Math.sin(i * 127.1 + 3.7) * 43758.5453;
+    return h - Math.floor(h);
+  };
+  for (let corner = 0; corner < 4; corner++) {
+    const placed: Eye[] = [];
+    // (Out from the corner on a fan, biggest nearest it; a spot's tried till it's clear of those already there.)
+    for (let i = 0; placed.length < 11 && i < 90; i++) {
+      const n = corner * 100 + i;
+      const order = placed.length;
+      const d = 0.09 + 0.1 * Math.sqrt(order) + 0.05 * hash(n);
+      const a = 0.04 + hash(n + 3) * (Math.PI * 0.5 - 0.08);
+      const size = (0.095 - 0.0058 * order) * (0.85 + 0.3 * hash(n + 7));
+      const x = Math.cos(a) * d * 1.3;
+      const y = Math.sin(a) * d;
+      if (placed.some((e) => Math.hypot((e.x - x) * 0.72, e.y - y) < (e.size + size) * 0.8)) continue;
+      placed.push({ corner, x, y, size, tilt: (hash(n + 11) - 0.5) * 0.7, delay: order / 11, seed: hash(n + 23) });
+    }
+    list.push(...placed);
+  }
+  return list;
+})();
+
+/** One eye, `open` (0 to 1), its pupil turned to (lookX, lookY) on the screen. `rage`: bloodshot, the pupil pinned. */
+function drawEye(g: CanvasRenderingContext2D, x: number, y: number, size: number, tilt: number, open: number, lookX: number, lookY: number, rage: number) {
+  const lid = size * 0.62 * open;
+  g.save();
+  g.translate(x, y);
+  g.rotate(tilt);
+  // Its own shadow round it.
+  g.fillStyle = `rgba(0, 0, 0, ${0.55 * Math.min(1, open * 2)})`;
+  g.beginPath();
+  g.ellipse(0, 0, size * 1.32, size * 0.92, 0, 0, Math.PI * 2);
+  g.fill();
+  const almond = () => {
+    g.beginPath();
+    g.moveTo(-size, 0);
+    g.quadraticCurveTo(0, -lid * 2, size, 0);
+    g.quadraticCurveTo(0, lid * 2, -size, 0);
+    g.closePath();
+  };
+  almond();
+  g.fillStyle = rage > 0.5 ? '#f2c9b4' : '#f0e4c0';
+  g.fill();
+  g.save();
+  g.clip();
+  // Turned in: the iris pushed toward where it's looking.
+  const dx = lookX - x;
+  const dy = lookY - y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const c = Math.cos(-tilt);
+  const s = Math.sin(-tilt);
+  const ix = ((dx * c - dy * s) / dist) * size * 0.42;
+  const iy = ((dx * s + dy * c) / dist) * size * 0.3;
+  const iris = size * 0.52;
+  g.fillStyle = rage > 0.5 ? '#c10f1c' : '#d98a1a';
+  g.beginPath();
+  g.arc(ix, iy, iris, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#080203';
+  g.beginPath();
+  g.arc(ix, iy, iris * (0.62 - 0.26 * rage), 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = 'rgba(255, 245, 225, 0.9)';
+  g.fillRect(ix - iris * 0.42, iy - iris * 0.5, Math.max(1, iris * 0.26), Math.max(1, iris * 0.26));
+  g.restore();
+  almond();
+  g.lineWidth = Math.max(1, size * 0.14);
+  g.strokeStyle = '#0c0204';
+  g.stroke();
+  g.restore();
 }
 
 export function RhythmOverlay() {
@@ -47,6 +138,9 @@ export function RhythmOverlay() {
   useEffect(() => {
     let raf = 0;
     let dirty = false;
+    // How far the corners' eyes are open: eased, so they open and close rather than snap.
+    let staring = 0;
+    let last = performance.now();
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const el = canvas.current;
@@ -58,7 +152,14 @@ export function RhythmOverlay() {
         el.width = w;
         el.height = h;
       }
-      const busy = rhythm.active || rhythm.bursts.length > 0 || rhythm.slow < 1 || rhythm.burn > 0 || ride.drive.pump > 0.01;
+      const stamp = performance.now();
+      const dt = Math.min(0.05, (stamp - last) / 1000);
+      last = stamp;
+      // Open for the boost (shutting as it runs out) or over what's been missed, whichever's more.
+      const wide = Math.max(Math.min(1, ride.drive.pump / 0.3), rhythm.glare > 0.01 ? 0.4 + 0.6 * rhythm.glare : 0);
+      staring += (wide - staring) * Math.min(1, dt * (wide > staring ? 7 : 3));
+      if (staring < 0.004) staring = 0;
+      const busy = rhythm.active || rhythm.bursts.length > 0 || rhythm.slow < 1 || rhythm.burn > 0 || ride.drive.pump > 0.01 || staring > 0;
       if (!busy && !dirty) return;
       g.clearRect(0, 0, w, h);
       dirty = busy;
@@ -77,68 +178,45 @@ export function RhythmOverlay() {
       }
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      // The star, as far as it's been drawn: one line, from point to point.
-      const at = (n: number) => {
-        const p = point(STAR_ORDER[n], w, h);
-        return { x: p.x * w, y: p.y * h };
-      };
-      if (rhythm.active && landed > 0) {
-        g.strokeStyle = rgb(mix(dread), 0.9);
-        g.lineWidth = 1.5;
-        g.beginPath();
-        for (let n = 0; n < landed; n++) {
-          const p = at(n);
-          if (n === 0) g.moveTo(p.x, p.y);
-          else g.lineTo(p.x, p.y);
-        }
-        if (landed === RHYTHM.count) g.closePath();
-        g.stroke();
-      }
-      // The boost: the finished star burning over the road for as long as it lasts, turning, beating with the heart, a
-      // ring round it running out with it.
-      const boost = ride.drive.pump;
-      if (!rhythm.active && boost > 0.01) {
-        const k = Math.min(1, boost * 5);
-        const R = Math.min(w * 0.22, h * 0.25) * (1 + 0.07 * ride.drive.beat + 0.35 * rhythm.burn);
-        const cx = w / 2;
-        const cy = h * 0.34;
-        const turn = now * 0.7;
-        const star = () => {
-          g.beginPath();
-          for (const [i, n] of STAR_ORDER.entries()) {
-            const a = turn + (n * Math.PI) / 3;
-            if (i === 0) g.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
-            else g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
-          }
-          g.closePath();
-          g.stroke();
-        };
-        g.lineCap = 'round';
-        g.strokeStyle = `rgba(255, 30, 40, ${0.4 * k})`;
-        g.lineWidth = 5;
-        star();
-        g.strokeStyle = `rgba(255, ${Math.round(150 + 90 * ride.drive.beat)}, 90, ${k})`;
-        g.lineWidth = 2;
-        star();
-        g.strokeStyle = `rgba(255, 60, 50, ${k})`;
-        g.lineWidth = 2;
-        g.beginPath();
-        g.arc(cx, cy, R * 1.14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, boost));
-        g.stroke();
-        g.lineCap = 'butt';
-      }
-      // A faint guide to where the star's going, once it's going.
+      // The sigil, as far as it's been drawn, and a faint guide to where it's going.
       if (rhythm.active) {
         g.strokeStyle = rgb(mix(dread), 0.16);
         g.lineWidth = 1;
-        g.beginPath();
-        for (const [i, n] of STAR_ORDER.entries()) {
-          const p = point(n, w, h);
-          if (i === 0) g.moveTo(p.x * w, p.y * h);
-          else g.lineTo(p.x * w, p.y * h);
-        }
-        g.closePath();
+        sigilPath(g, RHYTHM.count, w, h);
         g.stroke();
+        if (landed > 0) {
+          g.strokeStyle = rgb(mix(dread), 0.9);
+          g.lineWidth = 1.5;
+          sigilPath(g, landed, w, h);
+          g.stroke();
+        }
+      }
+      // The eyes: groups in all four corners, in their shadow, opening from the corner in, staring at the middle of the view.
+      if (staring > 0) {
+        const rage = rhythm.glare > ride.drive.pump ? 1 : 0;
+        const beat = ride.drive.beat;
+        for (let corner = 0; corner < 4; corner++) {
+          const cx = corner % 3 === 0 ? 0 : w;
+          const cy = corner < 2 ? 0 : h;
+          const dark = g.createRadialGradient(cx, cy, 0, cx, cy, unit * (0.62 + 0.04 * beat));
+          dark.addColorStop(0, `rgba(0, 0, 0, ${0.96 * Math.min(1, staring * 1.6)})`);
+          dark.addColorStop(0.55, `rgba(2, 0, 0, ${0.8 * Math.min(1, staring * 1.6)})`);
+          dark.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          g.fillStyle = dark;
+          g.fillRect(0, 0, w, h);
+        }
+        const lookX = w / 2;
+        const lookY = h * 0.46;
+        for (const e of EYES) {
+          const open = Math.min(1, Math.max(0, (staring * 1.45 - e.delay * 0.45) / 0.55));
+          if (open <= 0.02) continue;
+          // (Each blinks now and then, on its own.)
+          const f = (now * (0.13 + 0.16 * e.seed) + e.seed * 7) % 1;
+          const blink = f < 0.025 ? Math.abs(f / 0.0125 - 1) : 1;
+          const x = (e.corner % 3 === 0 ? e.x : 1 * (w / unit) - e.x) * unit;
+          const y = (e.corner < 2 ? e.y : h / unit - e.y) * unit;
+          drawEye(g, x, y, e.size * unit * (1 + 0.05 * beat), e.tilt, open * open * (3 - 2 * open) * blink, lookX, lookY, rage);
+        }
       }
       // The next to land last, on top.
       for (const c of [...rhythm.circles].reverse()) {

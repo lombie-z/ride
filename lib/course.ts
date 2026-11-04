@@ -7,10 +7,10 @@ import { Vector3 } from 'three';
 // RoadOut, from there on out of it), so the whole ride is one line, measured as ride.drive.s.
 
 /** What each zone's throttle does, beyond riding on: the button's feature there. */
-export type Feature = 'start' | 'surge' | 'heartbeat' | 'slingshot';
+export type Feature = 'start' | 'surge' | 'heartbeat' | 'slingshot' | 'ghost';
 
 export type ZoneDef = {
-  id: 'green' | 'chrome' | 'hive' | 'desert';
+  id: 'green' | 'chrome' | 'hive' | 'desert' | 'core';
   name: string;
   /** Its city (null: the green city, the landing's own, with the endless street). */
   city: string | null;
@@ -29,6 +29,7 @@ export const ZONES: ZoneDef[] = [
   { id: 'chrome', name: 'Chrome city', city: '/models/city2.glb', prefix: 'City2', bike: '/models/bike2.glb', feature: 'surge', cruise: 38, boost: 5.1 },
   { id: 'hive', name: 'Coral hive', city: '/models/city3.glb', prefix: 'City3', bike: '/models/bike3.glb', feature: 'heartbeat', cruise: 44, boost: 2.3 },
   { id: 'desert', name: 'Data desert', city: '/models/city4.glb', prefix: 'City4', bike: '/models/bike4.glb', feature: 'slingshot', cruise: 50, boost: 3.2 },
+  { id: 'core', name: 'The core', city: '/models/city5.glb', prefix: 'City5', bike: '/models/bike5.glb', feature: 'ghost', cruise: 56, boost: 6.5 },
 ];
 
 /** A road as data: its centreline every `step` metres in its city's frame (Blender's: x along the road in, y to its left). */

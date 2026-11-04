@@ -19,6 +19,7 @@ import {
 import { course, courseCurve, groundAt, inLength, legIndexAt, placeAfter, resetCourse, ZONES } from '@/lib/course';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
 import { updateLook } from '@/lib/look';
+import { updateMusic } from '@/lib/music';
 import { heartPeriod, rhythm, updateRhythm } from '@/lib/rhythm';
 import {
   ACCEL,
@@ -27,20 +28,26 @@ import {
   bikeReady,
   boostHere,
   CHROME_SECONDS,
+  cutGhost,
   featureHere,
+  GHOST_SHED,
   HEART,
   JUMP,
   LAUNCH_SECONDS,
   MORPH_AFTER,
   muckUnder,
+  resetGhost,
   ride,
   road,
   SETTLED_FRAME,
   TRANSITION_LEAD,
-  TRANSITION_TAIL,
+  transitionLead,
+  transitionTail,
+  updateGhost,
   WASH,
   WASH_FROM,
 } from '@/lib/ride';
+import { trace, updateTrace } from '@/lib/trace';
 import { AT } from './bike';
 import { pillGlyphs } from './pill-glyph';
 
@@ -78,6 +85,7 @@ function cutBoost() {
   const boosted = d.surge > 0.01 || d.pump > 0.01 || d.launch > 0.01;
   Object.assign(d, { boosting: false, surge: 0, pump: 0, launch: 0, pull: 0, release: 0, boost: 0 });
   if (boosted) d.shedding = true;
+  cutGhost();
 }
 
 type Streak = { from: Vector3; bend: Vector3; delay: number; duration: number };
@@ -96,7 +104,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
   const coarse = useMemo(() => typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches, []);
 
   useFrame((state, delta) => {
-    if (process.env.NODE_ENV === 'development') (window as unknown as { __ride?: unknown }).__ride = { ride, anchors, rhythm, scene: state.scene };
+    if (process.env.NODE_ENV === 'development')
+      (window as unknown as { __ride?: unknown; __trace?: unknown }).__ride = { ride, anchors, rhythm, scene: state.scene };
+    if (process.env.NODE_ENV === 'development') (window as unknown as { __trace?: unknown }).__trace = trace;
     const dt = Math.min(delta, 1 / 20);
     const settled = journey.frame >= SETTLED_FRAME;
     // Counting up once settled on the landing; before the button's been lit it runs back when the visitor scrolls away,
@@ -183,9 +193,12 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // cruising speed and its own feature on the throttle (lib/course.ts ZONES), pushing it on far faster.
     const tr = ride.transition;
     const feature = featureHere();
-    // (The hive's rhythm can slow the ride right down, to show where to click.)
     updateRhythm(dt, ride.mounted && feature === 'heartbeat' && drive.cruise && !tr.arrived);
-    const step = dt * rhythm.slow;
+    // (The hive's circles and the chrome city's trace can each slow the ride right down, to show what's wanted.)
+    const step = dt * Math.min(rhythm.slow, trace.slow);
+    updateGhost(dt);
+    updateTrace(dt, ride.mounted && ride.mount > 0.95 && feature === 'surge' && drive.cruise && !tr.arrived);
+    const ghost = feature === 'ghost' ? ride.ghost.kick : 0;
     // A boost belongs to the zone it's used in: into the next, it's cut off, the bike shedding the speed quickly.
     if (feature !== featureWas) {
       featureWas = feature;
@@ -193,9 +206,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     }
     if (ride.mounted) {
       drive.rewindFrom = -1;
-      // The chrome city's surge: holding the throttle down, easing in and out.
-      const surging = drive.boosting && drive.cruise && feature === 'surge';
-      drive.surge += ((surging ? 1 : 0) - drive.surge) * Math.min(1, dt * (surging ? 1.6 : 2.4));
+      // The chrome city's surge: as far as the trace has built, easing in and out (lib/trace.ts).
+      const surging = drive.cruise && feature === 'surge' ? trace.level : 0;
+      drive.surge += (surging - drive.surge) * Math.min(1, dt * (surging > drive.surge ? 2.2 : 2.4));
       // The desert's slingshot: the button drawn back along its track (it snaps home fast when let go); let go, the
       // bike's flung on, the kick running down over a few seconds.
       if (feature !== 'slingshot') drive.pull = 0;
@@ -214,7 +227,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       drive.beat =
         Math.exp(-((drive.phase / 0.06) ** 2)) + 0.6 * Math.exp(-(((drive.phase - 0.28) / 0.07) ** 2)) + Math.exp(-(((drive.phase - 1) / 0.06) ** 2));
       drive.pump = Math.max(0, drive.pump - step * (feature === 'heartbeat' ? HEART.ebb : 1));
-      const kick = feature === 'surge' ? drive.surge : feature === 'heartbeat' ? drive.pump : feature === 'slingshot' ? drive.launch : 0;
+      const kick = feature === 'surge' ? drive.surge : feature === 'heartbeat' ? drive.pump : feature === 'slingshot' ? drive.launch : ghost;
       // (Cruising speed changes with the zone, over the change between them.)
       const cruise = ZONES[Math.max(0, ride.zone - 1)].cruise + (ZONES[ride.zone].cruise - ZONES[Math.max(0, ride.zone - 1)].cruise) * tr.t;
       let want = ride.mount > 0.95 && drive.cruise ? cruise * (1 + boostHere() * kick) + drive.boost : 0;
@@ -226,7 +239,14 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       if (tr.placed) {
         const left = stop - drive.s;
         // (Gently over the last stretch; hard on the brakes before it, so a surge or a launch runs on until near the end.)
-        want = Math.min(want, Math.max(Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)), Math.sqrt(2 * BRAKE * Math.max(0, left - 150))));
+        // (The ghost's far quicker, and brakes far harder: its curve's its own, or it would start braking kilometres out.)
+        const brakes = feature === 'ghost' ? BRAKE * GHOST_SHED : BRAKE;
+        const stopping = Math.max(Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)), Math.sqrt(2 * brakes * Math.max(0, left - 150)));
+        if (feature === 'ghost' && want > stopping && drive.speed > stopping + 20) {
+          cutGhost();
+          drive.shedding = true;
+        }
+        want = Math.min(want, stopping);
         // Nearing the next zone's road, however it's boosted, it's down to that zone's cruising speed by the join.
         const cap = ZONES[ride.zone].cruise + Math.sqrt(2 * BRAKE * SHED * Math.max(0, tr.at - 40 - drive.s));
         if (drive.s < tr.at && want > cap) {
@@ -244,7 +264,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           let curve = 0;
           for (let ahead = 0; ahead <= 60 + drive.speed; ahead += 10) curve = Math.max(curve, Math.abs(courseCurve(drive.s + ahead)));
           // (With the zone's feature going, it leans harder and takes them faster: the more its boost, the faster.)
-          if (curve > 1e-4) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * kick)) / curve) * (1 + 0.43 * boostHere() * kick));
+          // (Not as data: it doesn't lean, it goes through.)
+          if (curve > 1e-4 && ghost <= 0) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * kick)) / curve) * (1 + 0.43 * boostHere() * kick));
         }
         // (Only once its road's known: a zone still loading holds the ride at the end of the last one's way out.)
         if (left < 0.6 && drive.speed < 0.4 && !tr.arrived && leg.in) {
@@ -255,8 +276,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       }
       drive.speed =
         want > drive.speed
-          ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump + 8 * drive.surge) * step)
-          : Math.max(want, drive.speed - BRAKE * (drive.shedding ? SHED : 1) * step);
+          ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump + 8 * drive.surge + 90 * ghost) * step)
+          : Math.max(want, drive.speed - BRAKE * (drive.shedding ? (feature === 'ghost' ? GHOST_SHED : SHED) : 1) * step);
       if (drive.speed <= want + 0.5) drive.shedding = false;
       drive.s = Math.min(drive.s + drive.speed * step, stop);
       if (drive.speed > 0.5) drive.time += step;
@@ -284,6 +305,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       drive.speed = 0;
       drive.boosting = false;
       drive.surge = 0;
+      resetGhost();
       Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0, pump: 0, y: 0, vy: 0, air: false, land: 0, pitch: 0 });
       if (ride.wash < 0 && drive.s > WASH_FROM) ride.wash = 0;
       if (ride.wash >= 0) {
@@ -336,7 +358,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       }
     }
     // (Every change alike: over the road either side of where the next city's takes over.)
-    tr.t = tr.placed ? smoothstep(tr.at - TRANSITION_LEAD, tr.at + TRANSITION_TAIL, drive.s) : 0;
+    tr.t = tr.placed ? smoothstep(tr.at - transitionLead(ride.zone), tr.at + transitionTail(ride.zone), drive.s) : 0;
     // The towers by the water sink away and the train's beam rises in their place, over a few seconds.
     tr.clear = tr.placed ? Math.min(1, tr.clear + dt / CLEAR_SECONDS) : 0;
     tr.arrive = tr.arrived && ride.mounted ? Math.min(1, tr.arrive + dt / 3.2) : Math.max(0, tr.arrive - dt / 1.2);
@@ -368,6 +390,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     }
     // The light now, from the zones' looks.
     updateLook();
+    updateMusic(dt);
     drive.away = smoothstep(20, 260, drive.s);
   });
 

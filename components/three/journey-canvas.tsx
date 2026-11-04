@@ -142,6 +142,7 @@ export default function JourneyCanvas({ onReady, onProgress }: { onReady: () => 
         <ZoneCityLoader k={1} />
         <ZoneCityLoader k={2} />
         <ZoneCityLoader k={3} />
+        <ZoneCityLoader k={4} />
         <HoloMap />
       </Suspense>
       {flag('nofx') ? <Render /> : <Effects sun={null} pixel={pixel} />}

@@ -2,18 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { course, inLength, ZONES } from '@/lib/course';
+import { music, startMusic, toggleMuted } from '@/lib/music';
 import { pressRhythm } from '@/lib/rhythm';
-import { featureHere, ride } from '@/lib/ride';
+import { featureHere, pressGhost, ride } from '@/lib/ride';
+import { releaseTrace, startTrace, trace } from '@/lib/trace';
 
 // The hit areas for the bike's controls (drawn in the canvas): real, invisible <button>s kept over them each frame, so
 // they're clickable, focusable and announced. From the landing the first covers the whole bike, and clicking gets on: the
 // camera glides to the rider's eye and the page stops scrolling. On the bike it's play and pause: clicking it (or
 // scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or scrolling back brakes.
 // The second's the boost button, the rocket on its pod (components/three/boost-pod.tsx), from the chrome city on, doing
-// each zone's own thing (lib/course.ts ZONES), as does Space: in the chrome city pressing and holding it surges the bike
-// on; in the hive, a press starts a run of circles, 111 to 666, to click on the heart's beat, for the boost (lib/rhythm.ts); in the desert, dragging
+// each zone's own thing (lib/course.ts ZONES), as does Space: in the chrome city pressing it sends out a trail of light with
+// a star on its end, to keep the pointer on as it wanders, holding on: the surge builds the longer it's kept up (lib/trace.ts); in the hive, a press starts a run of circles, 111 to 666, to click on the heart's beat, for the boost (lib/rhythm.ts); in the desert, dragging
 // it back, down the screen toward the rider (or holding Space), draws it back along its rail like a slingshot, and
-// letting go launches the bike. There's no getting off by scrolling (easy to do by accident while finding the controls):
+// letting go launches the bike; in the core, a press phases it out for a few seconds of far greater speed. There's no getting off by scrolling (easy to do by accident while finding the controls):
 // the way back is on the map, once in the chrome city (ride.request.back, from the map's green city,
 // components/three/holomap.tsx).
 /** The boost button's feature in the zone the bike's in. */
@@ -25,8 +27,18 @@ export function RideButton() {
   const backButton = useRef<HTMLButtonElement>(null);
   const onButton = useRef<HTMLButtonElement>(null);
   const [mounted, setMounted] = useState(false);
+  const [muted, setMuted] = useState(false);
+  // (What was remembered: read once on the client, so the first render matches the server's.)
+  useEffect(() => setMuted(music.muted), []);
+  const flipSound = () => {
+    toggleMuted();
+    setMuted(music.muted);
+  };
   // The slingshot: where the press began (null when not pressed) and whether it's become a drag.
   const press = useRef<{ x: number; y: number; dragging: boolean } | null>(null);
+
+  const flipSoundRef = useRef(flipSound);
+  flipSoundRef.current = flipSound;
 
   // Let go of a draw: far enough back, it launches (as hard as it was drawn); not, it just slides home.
   const letGo = (launch: boolean) => {
@@ -35,6 +47,7 @@ export function RideButton() {
     drive.pull = 0;
     press.current = null;
     drive.boosting = false;
+    releaseTrace();
   };
 
   // Where the pointer is, for the button's glow.
@@ -141,9 +154,11 @@ export function RideButton() {
         if (e.repeat) return;
         const f = feature();
         if (f === 'surge') {
-          ride.drive.cruise = true;
-          ride.drive.boosting = true;
+          // (Followed with the pointer wherever it already is.)
+          const b = ride.boostScreen;
+          startTrace(b.x, b.y, ride.pointer?.x ?? b.x, ride.pointer?.y ?? b.y);
         } else if (f === 'heartbeat') pressRhythm();
+        else if (f === 'ghost') pressGhost();
         else if (f === 'slingshot') {
           const from = performance.now();
           window.clearInterval(drawing);
@@ -151,7 +166,8 @@ export function RideButton() {
             ride.drive.pull = Math.min(1, (performance.now() - from) / 900);
           }, 16);
         } else go();
-      } else if (e.key === 'ArrowUp' || e.key === 'w') go();
+      } else if (e.key === 'm') flipSoundRef.current();
+      else if (e.key === 'ArrowUp' || e.key === 'w') go();
       else if (e.key === 'ArrowDown' || e.key === 's') back();
     };
     // (Wheels and trackpads fire many events per gesture: one gesture is one nudge.)
@@ -180,6 +196,7 @@ export function RideButton() {
     const keyUp = (e: KeyboardEvent) => {
       if (e.key !== ' ') return;
       ride.drive.boosting = false;
+      releaseTrace();
       if (drawing) {
         window.clearInterval(drawing);
         drawing = 0;
@@ -211,8 +228,11 @@ export function RideButton() {
         type="button"
         aria-label="Get on the bike"
         onClick={() => {
-          if (!mounted) setMounted(true);
-          else ride.drive.cruise = !ride.drive.cruise;
+          if (!mounted) {
+            setMounted(true);
+            // (Browsers only let sound start from a press like this one.)
+            startMusic();
+          } else ride.drive.cruise = !ride.drive.cruise;
         }}
         onFocus={() => {
           ride.focused = true;
@@ -232,13 +252,14 @@ export function RideButton() {
           // (Kept on the button while it's dragged off it.)
           e.currentTarget.setPointerCapture(e.pointerId);
           const f = feature();
-          if (f === 'surge') {
-            ride.drive.cruise = true;
-            ride.drive.boosting = true;
-          } else if (f === 'heartbeat') pressRhythm();
+          if (f === 'surge') startTrace(e.clientX, e.clientY);
+          else if (f === 'heartbeat') pressRhythm();
+          else if (f === 'ghost') pressGhost();
         }}
         // Dragged back (down the screen, toward the rider): drawn back along its rail, the further the harder.
         onPointerMove={(e) => {
+          trace.px = e.clientX;
+          trace.py = e.clientY;
           const p = press.current;
           if (!p || feature() !== 'slingshot') return;
           const back = e.clientY - p.y;
@@ -255,10 +276,36 @@ export function RideButton() {
           if (e.key !== 'Enter' || e.repeat) return;
           const f = feature();
           if (f === 'heartbeat') pressRhythm();
+          else if (f === 'ghost') pressGhost();
           else if (f === 'surge') ride.drive.boost = Math.min(16, ride.drive.boost + 8);
         }}
         className="pointer-events-auto invisible absolute top-0 left-0 cursor-pointer touch-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#ffd27a]"
       />
+      {/* Sound on or off, while riding (or the m key). */}
+      {mounted && (
+        <button
+          type="button"
+          aria-label={muted ? 'Turn the music on' : 'Turn the music off'}
+          aria-pressed={!muted}
+          onClick={flipSound}
+          className="pointer-events-auto absolute right-4 bottom-4 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-black/55 text-[#9dff7a] outline-none backdrop-blur-sm focus-visible:ring-2 focus-visible:ring-[#7dff6a]"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="20"
+            height="20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="currentColor" />
+            {muted ? <path d="M16 9.5l5 5M21 9.5l-5 5" /> : <path d="M16 9a4.5 4.5 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11" />}
+          </svg>
+        </button>
+      )}
       {/* Over the map's green city: the way back. */}
       <button
         ref={backButton}

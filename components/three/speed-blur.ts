@@ -14,6 +14,7 @@ uniform float fire;
 uniform float veins;
 uniform float beat;
 uniform float rush;
+uniform float ghost;
 uniform vec2 focus;
 
 float hash21(vec2 p) {
@@ -109,8 +110,31 @@ vec3 heartbeat(vec2 toward, vec3 c) {
   return out3 * (1.0 - 0.45 * wall) + vec3(0.5, 0.01, 0.03) * wall * (0.6 + 0.6 * beat) + streak * bolt * 1.5;
 }
 
+// The core's boost, as data: the world drained to green, torn along scanlines, broken columns of light falling down the rim.
+vec3 phased(vec2 uv, vec2 toward, vec3 c) {
+  if (ghost <= 0.001) return c;
+  float aspect = resolution.x / resolution.y;
+  float r = length(toward * vec2(aspect, 1.0));
+  float grey = dot(c, vec3(0.3, 0.55, 0.15));
+  vec3 out3 = mix(c, vec3(0.16, 1.0, 0.34) * grey * 1.25, 0.8 * ghost);
+  out3 *= 1.0 - 0.14 * ghost * step(0.5, fract(uv.y * resolution.y * 0.25));
+  // (Thin glyphs in cells finer than the pixel look's: they come out as broken dashes down each column.)
+  vec2 grid = vec2(uv.x * aspect * 54.0, uv.y * 30.0);
+  float col = floor(grid.x);
+  float speed = 0.8 + 2.4 * hash21(vec2(col, 3.1));
+  float y = grid.y + time * speed * 12.0 + 40.0 * hash21(vec2(col, 7.7));
+  vec2 cell = vec2(col, floor(y));
+  vec2 inCell = fract(vec2(grid.x, y));
+  float one = step(0.5, hash21(cell + floor(time * 8.0) * 0.13));
+  vec2 q = (inCell - 0.5) * vec2(2.4, 1.5);
+  float glyph = one > 0.5 ? step(abs(q.x), 0.18) * step(abs(q.y), 0.8) : step(abs(length(q * vec2(1.0, 0.75)) - 0.55), 0.17);
+  float trail = pow(fract(y * 0.043 + hash21(vec2(col, 1.3))), 7.0);
+  float rain = glyph * trail * smoothstep(0.34, 0.95, r) * ghost;
+  return out3 + vec3(0.3, 1.0, 0.42) * rain * 2.0;
+}
+
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
-  if (amount <= 0.001 && surge <= 0.001 && fire <= 0.001 && veins <= 0.001) {
+  if (amount <= 0.001 && surge <= 0.001 && fire <= 0.001 && veins <= 0.001 && ghost <= 0.001) {
     outputColor = inputColor;
     return;
   }
@@ -123,9 +147,15 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   // (Launched, the air shimmers with the heat toward the edges.)
   vec2 at = uv;
   if (fire > 0.001) at += (vec2(noise(uv * 18.0 + vec2(0.0, -time * 6.0)), noise(uv * 18.0 + vec2(7.3, -time * 6.0))) - 0.5) * 0.012 * fire * edge;
-  vec3 sum = fire > 0.001 ? texture2D(inputBuffer, at).rgb : inputColor.rgb;
+  // (As data, the picture tears: lines of it slipping sideways, jumping each few frames.)
+  if (ghost > 0.001) {
+    float line = floor(uv.y * 46.0);
+    float frameBit = floor(time * 18.0);
+    at.x += (hash21(vec2(line, frameBit)) - 0.5) * 0.05 * ghost * step(0.86, hash21(vec2(line * 1.7, frameBit + 3.0)));
+  }
+  vec3 sum = fire > 0.001 || ghost > 0.001 ? texture2D(inputBuffer, at).rgb : inputColor.rgb;
   if (k < 0.002) {
-    outputColor = vec4(heartbeat(toward, flames(toward, iridescence(uv, toward, sum))), inputColor.a);
+    outputColor = vec4(phased(uv, toward, heartbeat(toward, flames(toward, iridescence(uv, toward, sum)))), inputColor.a);
     return;
   }
   float jitter = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
@@ -133,7 +163,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     float t = (float(i) + jitter) / 10.0;
     sum += texture2D(inputBuffer, at - toward * k * 0.09 * t).rgb;
   }
-  outputColor = vec4(heartbeat(toward, flames(toward, iridescence(uv, toward, sum / 10.0))), inputColor.a);
+  outputColor = vec4(phased(uv, toward, heartbeat(toward, flames(toward, iridescence(uv, toward, sum / 10.0)))), inputColor.a);
 }`;
 
 export class SpeedBlurEffect extends Effect {
@@ -148,19 +178,21 @@ export class SpeedBlurEffect extends Effect {
         ['veins', new Uniform(0)],
         ['beat', new Uniform(0)],
         ['rush', new Uniform(0)],
+        ['ghost', new Uniform(0)],
         ['focus', new Uniform([0.5, 0.58])],
       ]),
     });
   }
 
-  /** How strong the blur is (from the speed), the surge, the slingshot's flames, the heartbeat's veins and its boost (0 to 1). */
-  set(amount: number, surge = 0, fire = 0, veins = 0, beat = 0, rush = 0) {
+  /** How strong the blur is (from the speed), the surge, the slingshot's flames, the heartbeat's veins, its boost and the ghost (0 to 1). */
+  set(amount: number, surge = 0, fire = 0, veins = 0, beat = 0, rush = 0, ghost = 0) {
     (this.uniforms.get('amount') as Uniform<number>).value = amount;
     (this.uniforms.get('surge') as Uniform<number>).value = surge;
     (this.uniforms.get('fire') as Uniform<number>).value = fire;
     (this.uniforms.get('veins') as Uniform<number>).value = veins;
     (this.uniforms.get('beat') as Uniform<number>).value = beat;
     (this.uniforms.get('rush') as Uniform<number>).value = rush;
+    (this.uniforms.get('ghost') as Uniform<number>).value = ghost;
   }
 }
 

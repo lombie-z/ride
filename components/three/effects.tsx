@@ -18,6 +18,7 @@ import { devFlag, journey, landingAt, smoothstep } from '@/lib/journey';
 import { look } from '@/lib/look';
 import { RHYTHM, rhythm } from '@/lib/rhythm';
 import { CRUISE, featureHere, ride, washCover } from '@/lib/ride';
+import { trace } from '@/lib/trace';
 import { Grade, type GradeEffect } from './grade';
 import { LiquidSweep, type LiquidSweepEffect } from './liquid-sweep';
 import { NearBlur, type NearBlurEffect } from './near-blur';
@@ -83,7 +84,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
       // The warm, saturated grade comes in with the real sky as the camera leaves the hero, not only at the landing.
       grade.current.weight = Math.max(bloom, landingAt(journey.frame));
       // (Brighter on the way down: the landing's exposure is set for its stronger low sun.)
-      grade.current.exposure = 0.82 + 0.08 * (1 - landingAt(journey.frame)) + look.exposure * look.day;
+      grade.current.exposure = 0.82 + 0.08 * (1 - landingAt(journey.frame)) + look.exposure * look.day - 0.3 * (1 - trace.slow);
       grade.current.setDusk(look.day, look.tone, look.saturation);
       grade.current.glow = 0.55 * glow;
       // Where the sun is on screen, for its starburst (only at the landing, and not when it's behind the camera).
@@ -121,9 +122,12 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     // (In the hive the veins show the heart's beat faintly even unpumped, so the rhythm's there to tap to.)
     const hive = ride.mount * (featureHere() === 'heartbeat' ? 1 : 0);
     const veins = hive * (0.18 + 0.82 * Math.max(ride.drive.pump, rhythm.active ? (0.5 * rhythm.landed) / RHYTHM.count : 0));
-    const blur = devFlag('noblur') ? 0 : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 0.6 * ride.drive.pump);
-    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire, veins, ride.drive.beat, hive * Math.min(1, ride.drive.pump * 1.5));
-    gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002 || veins > 0.002);
+    const ghost = ride.mount * ride.ghost.amount;
+    const blur = devFlag('noblur')
+      ? 0
+      : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 0.6 * ride.drive.pump - 0.45 * ghost);
+    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire, veins, ride.drive.beat, hive * Math.min(1, ride.drive.pump * 1.5), ghost);
+    gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002 || veins > 0.002 || ghost > 0.002);
     if (liquid.current) {
       const { cover, leaving } = washCover();
       liquid.current.set(cover, leaving);
@@ -132,8 +136,10 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     if (smaa.current) smaa.current.blendMode.opacity.value = state.gl.getPixelRatio() < 1 ? 0 : 1;
     // A livelier bloom at the landing: more of the bright scene glows (glints, lit rims, the fall, the mist).
     if (bloomFx.current) {
-      bloomFx.current.luminanceMaterial.threshold = 1.1 - 0.2 * arrived;
-      bloomFx.current.intensity = 0.55 + 0.25 * arrived;
+      // (And magical, as the chrome city's trace builds: everything bright blooming, more the further it's gone.)
+      const magic = ride.mount * ride.drive.surge;
+      bloomFx.current.luminanceMaterial.threshold = 1.1 - 0.2 * arrived - 0.32 * magic;
+      bloomFx.current.intensity = 0.55 + 0.25 * arrived + 0.85 * magic;
     }
     if (rays.current) rays.current.godRaysMaterial.weight = 0.6 * (1 - 0.85 * landingAt(journey.frame));
     // The shallow focus is the landing's still shot.

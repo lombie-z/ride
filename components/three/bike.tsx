@@ -27,6 +27,7 @@ import { anchors, bikeReady, CRUISE, muckUnder, ride, road } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { BoostPod } from './boost-pod';
 import { dashDisplay } from './dash';
+import { DigitalGhost, sampleDigits } from './digital-ghost';
 import { pillPlate } from './pill-glyph';
 import { precompile } from './precompile';
 import { RideControl, RideHalo, RideStreaks } from './ride';
@@ -93,19 +94,24 @@ export function sunsetEnvMap(gl: WebGLRenderer) {
   return sunset;
 }
 
-const daylight: (Texture | null)[] = [null, null, null, null];
+const daylight: (Texture | null)[] = [null, null, null, null, null];
 /**
  * What a later zone's bike and city reflect: the chrome city's sunset (above), the hive's dawn (a rose sky, a gold sun
- * low ahead, warm bone-white walls), the desert's noon (a pale hot sky, the sun high, amber sand below, dark machines).
+ * low ahead, warm bone-white walls), the desert's noon (a pale hot sky, the sun high, amber sand below, dark machines),
+ * the core's dark (a black room, a line of hard pale lights overhead, green either side, a wet floor).
  */
 export function zoneEnvMap(gl: WebGLRenderer, k: number) {
   if (k <= 1) return sunsetEnvMap(gl);
   const known = daylight[k];
   if (known) return known;
   const hive = k === 2;
+  const core = k === 4;
   const scene = new Scene();
   scene.add(
-    new Mesh(new BoxGeometry(20, 20, 20), new MeshBasicMaterial({ color: hive ? new Color(0.06, 0.03, 0.04) : new Color(0.08, 0.05, 0.03), side: BackSide }))
+    new Mesh(
+      new BoxGeometry(20, 20, 20),
+      new MeshBasicMaterial({ color: core ? new Color(0.006, 0.012, 0.008) : hive ? new Color(0.06, 0.03, 0.04) : new Color(0.08, 0.05, 0.03), side: BackSide })
+    )
   );
   const panel = (w: number, h: number, colour: Color, x: number, y: number, z: number, ry = 0, rx = 0) => {
     const m = new Mesh(new BoxGeometry(w, h, 0.1), new MeshBasicMaterial({ color: colour }));
@@ -113,7 +119,14 @@ export function zoneEnvMap(gl: WebGLRenderer, k: number) {
     m.rotation.set(rx, ry, 0);
     scene.add(m);
   };
-  if (hive) {
+  if (core) {
+    for (const x of [-7, -3, 1, 5]) panel(2.2, 3.4, new Color(0.9, 1.0, 0.88).multiplyScalar(2.2), x, 9.6, 0, 0, Math.PI / 2);
+    panel(18, 4, new Color(0.14, 0.75, 0.24).multiplyScalar(1.3), 0, 1.5, 9.5);
+    panel(18, 4, new Color(0.14, 0.75, 0.24).multiplyScalar(1.3), 0, 1.5, -9.5);
+    panel(2, 2, new Color(1.0, 0.12, 0.08).multiplyScalar(3), 8, 3.5, 7, Math.PI / 4);
+    panel(2, 2, new Color(1.0, 0.12, 0.08).multiplyScalar(3), 2, 3.5, -8);
+    panel(20, 20, new Color(0.012, 0.03, 0.016), 0, -9.8, 0, 0, Math.PI / 2);
+  } else if (hive) {
     panel(20, 20, new Color(0.42, 0.22, 0.34), 0, 9.8, 0, 0, Math.PI / 2);
     panel(18, 2.6, new Color(1.0, 0.68, 0.52).multiplyScalar(1.5), 9, 0.6, 0, Math.PI / 2);
     panel(18, 2.2, new Color(0.95, 0.55, 0.62).multiplyScalar(1.0), -9, 0.6, 0, Math.PI / 2);
@@ -143,20 +156,20 @@ export function zoneEnvMap(gl: WebGLRenderer, k: number) {
 // bike2.py and on), each cut away where the other shows; until the chrome bike's loaded, the black one's own materials
 // turn to chrome behind the seam instead. Measured along the bike (its own x, from the world through the inverse of
 // where it's ridden), so it holds however it moves.
-const shared = { uWorldToBike: { value: new Matrix4() }, uSeamColour: { value: new Color(0.85, 0.75, 1.0) } };
+const shared = { uWorldToBike: { value: new Matrix4() }, uSeamColour: { value: new Color(0.85, 0.75, 1.0) }, uDigital: { value: 0 } };
 /** Each bike's say in the morph: where the seam is, which side of it the bike shows (1 ahead, -1 behind, 0 all of it). */
 const morphUniforms = ZONES.map(() => ({ uEdge: { value: 2 }, uSide: { value: 0 }, uSeam: { value: 0 }, uSwap: { value: 1 } }));
 const CHROME_REACH = 1.45; // m either side of the bike's middle the seam starts and ends
 // Each zone's seam: the colour of the light it sweeps with.
-const SEAM = [new Color(0.6, 1.0, 0.5), new Color(0.85, 0.75, 1.0), new Color(1.0, 0.7, 0.4), new Color(0.55, 1.0, 0.35)];
+const SEAM = [new Color(0.6, 1.0, 0.5), new Color(0.85, 0.75, 1.0), new Color(1.0, 0.7, 0.4), new Color(0.55, 1.0, 0.35), new Color(0.35, 1.0, 0.45)];
 type MorphKind = 'body' | 'glow' | 'plain';
 function morphable(material: Material & MeshPhysicalMaterial, kind: MorphKind, bike: number) {
   const own = morphUniforms[bike];
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, shared, own);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform mat4 uWorldToBike;\nvarying float vBikeX;')
-      .replace('#include <project_vertex>', '#include <project_vertex>\nvBikeX = (uWorldToBike * modelMatrix * vec4(transformed, 1.0)).x;');
+      .replace('#include <common>', '#include <common>\nuniform mat4 uWorldToBike;\nvarying vec3 vBikeP;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvBikeP = (uWorldToBike * modelMatrix * vec4(transformed, 1.0)).xyz;');
     // (Only the black bike recolours itself, while the chrome one's still loading.)
     const recolour =
       bike !== 0
@@ -177,16 +190,27 @@ uniform float uSide;
 uniform float uSeam;
 uniform float uSwap;
 uniform vec3 uSeamColour;
-varying float vBikeX;`
+uniform float uDigital;
+varying vec3 vBikeP;`
       )
       .replace(
         '#include <metalnessmap_fragment>',
         `#include <metalnessmap_fragment>
 // The bike it's becoming shows only ahead of the seam; the one it's been, only behind it (or, before the new one's in,
 // all of it, turning behind the seam).
+float vBikeX = vBikeP.x;
 if (uSide > 0.5 && vBikeX < uEdge) discard;
 if (uSide < -0.5 && uSwap > 0.5 && vBikeX > uEdge) discard;
 float chromed = smoothstep(uEdge - 0.04, uEdge + 0.04, vBikeX) * step(uSide, -0.5) * (1.0 - uSwap);
+// The core's boost: cut away in little blocks, nose first, lit green at the edge of what's going
+// (components/three/digital-ghost.tsx: the blocks coming off it).
+float digitEdge = 0.0;
+if (uDigital > 0.001) {
+  float digitH = fract(sin(dot(floor(vBikeP * 34.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+  float digitLeft = digitH * 0.55 + clamp((1.45 - vBikeP.x) / 2.9, 0.0, 1.0) * 0.45 - uDigital;
+  if (digitLeft < 0.0) discard;
+  digitEdge = 1.0 - smoothstep(0.0, 0.1, digitLeft);
+}
 ${recolour}`
       )
       .replace(
@@ -194,7 +218,8 @@ ${recolour}`
         `#include <emissivemap_fragment>
 ${kind === 'glow' && bike === 0 ? 'totalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(dot(totalEmissiveRadiance, vec3(0.33))) * vec3(0.8, 0.42, 1.3), chromed);' : ''}
 // The seam itself: a bright band of light where the change is happening.
-totalEmissiveRadiance += uSeamColour * exp(-abs(vBikeX - uEdge) * 38.0) * 4.0 * uSeam;`
+totalEmissiveRadiance += uSeamColour * exp(-abs(vBikeX - uEdge) * 38.0) * 4.0 * uSeam;
+totalEmissiveRadiance += vec3(0.3, 1.0, 0.42) * digitEdge * 6.0;`
       );
   };
   material.customProgramCacheKey = () => `bike-morph-${bike}-${kind}`;
@@ -304,6 +329,8 @@ function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; button
         if (!live) return;
         for (const t of textures) gl.initTexture(t);
         bikeReady[k] = true;
+        // (What the core's boost breaks it into.)
+        if (k === ZONES.length - 1 && scene.parent) sampleDigits(scene, scene.parent);
       });
     return () => {
       live = false;
@@ -315,7 +342,7 @@ function ZoneBike({ k, env, buttonMaterials }: { k: number; env: Texture; button
 
   const last = useRef(0);
   useFrame((state) => {
-    scene.visible = bikeShown(k);
+    scene.visible = bikeShown(k) && ride.ghost.amount < 0.999;
     if (!scene.visible) return;
     const { front, rear, heart, arteries } = parts.current;
     const ds = ride.drive.s - last.current;
@@ -464,7 +491,7 @@ export function Bike() {
   // (Before the camera, -1, which rides on the bike: otherwise it trails a frame behind it.)
   useFrame((state) => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
-    scene.visible = bikeShown(0);
+    scene.visible = bikeShown(0) && ride.ghost.amount < 0.999;
     const { s, speed } = ride.drive;
     const pace = Math.min(1, speed / CRUISE);
     // The ribs breathe, slowly; brighter and quicker as it goes.
@@ -505,6 +532,7 @@ export function Bike() {
       const moving = m.from !== m.to;
       const fallback = m.to === 1 && !bikeReady[1];
       shared.uSeamColour.value.copy(SEAM[m.to]);
+      shared.uDigital.value = ride.ghost.amount;
       morphUniforms.forEach((u, k) => {
         u.uEdge.value = CHROME_REACH - 2 * CHROME_REACH * m.at;
         u.uSeam.value = moving && m.at > 0.001 && m.at < 0.999 ? 1 : 0;
@@ -533,6 +561,7 @@ export function Bike() {
           <ZoneBikeLoader key={z.id} k={i + 1} env={zoneEnvMap(gl, i + 1)} buttonMaterials={buttonMaterials} />
         ))}
         <BoostPod env={envSunset} />
+        <DigitalGhost />
         <spotLight ref={headlight} position={[0.95, 0.72, 0]} angle={0.42} penumbra={0.7} distance={60} decay={1.1} intensity={0} color="#e8ffd8" />
         <object3D ref={headlightAim} position={[24, -1.2, 0]} />
       </group>
