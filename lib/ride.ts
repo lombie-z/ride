@@ -37,7 +37,8 @@ export const ride = {
    * The heartbeat: the hive's run of circles (lib/rhythm.ts) done, the boost (`pump`, 0 to 1, as hard as the run was
    * clean, ebbing away); `beat` the heart's pulse now (0 to 1).
    * Over dunes: how high it is (`y`, m), rising (`vy`, m/s), off the ground (`air`), the thump of landing (`land`, 0 to
-   * 1) and its nose's pitch (`pitch`, radians).
+   * 1) and its nose's pitch (`pitch`, radians). `shedding`: a boost cut off (a new zone, pulled up), it's braking hard down
+   * to its speed there.
    */
   drive: {
     s: 0,
@@ -62,6 +63,7 @@ export const ride = {
     air: false,
     land: 0,
     pitch: 0,
+    shedding: false,
   },
   /**
    * Getting off after a real ride: a sheet of black oil washes over the screen (components/three/liquid-sweep.ts) and,

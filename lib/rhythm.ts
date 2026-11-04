@@ -2,7 +2,7 @@ import { HEART, ride } from './ride';
 
 // The hive's boost: a press of the rocket starts a short run of six circles, numbered as angel numbers from 111 up to 666,
 // each with a ring closing on it, to be clicked as it lands on the heart's beat (components/rhythm-overlay.tsx draws them
-// and takes the clicks). They stand at the points of a hexagram, and each one hit draws the next line of it, the heart
+// and takes the clicks). They stand at the points of a unicursal star, six points in one line, each one drawn on to as it's hit, the heart
 // quickening. On 666 the star burns and the boost hits, as hard as the run was clean (ride.drive.pump). The first ever,
 // the ride slows right down as its ring closes, and waits there for the click, showing what's wanted.
 
@@ -12,8 +12,8 @@ export const RHYTHM = { approach: 0.8, perfect: 0.11, good: 0.27, count: 6 };
 export type Circle = { point: number; x: number; y: number; at: number; number: number };
 export type Burst = { x: number; y: number; age: number; kind: 'perfect' | 'good' | 'miss'; number: number };
 
-/** The star's points, in the order it's drawn: two triangles' worth, one stroke at a time. Radius and centre by the overlay. */
-export const STAR_ORDER = [0, 2, 4, 1, 3, 5];
+/** The star's points, in the order they land: round a hexagon (from the top, clockwise) by the unicursal star's one line. */
+export const STAR_ORDER = [0, 2, 5, 3, 1, 4];
 
 export const rhythm = {
   active: false,
@@ -34,10 +34,8 @@ export const rhythm = {
   drawn: [] as (boolean | undefined)[],
   circles: [] as Circle[],
   bursts: [] as Burst[],
-  /** The star burning, and the screen flash with it (1 down to 0), the run having ended: 666 reached. */
+  /** The flash as the boost hits (1 down to 0): 666 reached. */
   burn: 0,
-  /** How the run went, for the flash: 0 to 1. */
-  score: 0,
 };
 
 /** The heart's period now: quicker with the pump, and through the run. */
@@ -68,13 +66,13 @@ function stop() {
 /** The run's over, 666 landed: the boost, as hard as it was clean; nothing at all if none were hit. */
 function finish() {
   const r = rhythm;
-  r.score = r.hits / RHYTHM.count;
+  const score = r.hits / RHYTHM.count;
   stop();
   if (!r.hits) return;
   r.burn = 1;
   const d = ride.drive;
-  d.pump = Math.max(d.pump, 0.35 + 0.65 * r.score);
-  d.speed += 55 * r.score;
+  d.pump = Math.max(d.pump, 0.35 + 0.65 * score);
+  d.speed += 55 * score;
 }
 
 function land(c: Circle, kind: Burst['kind']) {

@@ -2,11 +2,12 @@
 
 import { useEffect, useRef } from 'react';
 import { type Circle, pressRhythm, RHYTHM, rhythm, STAR_ORDER } from '@/lib/rhythm';
+import { ride } from '@/lib/ride';
 
 // The hive's run of angel numbers (lib/rhythm.ts), on a canvas of its own over the scene: its motion blur would smear
 // them, and they have to be read at a glance. At a quarter of the resolution, drawn up in chunky pixels to sit with the
-// rest. A hexagram being drawn over the view, point by point: each point an all-seeing wheel, its number in it, gold
-// at 111 turning to blood by 666; when it's done it burns, and the boost hits.
+// rest. A six-pointed star being drawn over the view in one line (unicursal, the occult one), point by point: each point an all-seeing wheel, its number in it, gold
+// at 111 turning to blood by 666; when it's done the boost hits, and the star burns over the road for as long as it lasts.
 
 const PIXEL = 4;
 const MISS = '#ff2238';
@@ -17,7 +18,7 @@ const FONT = 'Georgia, "Times New Roman", serif';
 const mix = (t: number) => GOLD.map((a, i) => Math.round(a + (BLOOD[i] - a) * t));
 const rgb = (c: number[], a = 1) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
 
-/** The star's points on the screen: a hexagram over the upper middle, clear of the bike (as shares of the view). */
+/** The star's points on the screen: the six points over the upper middle, clear of the bike (as shares of the view). */
 function point(i: number, w: number, h: number) {
   const r = Math.min(w * 0.3, h * 0.25);
   const a = -Math.PI / 2 + (i * Math.PI) / 3;
@@ -57,7 +58,7 @@ export function RhythmOverlay() {
         el.width = w;
         el.height = h;
       }
-      const busy = rhythm.active || rhythm.bursts.length > 0 || rhythm.slow < 1 || rhythm.burn > 0;
+      const busy = rhythm.active || rhythm.bursts.length > 0 || rhythm.slow < 1 || rhythm.burn > 0 || ride.drive.pump > 0.01;
       if (!busy && !dirty) return;
       g.clearRect(0, 0, w, h);
       dirty = busy;
@@ -76,36 +77,67 @@ export function RhythmOverlay() {
       }
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      // The star, as far as it's been drawn: each hit point joined to the one before it.
+      // The star, as far as it's been drawn: one line, from point to point.
       const at = (n: number) => {
         const p = point(STAR_ORDER[n], w, h);
         return { x: p.x * w, y: p.y * h };
       };
-      const shown = rhythm.active ? landed : rhythm.burn > 0 ? RHYTHM.count : 0;
-      if (shown > 0) {
-        const burn = rhythm.burn;
-        g.strokeStyle = rgb(mix(burn > 0 ? 1 : dread), burn > 0 ? burn : 0.85);
-        g.lineWidth = burn > 0 ? 1.5 + 3 * burn : 1.5;
+      if (rhythm.active && landed > 0) {
+        g.strokeStyle = rgb(mix(dread), 0.9);
+        g.lineWidth = 1.5;
         g.beginPath();
-        for (let n = 0; n < shown; n++) {
+        for (let n = 0; n < landed; n++) {
           const p = at(n);
           if (n === 0) g.moveTo(p.x, p.y);
           else g.lineTo(p.x, p.y);
         }
-        if (burn > 0) g.closePath();
+        if (landed === RHYTHM.count) g.closePath();
         g.stroke();
+      }
+      // The boost: the finished star burning over the road for as long as it lasts, turning, beating with the heart, a
+      // ring round it running out with it.
+      const boost = ride.drive.pump;
+      if (!rhythm.active && boost > 0.01) {
+        const k = Math.min(1, boost * 5);
+        const R = Math.min(w * 0.22, h * 0.25) * (1 + 0.07 * ride.drive.beat + 0.35 * rhythm.burn);
+        const cx = w / 2;
+        const cy = h * 0.34;
+        const turn = now * 0.7;
+        const star = () => {
+          g.beginPath();
+          for (const [i, n] of STAR_ORDER.entries()) {
+            const a = turn + (n * Math.PI) / 3;
+            if (i === 0) g.moveTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+            else g.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+          }
+          g.closePath();
+          g.stroke();
+        };
+        g.lineCap = 'round';
+        g.strokeStyle = `rgba(255, 30, 40, ${0.4 * k})`;
+        g.lineWidth = 5;
+        star();
+        g.strokeStyle = `rgba(255, ${Math.round(150 + 90 * ride.drive.beat)}, 90, ${k})`;
+        g.lineWidth = 2;
+        star();
+        g.strokeStyle = `rgba(255, 60, 50, ${k})`;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(cx, cy, R * 1.14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, boost));
+        g.stroke();
+        g.lineCap = 'butt';
       }
       // A faint guide to where the star's going, once it's going.
       if (rhythm.active) {
         g.strokeStyle = rgb(mix(dread), 0.16);
         g.lineWidth = 1;
         g.beginPath();
-        for (let i = 0; i < 6; i++) {
-          const p = point(i, w, h);
-          const q = point((i + 2) % 6, w, h);
-          g.moveTo(p.x * w, p.y * h);
-          g.lineTo(q.x * w, q.y * h);
+        for (const [i, n] of STAR_ORDER.entries()) {
+          const p = point(n, w, h);
+          if (i === 0) g.moveTo(p.x * w, p.y * h);
+          else g.lineTo(p.x * w, p.y * h);
         }
+        g.closePath();
         g.stroke();
       }
       // The next to land last, on top.
@@ -190,16 +222,11 @@ export function RhythmOverlay() {
         }
       }
       g.globalAlpha = 1;
-      // 666: the flash, and the number filling the view.
+      // 666: the flash.
       if (rhythm.burn > 0) {
         const b = rhythm.burn;
         g.fillStyle = `rgba(255, ${Math.round(40 + 70 * b * b)}, ${Math.round(30 + 40 * b * b)}, ${0.75 * b * b})`;
         g.fillRect(0, 0, w, h);
-        g.globalAlpha = Math.min(1, b * 2);
-        g.fillStyle = rhythm.score >= 1 ? '#fff4d8' : rgb(BLOOD);
-        g.font = `bold ${Math.round(unit * (0.34 + 0.16 * (1 - b)))}px ${FONT}`;
-        g.fillText('666', w / 2, h * 0.35);
-        g.globalAlpha = 1;
       }
     };
     raf = requestAnimationFrame(tick);

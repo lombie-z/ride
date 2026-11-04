@@ -13,6 +13,7 @@ uniform float surge;
 uniform float fire;
 uniform float veins;
 uniform float beat;
+uniform float rush;
 uniform vec2 focus;
 
 float hash21(vec2 p) {
@@ -97,7 +98,15 @@ vec3 heartbeat(vec2 toward, vec3 c) {
   vec3 blood = vec3(0.55, 0.02, 0.04);
   vec3 lines = blood * ridge * rim * swell * veins * 2.2;
   float flush = smoothstep(0.55, 1.25, r) * beat * (0.25 + 0.5 * veins);
-  return c * (1.0 - 0.35 * rim * veins - 0.3 * flush) + lines + vec3(0.45, 0.02, 0.05) * flush;
+  vec3 out3 = c * (1.0 - 0.35 * rim * veins - 0.3 * flush) + lines + vec3(0.45, 0.02, 0.05) * flush;
+  if (rush <= 0.001) return out3;
+  // Boosted: the rim thick with blood, and streaks of it racing back past the rider, gold where they're hottest, surging
+  // on each beat.
+  float wall = smoothstep(0.42, 1.0, r) * rush;
+  float ray = pow(max(0.0, sin(a * 46.0 + 3.0 * sin(a * 7.0))), 10.0) * (0.45 + 0.55 * noise(vec2(a * 22.0, r * 5.0 - time * 8.0)));
+  float bolt = ray * smoothstep(0.34, 0.95, r) * rush * (0.8 + 0.9 * beat);
+  vec3 streak = mix(vec3(0.95, 0.05, 0.05), vec3(1.0, 0.72, 0.25), smoothstep(0.35, 0.9, ray));
+  return out3 * (1.0 - 0.45 * wall) + vec3(0.5, 0.01, 0.03) * wall * (0.6 + 0.6 * beat) + streak * bolt * 1.5;
 }
 
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
@@ -138,18 +147,20 @@ export class SpeedBlurEffect extends Effect {
         ['fire', new Uniform(0)],
         ['veins', new Uniform(0)],
         ['beat', new Uniform(0)],
+        ['rush', new Uniform(0)],
         ['focus', new Uniform([0.5, 0.58])],
       ]),
     });
   }
 
-  /** How strong the blur is (from the speed), the surge, the slingshot's flames and the heartbeat's veins (0 to 1). */
-  set(amount: number, surge = 0, fire = 0, veins = 0, beat = 0) {
+  /** How strong the blur is (from the speed), the surge, the slingshot's flames, the heartbeat's veins and its boost (0 to 1). */
+  set(amount: number, surge = 0, fire = 0, veins = 0, beat = 0, rush = 0) {
     (this.uniforms.get('amount') as Uniform<number>).value = amount;
     (this.uniforms.get('surge') as Uniform<number>).value = surge;
     (this.uniforms.get('fire') as Uniform<number>).value = fire;
     (this.uniforms.get('veins') as Uniform<number>).value = veins;
     (this.uniforms.get('beat') as Uniform<number>).value = beat;
+    (this.uniforms.get('rush') as Uniform<number>).value = rush;
   }
 }
 

@@ -70,6 +70,16 @@ const ndc = new Vector3();
 const box = new Box3();
 const corner = new Vector3();
 
+// How much harder it brakes shedding a boost that's been cut off.
+const SHED = 5;
+let featureWas = '';
+function cutBoost() {
+  const d = ride.drive;
+  const boosted = d.surge > 0.01 || d.pump > 0.01 || d.launch > 0.01;
+  Object.assign(d, { boosting: false, surge: 0, pump: 0, launch: 0, pull: 0, release: 0, boost: 0 });
+  if (boosted) d.shedding = true;
+}
+
 type Streak = { from: Vector3; bend: Vector3; delay: number; duration: number };
 
 function bezier(out: Vector3, a: Vector3, b: Vector3, c: Vector3, t: number) {
@@ -176,6 +186,11 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // (The hive's rhythm can slow the ride right down, to show where to click.)
     updateRhythm(dt, ride.mounted && feature === 'heartbeat' && drive.cruise && !tr.arrived);
     const step = dt * rhythm.slow;
+    // A boost belongs to the zone it's used in: into the next, it's cut off, the bike shedding the speed quickly.
+    if (feature !== featureWas) {
+      featureWas = feature;
+      cutBoost();
+    }
     if (ride.mounted) {
       drive.rewindFrom = -1;
       // The chrome city's surge: holding the throttle down, easing in and out.
@@ -212,6 +227,12 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         const left = stop - drive.s;
         // (Gently over the last stretch; hard on the brakes before it, so a surge or a launch runs on until near the end.)
         want = Math.min(want, Math.max(Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)), Math.sqrt(2 * BRAKE * Math.max(0, left - 150))));
+        // Nearing the next zone's road, however it's boosted, it's down to that zone's cruising speed by the join.
+        const cap = ZONES[ride.zone].cruise + Math.sqrt(2 * BRAKE * SHED * Math.max(0, tr.at - 40 - drive.s));
+        if (drive.s < tr.at && want > cap) {
+          want = cap;
+          if (drive.speed > cap) drive.shedding = true;
+        }
         // Through a slick of ooze it bogs down, as in muck.
         const k = legIndexAt(drive.s);
         if (k > 0 && muckUnder(drive.s - course.legs[k].at, k) > 0.01) {
@@ -229,12 +250,14 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         if (left < 0.6 && drive.speed < 0.4 && !tr.arrived && leg.in) {
           tr.arrived = true;
           drive.cruise = false;
+          cutBoost();
         }
       }
       drive.speed =
         want > drive.speed
           ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump + 8 * drive.surge) * step)
-          : Math.max(want, drive.speed - BRAKE * step);
+          : Math.max(want, drive.speed - BRAKE * (drive.shedding ? SHED : 1) * step);
+      if (drive.speed <= want + 0.5) drive.shedding = false;
       drive.s = Math.min(drive.s + drive.speed * step, stop);
       if (drive.speed > 0.5) drive.time += step;
       // Over the dunes: it follows the ground while the ground's rising or falling away slower than it would drop, and

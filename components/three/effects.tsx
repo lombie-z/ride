@@ -122,7 +122,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     const hive = ride.mount * (featureHere() === 'heartbeat' ? 1 : 0);
     const veins = hive * (0.18 + 0.82 * Math.max(ride.drive.pump, rhythm.active ? (0.5 * rhythm.landed) / RHYTHM.count : 0));
     const blur = devFlag('noblur') ? 0 : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 0.6 * ride.drive.pump);
-    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire, veins, ride.drive.beat);
+    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire, veins, ride.drive.beat, hive * Math.min(1, ride.drive.pump * 1.5));
     gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002 || veins > 0.002);
     if (liquid.current) {
       const { cover, leaving } = washCover();
