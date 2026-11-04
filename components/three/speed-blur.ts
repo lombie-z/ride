@@ -97,17 +97,13 @@ vec3 heartbeat(vec2 toward, vec3 c) {
   float rim = smoothstep(reach, reach + 0.45, r);
   float swell = 0.55 + 0.9 * beat;
   vec3 blood = vec3(0.55, 0.02, 0.04);
-  vec3 lines = blood * ridge * rim * swell * veins * 2.2;
-  float flush = smoothstep(0.55, 1.25, r) * beat * (0.25 + 0.5 * veins);
-  vec3 out3 = c * (1.0 - 0.35 * rim * veins - 0.3 * flush) + lines + vec3(0.45, 0.02, 0.05) * flush;
-  if (rush <= 0.001) return out3;
-  // Boosted: the rim thick with blood, and streaks of it racing back past the rider, gold where they're hottest, surging
-  // on each beat.
-  float wall = smoothstep(0.42, 1.0, r) * rush;
-  float ray = pow(max(0.0, sin(a * 46.0 + 3.0 * sin(a * 7.0))), 10.0) * (0.45 + 0.55 * noise(vec2(a * 22.0, r * 5.0 - time * 8.0)));
-  float bolt = ray * smoothstep(0.34, 0.95, r) * rush * (0.8 + 0.9 * beat);
-  vec3 streak = mix(vec3(0.95, 0.05, 0.05), vec3(1.0, 0.72, 0.25), smoothstep(0.35, 0.9, ray));
-  return out3 * (1.0 - 0.45 * wall) + vec3(0.5, 0.01, 0.03) * wall * (0.6 + 0.6 * beat) + streak * bolt * 1.5;
+  float calm = 1.0 - rush;
+  vec3 lines = blood * ridge * rim * swell * veins * 2.2 * calm;
+  float flush = smoothstep(0.55, 1.25, r) * beat * (0.25 + 0.5 * veins) * calm;
+  vec3 out3 = c * (1.0 - 0.35 * rim * veins * calm - 0.3 * flush) + lines + vec3(0.45, 0.02, 0.05) * flush;
+  // Boosted: no lines at all, only shadow closing in round the blur (components/rhythm-overlay.tsx puts the eyes in it),
+  // breathing with the heart.
+  return out3 * (1.0 - (0.82 + 0.1 * beat) * smoothstep(0.36, 1.02, r) * rush);
 }
 
 // The core's boost, as data: the world drained to green, torn along scanlines, broken columns of light falling down the rim.

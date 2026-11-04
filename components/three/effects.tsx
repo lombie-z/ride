@@ -125,8 +125,8 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     const ghost = ride.mount * ride.ghost.amount;
     const blur = devFlag('noblur')
       ? 0
-      : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 0.6 * ride.drive.pump - 0.45 * ghost);
-    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 2.4), surge, fire, veins, ride.drive.beat, hive * Math.min(1, ride.drive.pump * 1.5), ghost);
+      : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 2.4 * ride.drive.pump - 0.45 * ghost);
+    if (speedBlur.current) speedBlur.current.set(Math.min(blur, 3.4), surge, fire, veins, ride.drive.beat, hive * Math.min(1, ride.drive.pump * 1.5), ghost);
     gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002 || veins > 0.002 || ghost > 0.002);
     if (liquid.current) {
       const { cover, leaving } = washCover();

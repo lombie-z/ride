@@ -154,7 +154,7 @@ function finish() {
   r.burn = 1;
   const d = ride.drive;
   d.pump = Math.max(d.pump, 0.35 + 0.65 * score);
-  d.speed += 55 * score;
+  d.speed += 110 * score;
 }
 
 function land(c: Circle, kind: Burst['kind']) {

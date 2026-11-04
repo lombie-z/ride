@@ -1,5 +1,6 @@
 'use client';
 
+import { UnifrakturCook } from 'next/font/google';
 import { useEffect, useRef } from 'react';
 import { type Circle, pressRhythm, RHYTHM, rhythm, SIGILS } from '@/lib/rhythm';
 import { ride } from '@/lib/ride';
@@ -12,10 +13,12 @@ import { ride } from '@/lib/ride';
 // then too, blood-red.
 
 const PIXEL = 4;
+// The lettering's blackletter, on a finer canvas over the rest: at a quarter of the resolution it would turn to mush.
+const blackletter = UnifrakturCook({ subsets: ['latin'], weight: '700' });
+const TEXT_SCALE = 2;
 const MISS = '#ff2238';
 const GOLD = [255, 190, 70];
 const BLOOD = [255, 24, 40];
-const FONT = 'Georgia, "Times New Roman", serif';
 
 const mix = (t: number) => GOLD.map((a, i) => Math.round(a + (BLOOD[i] - a) * t));
 const rgb = (c: number[], a = 1) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
@@ -118,6 +121,12 @@ function drawEye(g: CanvasRenderingContext2D, x: number, y: number, size: number
 
 export function RhythmOverlay() {
   const canvas = useRef<HTMLCanvasElement>(null);
+  const lettering = useRef<HTMLCanvasElement>(null);
+
+  // (A canvas won't wait for a font: fetched ahead, so the first run isn't in a fallback.)
+  useEffect(() => {
+    document.fonts.load(`700 40px ${blackletter.style.fontFamily}`, '123456CLICK').catch(() => {});
+  }, []);
 
   // A click on a circle, wherever it is: nothing else is under them.
   useEffect(() => {
@@ -145,12 +154,16 @@ export function RhythmOverlay() {
       raf = requestAnimationFrame(tick);
       const el = canvas.current;
       const g = el?.getContext('2d');
-      if (!el || !g) return;
+      const textEl = lettering.current;
+      const text = textEl?.getContext('2d');
+      if (!el || !g || !textEl || !text) return;
       const w = Math.ceil(window.innerWidth / PIXEL);
       const h = Math.ceil(window.innerHeight / PIXEL);
       if (el.width !== w || el.height !== h) {
         el.width = w;
         el.height = h;
+        textEl.width = w * TEXT_SCALE;
+        textEl.height = h * TEXT_SCALE;
       }
       const stamp = performance.now();
       const dt = Math.min(0.05, (stamp - last) / 1000);
@@ -162,7 +175,18 @@ export function RhythmOverlay() {
       const busy = rhythm.active || rhythm.bursts.length > 0 || rhythm.slow < 1 || rhythm.burn > 0 || ride.drive.pump > 0.01 || staring > 0;
       if (!busy && !dirty) return;
       g.clearRect(0, 0, w, h);
+      text.clearRect(0, 0, textEl.width, textEl.height);
       dirty = busy;
+      /** Lettering, in this canvas's units: dark round its edge, so it reads over whatever's behind it. */
+      const label = (words: string, x: number, y: number, size: number, ink: string, alpha: number) => {
+        text.globalAlpha = alpha;
+        text.font = `700 ${Math.round(size * TEXT_SCALE)}px ${blackletter.style.fontFamily}`;
+        text.lineWidth = size * TEXT_SCALE * 0.14;
+        text.strokeStyle = 'rgba(8, 1, 2, 0.9)';
+        text.strokeText(words, x * TEXT_SCALE, y * TEXT_SCALE);
+        text.fillStyle = ink;
+        text.fillText(words, x * TEXT_SCALE, y * TEXT_SCALE);
+      };
       const unit = Math.min(w, h);
       const r = unit * 0.085;
       const now = performance.now() / 1000;
@@ -176,8 +200,9 @@ export function RhythmOverlay() {
         g.fillStyle = v;
         g.fillRect(0, 0, w, h);
       }
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
+      text.textAlign = 'center';
+      text.textBaseline = 'middle';
+      text.lineJoin = 'round';
       // The sigil, as far as it's been drawn, and a faint guide to where it's going.
       if (rhythm.active) {
         g.strokeStyle = rgb(mix(dread), 0.16);
@@ -193,7 +218,8 @@ export function RhythmOverlay() {
       }
       // The eyes: groups in all four corners, in their shadow, opening from the corner in, staring at the middle of the view.
       if (staring > 0) {
-        const rage = rhythm.glare > ride.drive.pump ? 1 : 0;
+        // (Always red, boost or miss.)
+        const rage = 1;
         const beat = ride.drive.beat;
         for (let corner = 0; corner < 4; corner++) {
           const cx = corner % 3 === 0 ? 0 : w;
@@ -261,15 +287,9 @@ export function RhythmOverlay() {
           g.arc(x, y, ring, a, a + Math.PI * 0.52);
           g.stroke();
         }
-        g.fillStyle = '#fff4d8';
-        g.font = `bold ${Math.round(r * 0.72)}px ${FONT}`;
-        g.fillText(String(c.number), x, y + 1);
+        label(String(c.number), x, y + 0.5, r * 0.9, '#fff4d8', g.globalAlpha);
         // Showing what's wanted: the word, pulsing.
-        if (rhythm.teaching) {
-          g.globalAlpha = 0.55 + 0.45 * Math.sin(now * 8);
-          g.font = `bold ${Math.round(r * 0.62)}px ${FONT}`;
-          g.fillText('CLICK', x, y + r * 1.85);
-        }
+        if (rhythm.teaching) label('CLICK', x, y + r * 2.05, r * 1.05, '#fff4d8', 0.55 + 0.45 * Math.sin(now * 8));
         g.globalAlpha = 1;
       }
       for (const b of rhythm.bursts) {
@@ -294,9 +314,7 @@ export function RhythmOverlay() {
           g.beginPath();
           g.arc(x, y, r * (1 + 1.3 * t), 0, Math.PI * 2);
           g.stroke();
-          g.fillStyle = rgb(ink);
-          g.font = `bold ${Math.round(r * (0.72 + 0.5 * t))}px ${FONT}`;
-          g.fillText(String(b.number), x, y + 1);
+          label(String(b.number), x, y + 0.5, r * (0.9 + 0.5 * t), rgb(ink), 1 - t);
         }
       }
       g.globalAlpha = 1;
@@ -311,5 +329,10 @@ export function RhythmOverlay() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  return <canvas ref={canvas} aria-hidden className="pointer-events-none fixed inset-0 z-[14] h-full w-full [image-rendering:pixelated]" />;
+  return (
+    <>
+      <canvas ref={canvas} aria-hidden className="pointer-events-none fixed inset-0 z-[14] h-full w-full [image-rendering:pixelated]" />
+      <canvas ref={lettering} aria-hidden className="pointer-events-none fixed inset-0 z-[14] h-full w-full [image-rendering:pixelated]" />
+    </>
+  );
 }

@@ -27,7 +27,7 @@ export type ZoneDef = {
 export const ZONES: ZoneDef[] = [
   { id: 'green', name: 'Green city', city: null, prefix: 'City', bike: '/models/bike.glb', feature: 'start', cruise: 32, boost: 0 },
   { id: 'chrome', name: 'Chrome city', city: '/models/city2.glb', prefix: 'City2', bike: '/models/bike2.glb', feature: 'surge', cruise: 38, boost: 5.1 },
-  { id: 'hive', name: 'Coral hive', city: '/models/city3.glb', prefix: 'City3', bike: '/models/bike3.glb', feature: 'heartbeat', cruise: 44, boost: 2.3 },
+  { id: 'hive', name: 'Coral hive', city: '/models/city3.glb', prefix: 'City3', bike: '/models/bike3.glb', feature: 'heartbeat', cruise: 44, boost: 5.6 },
   { id: 'desert', name: 'Data desert', city: '/models/city4.glb', prefix: 'City4', bike: '/models/bike4.glb', feature: 'slingshot', cruise: 50, boost: 3.2 },
   { id: 'core', name: 'The core', city: '/models/city5.glb', prefix: 'City5', bike: '/models/bike5.glb', feature: 'ghost', cruise: 56, boost: 6.5 },
 ];

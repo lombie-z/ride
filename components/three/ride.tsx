@@ -276,7 +276,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       }
       drive.speed =
         want > drive.speed
-          ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 3 * drive.pump + 8 * drive.surge + 90 * ghost) * step)
+          ? Math.min(want, drive.speed + ACCEL * (1 + 8 * drive.launch + 8 * drive.pump + 8 * drive.surge + 90 * ghost) * step)
           : Math.max(want, drive.speed - BRAKE * (drive.shedding ? (feature === 'ghost' ? GHOST_SHED : SHED) : 1) * step);
       if (drive.speed <= want + 0.5) drive.shedding = false;
       drive.s = Math.min(drive.s + drive.speed * step, stop);
