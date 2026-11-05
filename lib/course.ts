@@ -33,7 +33,18 @@ export const ZONES: ZoneDef[] = [
 ];
 
 /** A road as data: its centreline every `step` metres in its city's frame (Blender's: x along the road in, y to its left). */
-export type Path = { x: Float32Array; y: Float32Array; step: number; length: number; heights?: Float32Array };
+export type Path = {
+  x: Float32Array;
+  y: Float32Array;
+  step: number;
+  length: number;
+  heights?: Float32Array;
+  /** Per point, where a road has them (the core's, through its stairwell and tunnel: art/core/SECTIONS.md): radians about the direction of travel, + its top to its right; lib/sections.ts SURFACE; how much it throws up; how thick the air. */
+  roll?: Float32Array;
+  surface?: Uint8Array;
+  spray?: Float32Array;
+  fog?: Float32Array;
+};
 
 export function makePath(points: number[][] | number[], step: number, length: number, heights?: number[]): Path {
   const flat = (points as (number | number[])[]).flat() as number[];
@@ -151,10 +162,38 @@ export function groundAt(s: number) {
   if (!p) return 0;
   const road = course.legs[p.k].in;
   const h = road?.heights;
-  if (!road || !h || p.u < 0 || p.u > road.length) return 0;
+  if (!road || !h || p.u < 0) return 0;
+  // (Past its end: on the way out, or with no way out, as it ended, the core's hall being sunk.)
+  if (p.u > road.length) return course.legs[p.k].out ? 0 : h[h.length - 1];
   const f = Math.min(p.u / road.step, h.length - 1);
   const i = Math.min(Math.floor(f), h.length - 2);
   return h[i] + (h[i + 1] - h[i]) * (f - i);
+}
+
+/** A road's per-point value `s` metres along the course, between its points. */
+function along(s: number, pick: (road: Path) => ArrayLike<number> | undefined) {
+  const p = courseLocal(s);
+  if (!p) return 0;
+  const road = course.legs[p.k].in;
+  const v = road && pick(road);
+  if (!road || !v || p.u < 0 || p.u > road.length) return 0;
+  const f = Math.min(p.u / road.step, v.length - 1);
+  const i = Math.min(Math.floor(f), v.length - 2);
+  return v[i] + (v[i + 1] - v[i]) * (f - i);
+}
+/** How far the road's rolled over `s` metres along the course (radians, + its top to its right). */
+export const rollAt = (s: number) => along(s, (r) => r.roll);
+/** How much it throws up there, 0 to 1, before its speed (the tunnel's). */
+export const sprayAt = (s: number) => along(s, (r) => r.spray);
+/** How thick the air's there, 0 to 1 (the stairwell's last stretch). */
+export const fogAt = (s: number) => along(s, (r) => r.fog);
+/** What the road's made of there: lib/sections.ts SURFACE. */
+export function surfaceAt(s: number) {
+  const p = courseLocal(s);
+  if (!p) return 0;
+  const road = course.legs[p.k].in;
+  if (!road?.surface || p.u < 0 || p.u > road.length) return 0;
+  return road.surface[Math.min(Math.floor(p.u / road.step), road.surface.length - 1)];
 }
 
 /** Puts zone `k` on the course at the end of the one before's way out (it must have been placed and loaded). */

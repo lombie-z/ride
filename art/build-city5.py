@@ -2,7 +2,8 @@
 specimen corridor, a vast hall of code-faced server towers, the chamber of the core. Assembled from its groups' modules
 (art/core/: gate, lab, tanks, servers, chamber; art/core/kit.py is what they share, including the road), plus the road
 deck itself and the contract every city has: City5.RoadPath, RoadIn, BikeMark, ArrivalCam. It's the last zone, so no
-RoadOut. Builds art/city5.blend and exports public/models/city5.glb (Draco).
+RoadOut. Builds art/city5.blend and exports art/out/city5.glb (Draco): look at it first, then copy it to public/models/ with the site's numbers
+(LAB_DOOR in lib/ride.ts: it's kit.LAB door_s) in one go.
 Run: /opt/homebrew/bin/blender --background --factory-startup --python art/build-city5.py
      (CITY5_ONLY=lab,tanks builds just those modules; a module not there yet is skipped.)
 """
@@ -20,9 +21,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'core'))
 sys.dont_write_bytecode = True
 import kit  # noqa: E402
+import road_sections  # noqa: E402
 
-GLB = os.path.join(kit.ROOT_DIR, 'public', 'models', 'city5.glb')
+GLB = os.path.join(kit.ROOT_DIR, 'art', 'out', 'city5.glb')
 BLEND = os.path.join(HERE, 'city5.blend')
+assert road_sections.HALL_X == kit.LAB_END, (road_sections.HALL_X, kit.LAB_END)
 root = kit.begin()
 
 # --- The groups ---------------------------------------------------------------------------------------------------------
@@ -64,38 +67,51 @@ line += hermite(line[-1], kit.heading(END_S - PARK), bike_at, bike_yaw, 30.0, 16
 ROAD_LINE = kit.resample_exact(line, 2.0)
 ROAD_LEN = kit.poly_len(line)
 
-bm = bmesh.new()
 DECK_END = END_S + 30.0
-uv = bm.loops.layers.uv.new('UVMap')
-prev = None
 HALF = kit.ROAD_W / 2
 ACROSS = [1.0, 0.5, -0.5, -1.0]
-for s in kit.frange(0.0, DECK_END, 6.0):
-    cur = [bm.verts.new(kit.along(s, HALF * d)) for d in ACROSS]
-    if prev:
-        for j in range(len(ACROSS) - 1):
-            f = bm.faces.new((prev[0][j], prev[0][j + 1], cur[j + 1], cur[j]))
-            u0, u1 = (1 - ACROSS[j]) / 2, (1 - ACROSS[j + 1]) / 2
-            for lp, (u, v) in zip(f.loops, ((u0, prev[1]), (u1, prev[1]), (u1, s), (u0, s))):
-                lp[uv].uv = (u, v / 27.0)
-    prev = (cur, s)
-bm.normal_update()
-deck = bpy.data.meshes.new('City5.Deck')
-bm.to_mesh(deck)
-bm.free()
-deck.materials.append(kit.MAT['asphalt'])
-# (The gate tunnel's lamps pool on it; past that it's the road's mirror that shows, the deck only at its very edges.)
+# It's in two, at the lab's doors (art/core/SECTIONS.md): the lab's part, group Road, runs on to the lip of the stairwell's long flight; the
+# hall's, group RoadHall, from where the tunnel comes out (road_sections.py HALL_X), and it sinks with the hall on the site. Both are on the same
+# plane and pattern, so with the hall unsunk their couple of metres' overlap doesn't show.
+LIP = road_sections.LIP_X
 gate = modules.get('gate')
-kit.bake_light(deck, gate.lights() if gate and hasattr(gate, 'lights') else [], ambient=(0.3, 0.32, 0.3))
-kit.static('Deck', deck, 'Road')
+
+
+def deck_part(name, s0, s1, grp):
+    bm = bmesh.new()
+    uv = bm.loops.layers.uv.new('UVMap')
+    prev = None
+    rows = sorted({s0, s1, *(s for s in kit.frange(0.0, DECK_END, 6.0) if s0 < s < s1)})
+    for s in rows:
+        cur = [bm.verts.new(kit.along(s, HALF * d)) for d in ACROSS]
+        if prev:
+            for j in range(len(ACROSS) - 1):
+                f = bm.faces.new((prev[0][j], prev[0][j + 1], cur[j + 1], cur[j]))
+                u0, u1 = (1 - ACROSS[j]) / 2, (1 - ACROSS[j + 1]) / 2
+                for lp, (u, v) in zip(f.loops, ((u0, prev[1]), (u1, prev[1]), (u1, s), (u0, s))):
+                    lp[uv].uv = (u, v / 27.0)
+        prev = (cur, s)
+    bm.normal_update()
+    deck = bpy.data.meshes.new(f'City5.{name}')
+    bm.to_mesh(deck)
+    bm.free()
+    deck.materials.append(kit.MAT['asphalt'])
+    # (The gate tunnel's lamps pool on it; past that it's the road's mirror that shows, the deck only at its very edges.)
+    kit.bake_light(deck, gate.lights() if gate and hasattr(gate, 'lights') else [], ambient=(0.3, 0.32, 0.3))
+    kit.static(name, deck, grp)
+
+
+deck_part('Deck', 0.0, LIP, 'Road')
+deck_part('DeckHall', kit.LAB_END, DECK_END, 'RoadHall')
 
 paint = kit.material('City5Paint', (0.72, 0.72, 0.68), 0.7, vcol=False, emission=(0.72, 0.74, 0.68), strength=0.45)
 bm = bmesh.new()
 kit.add_box(bm, (1.5, 0, 0), (3.0, 0.16, 0.001))
 dash = kit.piece('Dash', kit.mesh_from('City5.Dash', bm, paint))
 for s in kit.frange(4.0, END_S, 9.0):
-    # (Standing just proud of the road's mirror, components/three/wet-road.tsx.)
-    kit.put(dash, kit.along(s, 0.0, 0.05), kit.heading(s), grp='Road')
+    # (Standing just proud of the road's mirror, components/three/wet-road.tsx. Each on its part of the deck.)
+    if s + 3.0 <= LIP or s >= kit.LAB_END:
+        kit.put(dash, kit.along(s, 0.0, 0.05), kit.heading(s), grp='Road' if s < kit.LAB_END else 'RoadHall')
 
 
 # --- The contract --------------------------------------------------------------------------------------------------------

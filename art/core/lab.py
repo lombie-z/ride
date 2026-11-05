@@ -1,4 +1,4 @@
-"""The lab corridor's shell (s 150-670, concept-core-lab): white tile, pilasters, the lit ceiling, cable bundles, the wet
+"""The lab corridor's shell (kit.SECTIONS['lab'], concept-core-lab): white tile, pilasters, the lit ceiling, cable bundles, the wet
 walkways and the bulkhead at the far end with its door. Everything but the tanks and their consoles (art/core/tanks.py).
 
 One side of a bay is a set of pieces, its origin on the road's centreline at the tank's s, its side at +y (yaw pi puts it
@@ -603,7 +603,7 @@ def door_leaf(side):
 
 def end_wall():
     """The bulkhead (its face at END_FACE): white tile, a chamfered door surround, the control room's window above with its
-    teal monitors and chair backs, red lamps and strip, the pockets the leaves slide into, the dark frame on to s 670."""
+    teal monitors and chair backs, red lamps and strip, the pockets the leaves slide into, the dark frame on past the doors."""
     kit = _kit
     M = _M
     L = kit.LAB
@@ -676,7 +676,7 @@ def end_wall():
         grid(bm, (X + 1.9, y + 0.45, win0 + 1.05), (0, -0.9, 0), (0, 0, 1.1), 1, 1, 2)
         grid(bm, (X + 1.9, y + 0.55, win0 + 0.8), (0, -1.1, 0), (0, 0, 0.2), 1, 1, 2)
         grid(bm, (X + 1.9, y + 0.09, win0), (0, -0.18, 0), (0, 0, 0.8), 1, 1, 2)
-    # Behind the face: the pockets the leaves slide into, the dark frame to s 670.
+    # Behind the face: the pockets the leaves slide into, the dark frame.
     PB = D + 0.2
     for s in (-1, 1):
         a, b = sorted((s * 7.0, s * 15.6))
@@ -722,7 +722,7 @@ def lift_shell():
 
 
 def start_wall():
-    """The bulkhead at s 150, wall to wall, round the gate's 16 x 9 m opening (the gate's own frame closes the rest on its
+    """The bulkhead at the lab's start, wall to wall, round the gate's 16 x 9 m opening (the gate's own frame closes the rest on its
     side); it faces into the lab, and from the gate only its opening shows."""
     kit = _kit
     L = kit.LAB

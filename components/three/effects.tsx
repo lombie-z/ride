@@ -134,7 +134,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     // (In the hive the veins show the heart's beat faintly even unpumped, so the rhythm's there to tap to.)
     const hive = ride.mount * (featureHere() === 'heartbeat' ? 1 : 0);
     const veins = hive * (0.18 + 0.82 * Math.max(ride.drive.pump, rhythm.active ? (0.5 * rhythm.landed) / RHYTHM.count : 0));
-    // (The core's boost as data; and part of the way there behind the memory lock, which pays for it.)
+    // (The core's boost as data; and part of the way there behind a door's memory lock.)
     const ghost = Math.max(ride.mount * ride.ghost.amount, memory.haze);
     const blur = devFlag('noblur')
       ? 0

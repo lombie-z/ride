@@ -54,3 +54,11 @@ art/reference/concept-bike5.png
 art/renders/creature-*.png
 art/renders/core-*.png
 art/renders/site-core-*.jpg
+
+# Generated from art/core: rebuilt by its scripts
+art/out/
+art/renders/assets/
+art/renders/sections/
+art/renders/memory-game.png
+art/renders/rhythm-*.png
+art/renders/trace-options.png

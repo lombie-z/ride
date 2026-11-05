@@ -1097,7 +1097,7 @@ def place(_kit, pieces):
         assert CONSOLE_D - reach > 7.2, CONSOLE_D - reach
 
 
-# The tanks of each, on the left of the road: s 170 + 18 i, in ORDER.
+# The tanks of each, on the left of the road: kit.LAB tank_from + tank_every i, in ORDER.
 def _close(i, eye_back=7.0, eye_d=1.5, z=1.5, fov=58):
     s = 170.0 + 18.0 * i
     return ((s - eye_back, eye_d, z), (s + 0.3, 12.2, 4.75), fov)

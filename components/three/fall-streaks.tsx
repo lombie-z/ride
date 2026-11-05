@@ -1,7 +1,7 @@
 'use client';
 
 import { useFrame } from '@react-three/fiber';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import {
   Color,
   DoubleSide,
@@ -16,6 +16,7 @@ import {
   Vector3,
 } from 'three';
 import { belowVisible, devFlag, journey, smoothstep } from '@/lib/journey';
+import { ride } from '@/lib/ride';
 import { waterFromSky, waterJoin } from './water';
 
 // The planter's oil carried on down: the streams modelled in Blender (the Fall.* meshes, components/three/water.ts)
@@ -177,7 +178,11 @@ void main() {
 // Segments along each rope (top of the sky to the city's floor): about 0.6 m each.
 const SEGMENTS = 200;
 
+/** Rolled this far down the road, the falls are behind the camera for good: not drawn, though they cull nothing themselves. */
+export const FALLS_BEHIND = 30;
+
 export function FallStreaks({ scene }: { scene: Object3D }) {
+  const mesh = useRef<Mesh>(null);
   const { geometry, material } = useMemo(() => {
     // Each stream carries on as one rope as wide as it is there, with a thread peeling off beside it.
     const roots: number[] = [];
@@ -241,6 +246,7 @@ export function FallStreaks({ scene }: { scene: Object3D }) {
   }, [scene]);
 
   useFrame((state) => {
+    if (mesh.current) mesh.current.visible = ride.drive.s <= FALLS_BEHIND;
     const u = material.uniforms;
     u.uTime.value = state.clock.elapsedTime;
     u.uResX.value = state.size.width * state.viewport.dpr;
@@ -255,5 +261,5 @@ export function FallStreaks({ scene }: { scene: Object3D }) {
     u.uFromSky.value = smoothstep(0.6, 1, waterFromSky.value);
   });
 
-  return <mesh name="OilFall" geometry={geometry} material={material} frustumCulled={false} renderOrder={2} />;
+  return <mesh ref={mesh} name="OilFall" geometry={geometry} material={material} frustumCulled={false} renderOrder={2} />;
 }

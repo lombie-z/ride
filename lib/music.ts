@@ -72,6 +72,10 @@ function load(k: number) {
     });
 }
 
+/** The context, once the press has made one, and where other sounds join the music: ahead of its muffling and the mute (lib/section-audio.ts). */
+export const musicContext = () => context;
+export const musicInput = () => (context ? tone : null);
+
 /** Called from the press that gets on the bike. */
 export function startMusic() {
   if (context) {
@@ -164,12 +168,11 @@ export function updateMusic(dt: number) {
   }
 
   // Time slowed to teach a boost, the music slows and sinks with it, like a tape dragging. As data, in the core's boost, it's far away.
-  // (Less so under the memory lock: that's a long time to have it dragging.)
-  const slow = Math.min(rhythm.slow, trace.slow, 0.5 + 0.5 * memory.slow);
+  const slow = Math.min(rhythm.slow, trace.slow);
   const rate = 0.4 + 0.6 * slow;
   for (const voice of voices) voice.source?.playbackRate.setTargetAtTime(rate, now, 0.25);
-  // (And falling through one of the hive's holes, lib/portal.ts.)
-  const ghost = Math.max(ride.ghost.amount, portal.muffle);
+  // (And falling through one of the hive's holes, lib/portal.ts; and a little, stopped at a door's memory lock, so its notes carry.)
+  const ghost = Math.max(ride.ghost.amount, portal.muffle, memory.haze * 0.8);
   const cutoff = Math.min(800 * 25 ** slow, 1100 * 18 ** (1 - ghost));
   tone.frequency.setTargetAtTime(cutoff, now, 0.08);
   const up = ride.mounted && !music.muted ? MASTER * (1 - 0.3 * ghost) : 0;

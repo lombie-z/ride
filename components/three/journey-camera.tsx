@@ -5,9 +5,11 @@ import { useFrame } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
 import { PerspectiveCamera as Looker, MathUtils, type PerspectiveCamera as PerspectiveCameraImpl, Quaternion, Vector3 } from 'three';
 import { course, type Shot } from '@/lib/course';
+import { hallShown } from '@/lib/doors';
 import { BEATS, heroStageSize, journey, journeyProgress, landingAt, PRE_ROLL, TRACK_FRAMES } from '@/lib/journey';
 import { rhythm } from '@/lib/rhythm';
 import { ARRIVAL, anchors, CRUISE, ride } from '@/lib/ride';
+import { SECTION_TABLE, sectionAt, sections } from '@/lib/sections';
 
 // The hero matches the blog's biome view (and the Blender preview camera): three-quarter, 3.7 units across the stage.
 // A long lens from far away stands in for the blog's orthographic camera, so the journey can widen it.
@@ -53,6 +55,17 @@ const arrivalLook = new Vector3();
 const RIDER_PITCH = MathUtils.degToRad(15);
 const RIDER_BACK = 0.22;
 const RIDER_DOWN = 0.07;
+// Down the core's stairwell and tunnel (art/core/SECTIONS.md): a higher look and a wider lens, the stills' (at 15 degrees the top of the bulkhead's
+// out of frame), and the view rigid on the bike, rolled with it. The flights' rattle: how far it shakes the eye (m) and the view (radians).
+const SECTION_PITCH = MathUtils.degToRad(8);
+const SECTION_FOV = 82;
+const RATTLE = { eye: 0.02, view: 0.0045 };
+const X_AXIS = new Vector3(1, 0, 0);
+const Z_AXIS = new Vector3(0, 0, 1);
+const riderUp = new Vector3();
+const riderBack = new Vector3();
+const bikeTurn = new Quaternion();
+const viewTurn = new Quaternion();
 
 /** Sample the track at progress p (0-1) into position/quaternion, returning the vertical FOV. */
 function sample(track: Track, p: number, position: Vector3, quaternion: Quaternion) {
@@ -143,25 +156,44 @@ export function JourneyCamera() {
       // (Forward along the bike: its own +x, from the node the eye hangs on.)
       riderAhead.copy(eye.position).add(forward);
       eye.parent?.localToWorld(riderAhead);
-      riderAhead.sub(riderEye).setY(0).normalize();
-      riderEye.addScaledVector(riderAhead, -RIDER_BACK).y -= RIDER_DOWN;
+      riderAhead.sub(riderEye);
+      riderBack.copy(riderAhead);
+      riderAhead.setY(0).normalize();
+      // (Through the stairwell and tunnel, back and down are the bike's own, however it's rolled; elsewhere the world's.)
+      const { section, roll, rattle } = ride.drive;
+      riderUp.copy(Y_AXIS);
+      if (section > 0 && eye.parent) {
+        riderUp
+          .applyQuaternion(eye.parent.getWorldQuaternion(bikeTurn))
+          .lerp(Y_AXIS, 1 - section)
+          .normalize();
+        riderBack.lerp(riderAhead, 1 - section).normalize();
+      } else riderBack.copy(riderAhead);
+      riderEye.addScaledVector(riderBack, -RIDER_BACK).addScaledVector(riderUp, -RIDER_DOWN);
       looker.position.copy(riderEye);
       looker.lookAt(
         riderAhead
           .multiplyScalar(10)
           .add(riderEye)
-          // (Its nose up or down over the dunes, the view with it by half.)
-          .setY(riderEye.y - 10 * Math.tan(RIDER_PITCH - ride.drive.pitch * 0.5))
+          // (Its nose up or down over the dunes, the view with it by half; all of it through the stairwell and tunnel.)
+          .setY(riderEye.y + 10 * Math.tan(ride.drive.pitch * (0.5 + 0.5 * section)))
       );
       riderQuaternion.copy(looker.quaternion);
+      const t = state.clock.elapsedTime;
+      // (Rolled with the road, then looking a little down from the bike's own line: a wall ride really rolls the view.)
+      if (section > 0) riderQuaternion.multiply(viewTurn.setFromAxisAngle(Z_AXIS, -roll * section + rattle * RATTLE.view * Math.sin(t * 83)));
+      riderQuaternion.multiply(
+        viewTurn.setFromAxisAngle(X_AXIS, -MathUtils.lerp(RIDER_PITCH, SECTION_PITCH, section) + rattle * RATTLE.view * Math.sin(t * 109))
+      );
       // At speed: the view widens a little and the road buzzes up through the bars.
       const pace = Math.min(1, ride.drive.speed / CRUISE);
-      const t = state.clock.elapsedTime;
       // (Not off the ground, and not with the ride slowed to a stop; a landing's thump, though.)
       const buzz = pace * 0.006 * (ride.drive.air ? 0 : rhythm.slow) * (1 - ride.ghost.amount);
-      riderEye.y += buzz * (Math.sin(t * 41) + 0.6 * Math.sin(t * 67)) - 0.16 * ride.drive.land;
+      riderEye.addScaledVector(riderUp, buzz * (Math.sin(t * 41) + 0.6 * Math.sin(t * 67)) - 0.16 * ride.drive.land);
+      // (Down the flights' steps, it shakes through the bars.)
+      riderEye.addScaledVector(riderUp, rattle * RATTLE.eye * (Math.sin(t * 97) + 0.7 * Math.sin(t * 151)));
       // (Riding the thing that runs in the bike's place: its gallop, up through the rider.)
-      riderEye.y += ride.ghost.amount * 0.035 * Math.abs(Math.sin(t * 13));
+      riderEye.addScaledVector(riderUp, ride.ghost.amount * 0.035 * Math.abs(Math.sin(t * 13)));
       cam.position.lerp(riderEye, e);
       cam.quaternion.slerp(riderQuaternion, e);
       // (Surging, the view stretches wider still; launched, it's punched wider again and shakes, and drawing the
@@ -169,7 +201,12 @@ export function JourneyCamera() {
       const { fire, draw } = ride.drive;
       cam.fov = MathUtils.lerp(
         cam.fov,
-        RIDER_FOV + 12 * Math.min(1, pace * pace) + 10 * ride.drive.surge + 14 * ride.drive.pump + 20 * fire + 6 * ride.ghost.amount - 6 * draw,
+        MathUtils.lerp(RIDER_FOV + 12 * Math.min(1, pace * pace), SECTION_FOV, section) +
+          10 * ride.drive.surge +
+          14 * ride.drive.pump +
+          20 * fire +
+          6 * ride.ghost.amount -
+          6 * draw,
         e
       );
       if (fire > 0.01) cam.position.y += fire * 0.012 * (Math.sin(t * 53) + 0.7 * Math.sin(t * 89));
@@ -203,7 +240,19 @@ export function JourneyCamera() {
     cam.near = ride.mount > 0 ? 0.04 : Math.max(0.03, cam.position.distanceTo(HERO_TARGET) * 0.002);
     // (Further once the cities are out there: their suns stand kilometres off, the desert's the furthest.)
     // (Indoors, in the core, nothing past its fog need be drawn: most of its 7 km is culled by this.)
-    cam.far = ride.zone === 4 && tr.placed && ride.drive.s > tr.at + 41 ? 1000 : ride.zone === 3 ? 9500 : ride.transition.placed || ride.zone > 1 ? 6000 : 2000;
+    // (And less again down its stairwell and tunnel, lib/sections.ts: their fog's far closer.)
+    // (Till the hall's in sight, through the bulkhead.)
+    const inSection =
+      ride.zone === 4 && tr.placed && !(ride.drive.s - tr.at > sections.flood.from && hallShown(ride.drive.s - tr.at)) ? sectionAt(ride.drive.s - tr.at) : null;
+    cam.far = inSection
+      ? SECTION_TABLE[inSection].far
+      : ride.zone === 4 && tr.placed && ride.drive.s > tr.at + 41
+        ? 1000
+        : ride.zone === 3
+          ? 9500
+          : ride.transition.placed || ride.zone > 1
+            ? 6000
+            : 2000;
     cam.updateProjectionMatrix();
     if (process.env.NODE_ENV === 'development') (window as unknown as { __journeyCamera?: unknown }).__journeyCamera = cam;
   }, -1);

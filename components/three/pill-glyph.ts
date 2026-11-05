@@ -68,6 +68,8 @@ export function pillPlate(scene: Object3D, material: MeshStandardMaterial, pill?
   plate.renderOrder = 3;
   centre.parent.add(plate);
   material.transparent = true;
+  // (Drawn once. Two-sided and see-through it would be drawn back then front, which makes three look up its program each time.)
+  material.forceSinglePass = true;
   material.depthWrite = false;
   material.color.setRGB(0, 0, 0);
   // (The pill itself goes dark glass under it, for the symbol to stand out.)

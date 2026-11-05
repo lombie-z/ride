@@ -1,19 +1,20 @@
-// A memory lock, the price of the core's boost (lib/ride.ts pressGhost): five tiles in a cross, each with a pattern of its own and
-// a colour. They light in an order, then twist (colours swap, tiles move round the screen), then they want the order back. One line
-// says what to hold on to, its pattern or its colour; the rest is worked out by playing, a wrong answer showing the tile that was
-// wanted. What makes it fair: that one thing is always readable on the tile, wherever it's gone, so there's nothing to guess.
+// A memory lock, on the core's doors (lib/doors.ts): five tiles in a cross, each with a sigil of its own and a chroma. They light in an
+// order, then twist (chromas swap, tiles move round the screen), then they want the order back. One line says what to hold on to, the
+// sigil or the chroma; the rest is worked out by playing, a wrong answer showing the tile that was wanted. What makes it fair: that one
+// thing is always readable on the tile, wherever it's gone, so there's nothing to guess. A round won moves on to the next, up the table
+// it was given; one wrong and the run's back to nothing.
 //
-// A pure state machine run by updateMemory(dt) over a table of rounds it's given; components/memory-overlay.tsx draws it and feeds
-// it presses. Nothing here knows about the ride beyond `slow`, which it reads: startMemory({ onWin, onLose }), or read memory.status.
+// A pure state machine run by updateMemory(dt); components/memory-overlay.tsx draws it and feeds it presses. It knows nothing of the
+// ride: startMemory({ table, onWin, onLose }), or read memory.status.
 
 export type Rule = 'a' | 'b' | 'c' | 'd';
-export type Truth = 'colour' | 'tile' | 'pattern' | 'place';
+export type Truth = 'chroma' | 'tile' | 'sigil' | 'place';
 
 export const RULES: Record<Rule, { truth: Truth; moves: boolean; swaps: boolean; name: string }> = {
-  a: { truth: 'colour', moves: true, swaps: true, name: 'Only the colour' },
-  b: { truth: 'tile', moves: true, swaps: false, name: 'Follow the tile' },
-  c: { truth: 'pattern', moves: true, swaps: true, name: 'Only the pattern' },
-  d: { truth: 'place', moves: true, swaps: true, name: 'Only the place' },
+  a: { truth: 'chroma', moves: true, swaps: true, name: 'Chroma' },
+  b: { truth: 'tile', moves: true, swaps: false, name: 'The tile' },
+  c: { truth: 'sigil', moves: true, swaps: true, name: 'Sigils' },
+  d: { truth: 'place', moves: true, swaps: true, name: 'The place' },
 };
 
 /** The cross's places, in cross units (one is the distance from the centre to an arm). */
@@ -26,7 +27,7 @@ export const SLOTS = [
 ];
 const RING = [0, 3, 4, 1];
 
-export const PATTERNS = [
+export const SIGILS = [
   { name: 'BARS', rows: ['#########', '.........', '#########', '.........', '#########', '.........', '#########', '.........', '#########'] },
   { name: 'CHECKS', rows: ['###...###', '###...###', '###...###', '...###...', '...###...', '...###...', '###...###', '###...###', '###...###'] },
   { name: 'RING', rows: ['#########', '#########', '##.....##', '##.....##', '##.....##', '##.....##', '##.....##', '#########', '#########'] },
@@ -36,10 +37,10 @@ export const PATTERNS = [
 
 /**
  * Hard and saturated, none of them the terminal's green. Picked by simulating protan, deutan and tritan vision (Machado 2009):
- * every pair's at least 25 apart in Lab for all three, 70 for full colour vision. Rule a answers by colour alone, so there each
- * also wears its letter.
+ * every pair's at least 25 apart in Lab for all three, 70 for full vision. Chroma rounds answer by that alone, so there each also
+ * wears its letter.
  */
-export const COLOURS = [
+export const CHROMAS = [
   { name: 'YELLOW', mark: 'Y', hex: '#ffe600' },
   { name: 'RED', mark: 'R', hex: '#ff2a12' },
   { name: 'BLUE', mark: 'B', hex: '#2a5cff' },
@@ -49,7 +50,7 @@ export const COLOURS = [
 
 /**
  * One round: how many to remember and how fast they're shown; the twist's steps (0: none), how long each takes, how long it's
- * warned of beforehand, and how nasty; seconds allowed per press. The table's in lib/ride.ts GHOST_LEVELS.
+ * warned of beforehand, and how nasty (`moves`: tiles change places, `hues`: chromas do); seconds allowed per press (0: no clock).
  */
 export type Round = {
   remember: number;
@@ -61,60 +62,67 @@ export type Round = {
   pairs: number;
   ring: boolean;
   scatter: boolean;
-  aftershock: boolean;
-  /** Colours swap between tiles too; until then each keeps its tile's. */
+  moves: boolean;
   hues: boolean;
   press: number;
 };
 
 /** Beats (s): before the first light, the wrong answer shown, a round cleared, and how long the end holds before a press counts. */
 const BEAT = { lead: 0.55, fail: 1.9, pass: 0.95, end: 0.9 };
+/** How long a round's point of light takes to get to what it lights (s). */
+export const SPARK = 0.5;
 
 export type Phase = 'off' | 'show' | 'twist' | 'repeat' | 'fail' | 'pass' | 'won' | 'lost';
 export type Status = 'idle' | 'playing' | 'won' | 'lost';
 
 export type Tile = {
-  /** Its pattern, for good. */
+  /** Its sigil, for good. */
   id: number;
   /** Where in the cross it is (where it last came to rest). */
   slot: number;
-  colour: number;
+  chroma: number;
   /** Where it is now, in cross units. */
   x: number;
   y: number;
   /** And on the screen, in CSS px (the overlay keeps these up). */
   sx: number;
   sy: number;
-  /** What can be read off it this frame (its colour turns over partway through a handover): all a fair player gets. */
-  shownColour: number;
-  shownPattern: number;
-  /** How much of its face has colour (down to 0 and back as one's handed over). */
+  /** What can be read off it this frame (its chroma turns over partway through a handover): all a fair player gets. */
+  shownChroma: number;
+  shownSigil: number;
+  /** How much of its face has chroma (down to 0 and back as one's handed over). */
   fill: number;
   /** Lit up (1) and dying away. */
   glow: number;
 };
 
 type Move = { tile: number; fromX: number; fromY: number; toX: number; toY: number; bend: number; slot: number };
-type Hue = { from: number; to: number; colour: number };
+type Hue = { from: number; to: number; chroma: number };
 export type Step = { telegraph: number; time: number; age: number; moves: Move[]; hues: Hue[]; links: [number, number][] };
 
-export type MemoryEvent = { type: 'tone'; truth: number } | { type: 'twist' | 'wrong' | 'clear' | 'won' | 'lost' | 'locked' | 'go' };
+export type MemoryEvent = { type: 'tone'; truth: number } | { type: 'twist' | 'wrong' | 'key' | 'won' | 'lost' | 'locked' | 'go' };
 
 export type MemoryOptions = {
   /** The rounds to play. */
   table: Round[];
   rule?: Rule;
-  /** Starts this far up the table, and plays this many rounds (by default, the rest of it). */
-  from?: number;
-  rounds?: number;
+  /** Draws the rule afresh each time a round's shown. */
+  ruleFor?: () => Rule;
+  /** Starts this far up the table, with this many failed already. */
+  start?: number;
+  fails?: number;
+  /** After this many failed goes in a row, the hint's on offer. */
+  hintAfter?: number;
   /** How many wrong answers it takes to lose. */
   strikes?: number;
   /** The same seed, the same run. */
   seed?: number;
   /** Shuts itself this long (s) after the end; otherwise it waits there for a press to go again. */
   closeAfter?: number;
-  /** Opened to compare the rules (`?memory=`): the overlay shows their keys. */
-  review?: boolean;
+  /** Opened to look at (`?memory=`, `?door=`): the overlay shows keys for the others. */
+  review?: 'rules' | 'doors';
+  /** What the overlay dresses it in. */
+  look?: object;
   onWin?: () => void;
   onLose?: () => void;
 };
@@ -127,7 +135,7 @@ export const memory = {
   rounds: 1,
   /** Which round (from 0). */
   round: 0,
-  /** The order, as what's true under the rule: a colour, a tile (its pattern), or a place. It grows by one a round. */
+  /** The order, as what's true under the rule: a chroma, a tile (its sigil), or a place. It grows by one a round. */
   sequence: [] as number[],
   /** How far through the showing, and how many have been pressed right. */
   shown: -1,
@@ -149,6 +157,14 @@ export const memory = {
   /** The first round ever: forgiving, in no hurry, pointing at what's wanted. */
   teaching: false,
   taught: false,
+  /** How many goes have failed. The hint: spent this round; forced on (to test it); the tile it's showing, and that dying away. */
+  fails: 0,
+  hintSpent: false,
+  hintForced: false,
+  hintTile: null as number | null,
+  hintFlash: 0,
+  /** The tile last pressed right. */
+  lastPress: 0,
   /** The tile that's wanted, shown only while teaching. */
   hint: null as number | null,
   /** A wrong press while teaching (1, dying away). */
@@ -157,8 +173,7 @@ export const memory = {
   locked: 0,
   shake: 0,
   flash: 0,
-  /** How fast the ride's running under it (1 full speed), and how far the view's gone to the ghost's green (0 to 1). */
-  slow: 1,
+  /** How far the view's gone to the ghost's green (0 to 1). */
   haze: 0,
   /** What went wrong: who was pressed (null: time ran out), and who was wanted. */
   fail: null as { pressed: number | null; wanted: number; slow: boolean } | null,
@@ -189,15 +204,19 @@ function shuffled<T>(list: T[]) {
 }
 const smooth = (t: number) => t * t * (3 - 2 * t);
 
-export const roundOf = () => {
-  const { table, from = 0 } = memory.options;
-  return table[Math.min(memory.round + from, table.length - 1)];
-};
+export const roundOf = () => memory.options.table[Math.min(memory.round, memory.options.table.length - 1)];
+
+/** How many rounds have got as far as lighting something: the one just won once its point of light gets there. */
+export function memoryLit() {
+  const m = memory;
+  if (m.phase === 'won') return m.rounds;
+  return m.round + (m.phase === 'pass' && m.phaseT >= SPARK ? 1 : 0);
+}
 
 /** What's true of a tile under the rule: what the sequence holds. */
 export function truthOf(t: Tile) {
   const truth = RULES[memory.rule].truth;
-  return truth === 'colour' ? t.colour : truth === 'place' ? t.slot : t.id;
+  return truth === 'chroma' ? t.chroma : truth === 'place' ? t.slot : t.id;
 }
 const tileFor = (truth: number) => memory.tiles.find((t) => truthOf(t) === truth) as Tile;
 
@@ -206,9 +225,11 @@ function enter(phase: Phase) {
   memory.phaseT = 0;
 }
 
+/** A new order for the round. */
 function grow() {
   const m = memory;
   const length = roundOf().remember;
+  m.sequence = [];
   // (Never the same twice running: a light that doesn't change can't be seen to have lit again.)
   while (m.sequence.length < length) {
     const last = m.sequence[m.sequence.length - 1];
@@ -219,6 +240,7 @@ function grow() {
 
 function show() {
   const m = memory;
+  if (m.options.ruleFor) m.rule = m.options.ruleFor();
   grow();
   m.shown = -1;
   m.pressed = 0;
@@ -226,6 +248,8 @@ function show() {
   m.hint = null;
   m.fail = null;
   m.step = null;
+  m.hintSpent = false;
+  m.hintFlash = 0;
   enter('show');
 }
 
@@ -233,7 +257,7 @@ function show() {
 function planTwist() {
   const m = memory;
   const cfg = roundOf();
-  const { moves } = RULES[m.rule];
+  const moves = RULES[m.rule].moves && cfg.moves;
   const swaps = RULES[m.rule].swaps && cfg.hues;
   const plan: string[][] = [];
   const moveKinds = cfg.ring ? ['swap', 'swap', 'ring'] : ['swap'];
@@ -323,7 +347,7 @@ function makeStep(kinds: string[], time: number, telegraph: number, pairCount: n
       for (const [a, b] of pairs(pairCount)) {
         const ta = bySlot(a);
         const tb = bySlot(b);
-        step.hues.push({ from: ta.id, to: tb.id, colour: ta.colour }, { from: tb.id, to: ta.id, colour: tb.colour });
+        step.hues.push({ from: ta.id, to: tb.id, chroma: ta.chroma }, { from: tb.id, to: ta.id, chroma: tb.chroma });
         step.links.push([ta.id, tb.id]);
       }
     } else if (kind === 'cycle') {
@@ -331,7 +355,7 @@ function makeStep(kinds: string[], time: number, telegraph: number, pairCount: n
       order.forEach((slot, i) => {
         const a = bySlot(slot);
         const b = bySlot(order[(i + 1) % 5]);
-        step.hues.push({ from: a.id, to: b.id, colour: a.colour });
+        step.hues.push({ from: a.id, to: b.id, chroma: a.chroma });
         step.links.push([a.id, b.id]);
       });
     }
@@ -361,7 +385,7 @@ function nextStep() {
   if (!kinds) {
     // (It's come back round to how it was: once more, or the twist did nothing. Under `place` nothing's ever meant to change.)
     if (signature() === before && cfg.steps > 0 && RULES[m.rule].truth !== 'place') {
-      m.plan.push(RULES[m.rule].moves ? ['swap'] : ['hue']);
+      m.plan.push(RULES[m.rule].moves && cfg.moves ? ['swap'] : ['hue']);
       return;
     }
     repeat();
@@ -392,7 +416,7 @@ function endStep(step: Step) {
     t.y = mv.toY;
     t.slot = mv.slot;
   }
-  for (const h of step.hues) m.tiles[h.to].colour = h.colour;
+  for (const h of step.hues) m.tiles[h.to].chroma = h.chroma;
   m.step = null;
 }
 
@@ -419,6 +443,10 @@ export const stepProgress = (step: Step) => smooth(Math.max(0, Math.min(1, (step
 function fail(pressed: number | null, wanted: number, slow: boolean) {
   const m = memory;
   m.strikes++;
+  m.fails++;
+  m.hintFlash = 0;
+  // (The run's gone, all of it: whatever they'd won goes dark at once.)
+  m.round = 0;
   m.fail = { pressed, wanted, slow };
   m.step = null;
   m.shake = 1;
@@ -443,19 +471,19 @@ function rest() {
   m.tiles = [0, 1, 2, 3, 4].map((id) => ({
     id,
     slot: id,
-    colour: id,
+    chroma: id,
     x: SLOTS[id].x,
     y: SLOTS[id].y,
     sx: 0,
     sy: 0,
-    shownColour: id,
-    shownPattern: id,
+    shownChroma: id,
+    shownSigil: id,
     fill: 1,
     glow: 0,
   }));
-  // (Not colour and pattern tied together from the off: rule a's and c's whole point is that they aren't.)
-  const colours = shuffled([0, 1, 2, 3, 4]);
-  for (const t of m.tiles) t.colour = colours[t.id];
+  // (Not chroma and sigil tied together from the off: rule a's and c's whole point is that they aren't.)
+  const chromas = shuffled([0, 1, 2, 3, 4]);
+  for (const t of m.tiles) t.chroma = chromas[t.id];
   const places = shuffled([0, 1, 2, 3, 4]);
   for (const t of m.tiles) {
     t.slot = places[t.id];
@@ -470,13 +498,13 @@ export function startMemory(options: MemoryOptions) {
   m.options = options;
   m.open = true;
   m.rule = options.rule ?? 'c';
-  const { from = 0 } = options;
-  m.rounds = Math.max(1, Math.min(options.rounds ?? options.table.length - from, options.table.length - from));
+  m.rounds = options.table.length;
   m.maxStrikes = Math.max(1, options.strikes ?? 3);
   m.seed = options.seed ?? Math.floor(Math.random() * 2 ** 31);
-  m.round = 0;
+  m.round = Math.max(0, Math.min(options.start ?? 0, m.rounds - 1));
   m.sequence = [];
   m.strikes = 0;
+  m.fails = options.fails ?? 0;
   m.pressed = 0;
   m.shown = -1;
   m.lit = null;
@@ -532,32 +560,35 @@ export function pressMemory(id: number) {
   }
   m.events.push({ type: 'tone', truth: wanted });
   t.glow = 1;
+  m.lastPress = id;
   m.pressed++;
   m.timer = m.timerMax;
   if (m.pressed >= m.sequence.length) {
     m.hint = null;
-    if (m.round + 1 >= m.rounds) {
-      // (The last one: straight to it, no waiting about.)
-      if (m.teaching) {
-        m.teaching = false;
-        m.taught = true;
-      }
-      m.round++;
-      finish('won');
-      return;
-    }
-    m.events.push({ type: 'clear' });
+    m.events.push({ type: 'key' });
     enter('pass');
-    return;
   }
-  // From the fourth round on it hits back after each one, so no planning ahead by where things are.
-  if (roundOf().aftershock && !m.teaching) {
-    const { moves } = RULES[m.rule];
-    const swaps = RULES[m.rule].swaps && roundOf().hues;
-    const kind = moves && swaps ? (rand() < 0.5 ? 'swap' : 'hue') : moves ? 'swap' : 'hue';
-    m.step = makeStep([kind], roundOf().stepTime * 0.6, 0, 1);
-    m.events.push({ type: 'twist' });
-  }
+}
+
+/** Whether there's a hint on offer: not at all; it can be had right now; it's not their turn; or it's spent till the next round. */
+export function hintState(): 'ready' | 'wait' | 'spent' | null {
+  const m = memory;
+  const after = m.options.hintAfter;
+  if (!m.open || m.status !== 'playing' || !(m.hintForced || (after !== undefined && m.fails >= after))) return null;
+  if (m.hintSpent) return 'spent';
+  return m.phase === 'repeat' && !m.step ? 'ready' : 'wait';
+}
+
+/** Shows the next tile to press, wherever it's got to. Costs nothing but itself. */
+export function pressHint() {
+  const m = memory;
+  if (hintState() !== 'ready') return;
+  const wanted = m.sequence[m.pressed];
+  const t = tileFor(wanted);
+  m.hintSpent = true;
+  m.hintTile = t.id;
+  m.hintFlash = 1;
+  m.events.push({ type: 'tone', truth: wanted });
 }
 
 /** A press by place (the arrow keys and space). */
@@ -571,30 +602,26 @@ export function pressMemorySlot(slot: number) {
 function refreshFaces() {
   const m = memory;
   for (const t of m.tiles) {
-    let colour = t.colour;
+    let chroma = t.chroma;
     t.fill = 1;
     const step = m.step;
     if (step) {
       const h = step.hues.find((o) => o.to === t.id);
       if (h) {
         const u = stepProgress(step);
-        if (u >= 0.5) colour = h.colour;
+        if (u >= 0.5) chroma = h.chroma;
         if (step.age >= step.telegraph) t.fill = Math.abs(2 * u - 1);
       }
     }
-    t.shownColour = colour;
-    t.shownPattern = t.id;
+    t.shownChroma = chroma;
+    t.shownSigil = t.id;
   }
 }
 
 /** Runs the game on (dt: the frame's real time). */
 export function updateMemory(dt: number) {
   const m = memory;
-  // Slowed under it, but going: the lab's still to be seen. Back up quick once it's over.
-  const playing = m.open && m.phase !== 'won' && m.phase !== 'lost';
-  const pace = !playing ? 1 : m.teaching ? 0.1 : 0.16;
-  m.slow += (pace - m.slow) * Math.min(1, dt * (playing ? 2.2 : 3.5));
-  m.haze += ((m.open ? 0.72 : 0) - m.haze) * Math.min(1, dt * (m.open ? 5 : 4));
+  m.haze += ((m.open ? 0.5 : 0) - m.haze) * Math.min(1, dt * (m.open ? 5 : 4));
   if (!m.open) return;
   m.clock += dt;
   // The first go's twist is slower, so there's time to see what's being shown.
@@ -604,6 +631,7 @@ export function updateMemory(dt: number) {
   m.locked = Math.max(0, m.locked - dt * 3);
   m.shake = Math.max(0, m.shake - dt * 2.6);
   m.flash = Math.max(0, m.flash - dt * 2.2);
+  m.hintFlash = Math.max(0, m.hintFlash - dt / 1.1);
   for (const t of m.tiles) t.glow = Math.max(0, t.glow - dt * 3.2);
   if (m.phase === 'show') {
     const cfg = roundOf();
@@ -644,7 +672,8 @@ export function updateMemory(dt: number) {
         m.taught = true;
       }
       m.round++;
-      show();
+      if (m.round >= m.rounds) finish('won');
+      else show();
     }
   } else if ((m.phase === 'won' || m.phase === 'lost') && m.options.closeAfter && m.phaseT >= m.options.closeAfter) {
     closeMemory();

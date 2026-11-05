@@ -7,6 +7,8 @@ import {
   BackSide,
   BoxGeometry,
   Color,
+  DoubleSide,
+  FrontSide,
   type Group,
   type Material,
   Matrix4,
@@ -22,8 +24,8 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { courseAt, courseCurve, ZONES } from '@/lib/course';
-import { belowVisible, journey, smoothstep } from '@/lib/journey';
-import { anchors, bikeReady, CRUISE, muckUnder, ride, road } from '@/lib/ride';
+import { belowVisible, journey, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
+import { anchors, bikeReady, CRUISE, muckUnder, ride, road, skipped } from '@/lib/ride';
 import { DRACO_PATH } from './biome';
 import { BoostPod } from './boost-pod';
 import { dashDisplay } from './dash';
@@ -370,7 +372,7 @@ function ZoneBikeLoader(props: { k: number; env: Texture; buttonMaterials: { cur
   const [go, setGo] = useState(false);
   const asked = useRef(false);
   useFrame(() => {
-    if (asked.current || ride.mount < 0.5) return;
+    if (asked.current || ride.mount < 0.5 || skipped(props.k)) return;
     const { k } = props;
     if (!(k === 1 || ride.zone > k - 1 || (ride.zone === k - 1 && ride.transition.placed))) return;
     asked.current = true;
@@ -385,6 +387,16 @@ function ZoneBikeLoader(props: { k: number; env: Texture; buttonMaterials: { cur
     </Suspense>
   ) : null;
 }
+
+/** How far along the road the parked bike's shadow map still reaches it (m). */
+const SHADED_UNTIL = 30;
+const collectShadowed = (scene: Object3D) => {
+  const meshes: Mesh[] = [];
+  scene.traverse((c) => {
+    if ((c as Mesh).isMesh && (c as Mesh).receiveShadow) meshes.push(c as Mesh);
+  });
+  return meshes;
+};
 
 /** The biotech bike (art/build-bike.py), parked on the wet deck at the landing. */
 export function Bike() {
@@ -429,6 +441,12 @@ export function Bike() {
       // The ribs' translucent shells are one merged mesh: three can't sort its rings against each other, so they
       // don't write depth.
       if (m.name === 'BikeRibGlass') m.depthWrite = false;
+      // It's closed solids, so its back faces are never seen: not drawn, a third of the frame's GPU time riding. (It still
+      // casts from both, so its shadows are as they were.)
+      else if (m.name !== 'BikeButton' && m.name !== 'BikeButtonGlyph') {
+        m.side = FrontSide;
+        m.shadowSide = DoubleSide;
+      }
       morphable(
         m,
         m.name === 'BikeButton' || m.name === 'BikeButtonGlyph' || m.name === 'BikeTyre'
@@ -488,6 +506,9 @@ export function Bike() {
 
   const last = useRef(0);
   const rise = useRef(0);
+  const wasShaded = useRef(true);
+  const wasReflected = useRef(true);
+  const shadowed = useRef<Mesh[] | null>(null);
   // (Before the camera, -1, which rides on the bike: otherwise it trails a frame behind it.)
   useFrame((state) => {
     if (group.current) group.current.visible = belowVisible(journey.frame);
@@ -514,11 +535,29 @@ export function Bike() {
         // (Into a right-hand bend it leans right: its +x roll, as the yaw is applied first.)
         const lean = -Math.atan((speed * speed * courseCurve(s)) / 9.8);
         b.rotation.x += (Math.max(-0.5, Math.min(0.5, lean)) - b.rotation.x) * 0.08;
+        // (Down the core's stairwell and tunnel, it's the road's own roll, up a wall and all.)
+        if (ride.drive.section > 0.5) b.rotation.x = ride.drive.roll;
       } else {
         b.position.set(AT[0], AT[1], AT[2]).addScaledVector(road.ahead, s);
         b.rotation.y = YAW + (road.yaw - YAW) * smoothstep(0, 12, s);
         b.rotation.x *= 0.9;
         b.rotation.z = 0;
+      }
+      // Rolled off its spot it's out from under the shadow map (not redrawn while riding, components/three/journey-canvas.tsx):
+      // no sampling it, the costliest part of the bike's shader for nothing.
+      const shaded = s <= SHADED_UNTIL;
+      if (shaded !== wasShaded.current) {
+        wasShaded.current = shaded;
+        shadowed.current ??= collectShadowed(scene);
+        for (const m of shadowed.current) m.receiveShadow = shaded;
+      }
+      // And from the seat its reflection's hidden by the bike itself: no drawing it in the wet road, the most of what the
+      // reflection's triangles are. (Back in it at the landing, and as the road ahead turns to the chrome city's pure mirror.)
+      const reflected = shaded || ride.transition.t > 0.25;
+      if (reflected !== wasReflected.current) {
+        wasReflected.current = reflected;
+        shadowed.current ??= collectShadowed(scene);
+        for (const m of shadowed.current) m.layers.set(reflected ? 0 : NO_MIRROR_LAYER);
       }
       const ds = s - last.current;
       last.current = s;
@@ -555,7 +594,7 @@ export function Bike() {
 
   return (
     <group ref={group} visible={false}>
-      <group ref={ridden} position={AT} rotation={[0, YAW, 0, 'YXZ']}>
+      <group ref={ridden} position={AT} rotation={[0, YAW, 0, 'YZX']}>
         <primitive object={scene} />
         {ZONES.slice(1).map((z, i) => (
           <ZoneBikeLoader key={z.id} k={i + 1} env={zoneEnvMap(gl, i + 1)} buttonMaterials={buttonMaterials} />

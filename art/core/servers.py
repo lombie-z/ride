@@ -1,4 +1,4 @@
-"""The server hall (s 670 to 3956, concept-core-servers): a vast dark hall, colossal rust-streaked towers of falling green
+"""The server hall (kit.SECTIONS['servers'], concept-core-servers): a vast dark hall, colossal rust-streaked towers of falling green
 code either side of the road, cables swagged across overhead, fanning from the plinths to the floor.
 
 Pieces are instanced along the road by s, so everything follows its bends. All light is painted: green from the code on
@@ -615,7 +615,7 @@ TOWERS = []   # (s, d, scale z, beacon?)
 
 
 def plan_towers():
-    """Where the towers go: pairs from s 720, spaced 37 to 43 m."""
+    """Where the towers go: pairs from 50 m into the hall, spaced 37 to 43 m."""
     if TOWERS:
         return TOWERS
     rng = np.random.default_rng(2024)
@@ -650,8 +650,9 @@ def _ribbon(kit, name, rows, d_list, z_fn, mat, uv_scale, lights=None, ambient=(
 def build_shell(kit):
     """Floor, far walls and roof in ~260 m chunks (the site merges by cells and culls), both ends."""
     towers = plan_towers()
-    edges = [S0 + (S1 - S0) * i / 24 for i in range(25)]
-    for ci in range(13):
+    chunks = max(1, round((S1 - S0) / 260.0))
+    edges = [S0 + (S1 - S0) * i / chunks for i in range(chunks + 1)]
+    for ci in range(chunks):
         s0, s1 = edges[ci], edges[ci + 1]
         # (Rows on the kerb's lights, so the floor's spill sits by them.)
         first = math.ceil((s0 - (S0 + 6.0)) / KERB_EVERY)
@@ -692,8 +693,8 @@ def build_shell(kit):
 
 
 def build_ends(kit):
-    """The two ends: a splayed throat from the lab's 14 x 8 door (s 670) opening to the hall at s 700, and the deep frame round
-    the chamber's 40 x 30 mouth (s 3930 to 3956)."""
+    """The two ends: a splayed throat from the lab's 14 x 8 door opening to the hall 30 m on, and the deep frame round the
+    chamber's 40 x 30 mouth, its last 26 m."""
     def wall_with_hole(name, s, hw, h, face):
         """A wall across the hall at s, hole hw either side, up to h. face: +1 faces on along the road, -1 back."""
         bm = bmesh.new()
@@ -772,7 +773,7 @@ def place(kit, pieces):
             kit.put(pieces['swag_hi'], kit.along(ss), kit.heading(ss), grp=grp)
     # The row behind, irregular.
     for sgn in (1, -1):
-        s = 715.0 + float(rng.uniform(0, 20))
+        s = S0 + 45.0 + float(rng.uniform(0, 20))
         while s < S1 - 66.0:
             kit.put(pieces['rear'], kit.along(s, sgn * (REAR_D + float(rng.uniform(-3, 4)))), kit.heading(s), scale=(1, 1, float(rng.uniform(0.9, 1.15))), grp=grp)
             s += float(rng.uniform(30.0, 52.0))
@@ -803,7 +804,7 @@ def place(kit, pieces):
                 s = a[0] + float(rng.uniform(0, 30))
                 kit.put(pieces['mist'], kit.along(s, sgn * float(rng.uniform(15.0, 16.0))), kit.heading(s), scale=(1, 0.3, float(rng.uniform(0.6, 1.0))), grp=grp)
     # Far racks on the far walls, a dim glow behind the rows.
-    s = 760.0
+    s = S0 + 90.0
     while s < S1 - 56.0:
         for sgn in (1, -1):
             if rng.random() < 0.8:
@@ -882,22 +883,24 @@ def _preview_extras(kit):
 
 
 def _shots():
-    """The camera's on the straights where they're dead along +X (s 700 to 1370); elsewhere from the kit's frame at import."""
+    """The camera's on the first straight, dead along +X, where it can be; elsewhere from the kit's frame at import."""
     import kit as K
     out = {}
     # Fitted to the reference: on the centreline, the near pair just ahead, looking a little up.
-    near = next(t[0] for t in plan_towers() if t[0] >= 1040.0)
+    near = next(t[0] for t in plan_towers() if t[0] >= S0 + 370.0)
     out['ref'] = ((near - 51.0, 0.0, 1.5), (near + 49.0, 0.0, 18.0), 70.0)
-    e, l = K.along(1720.0, 0.0, 1.5), K.along(1830.0, 0.0, 6.0)
+    a = K.hall_stretch(2)[0] + 50.0
+    e, l = K.along(a, 0.0, 1.5), K.along(a + 110.0, 0.0, 6.0)
     out['straight2'] = (tuple(e), tuple(l), 66.0)
-    e, l = K.along(2150.0, 0.0, 1.5), K.along(2260.0, 0.0, 12.0)
+    a = K.hall_stretch(3)[0] + 80.0
+    e, l = K.along(a, 0.0, 1.5), K.along(a + 110.0, 0.0, 12.0)
     out['bend'] = (tuple(e), tuple(l), 70.0)
     e, l = K.along(S0 + 2.0, 0.0, 1.5), K.along(S0 + 110.0, 0.0, 10.0)
     out['in'] = (tuple(e), tuple(l), 70.0)
     e, l = K.along(S1 - 156.0, 0.0, 1.5), K.along(S1 - 16.0, 0.0, 16.0)
     out['mouth'] = (tuple(e), tuple(l), 70.0)
-    out['high'] = ((1000.0, 60.0, 90.0), (1120.0, 0.0, 12.0), 60.0)
-    out['low'] = ((1076.0, 16.0, 2.0), (1100.0, 34.0, 12.0), 70.0)
+    out['high'] = ((S0 + 330.0, 60.0, 90.0), (S0 + 450.0, 0.0, 12.0), 60.0)
+    out['low'] = ((near - 34.0, 16.0, 2.0), (near - 10.0, 34.0, 12.0), 70.0)
     return out
 
 

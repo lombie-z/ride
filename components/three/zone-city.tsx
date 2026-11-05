@@ -19,10 +19,13 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { course, legToWorld, type Shot, ZONES } from '@/lib/course';
-import { NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
-import { LAB_DOOR, leftBehind, MUCKY, ride, setZonePaths } from '@/lib/ride';
+import { doorOpen, hallShown, placeBulkhead } from '@/lib/doors';
+import { NO_MIRROR_LAYER } from '@/lib/journey';
+import { LAB_DOOR, leftBehind, MUCKY, ride, setZonePaths, skipped } from '@/lib/ride';
+import { hallSink, loadSectionRoad, sections as roadSections, spliceCore } from '@/lib/sections';
 import { sunsetEnvMap, zoneEnvMap } from './bike';
 import { DRACO_PATH } from './biome';
+import { CoreSections } from './core-sections';
 import { Muck } from './muck';
 import { precompile } from './precompile';
 import { RoadJoin } from './road-join';
@@ -38,6 +41,7 @@ import { CityRoadMirror } from './wet-road';
 // (Dev: ?city2=<url> (or city3, city4) loads another model in its place, to try the flow.)
 const joinAt = new Vector3();
 const SPECIMENS_SEEN = 300;
+const LAB_SEEN = 1000;
 const url = (k: number) => {
   const own = ZONES[k].city as string;
   if (process.env.NODE_ENV !== 'development') return own;
@@ -48,10 +52,10 @@ const url = (k: number) => {
 const node = (scene: Object3D, name: string) => scene.getObjectByName(name.replace('.', '')) ?? scene.getObjectByName(name);
 
 /** Its arrival shot, from its ArrivalCam (Blender's frame, z up, into three's: x, z, -y). */
-function shotOf(scene: Object3D, prefix: string): Shot | null {
+function shotOf(scene: Object3D, prefix: string, sink = 0): Shot | null {
   const d = node(scene, `${prefix}.ArrivalCam`)?.userData as { EYE?: number[]; LOOK?: number[]; FOV?: number } | undefined;
   if (!d?.EYE || !d.LOOK || !d.FOV) return null;
-  const three = (v: number[]): [number, number, number] => [v[0], v[2], -v[1]];
+  const three = (v: number[]): [number, number, number] => [v[0], v[2] - sink, -v[1]];
   return { eye: three(d.EYE), look: three(d.LOOK), fov: d.FOV };
 }
 
@@ -148,10 +152,12 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     };
     const into = road('RoadPath');
     const out = road('RoadOut');
-    setZonePaths(k, { in: into, out });
+    // (The core's has its stairwell and tunnel spliced in after the lab's doors: lib/sections.ts.)
+    setZonePaths(k, { in: k === 4 && into ? spliceCore(into, LAB_DOOR) : into, out });
+    if (k === 4) placeBulkhead();
     const leg = course.legs[k];
     leg.end = out?.END ? { x: out.END[0], y: out.END[1], heading: out.END_HEADING ?? 0 } : null;
-    leg.shot = shotOf(scene, prefix);
+    leg.shot = shotOf(scene, prefix, k === 4 ? hallSink() : 0);
     // (Where its sun stands, for the sky's sun and the light to come from there.)
     scene.updateMatrixWorld(true);
     scene.traverse((o) => {
@@ -236,7 +242,10 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       }
       // (The core's glossy floors, at a grazing look, mirrored the environment's green panels as a flat bright band: their
       // shine's the road's mirror's to give, and their spill's painted on.)
-      if (k === 4 && /Floor|Wet/.test(kind)) m.envMapIntensity = 0.12;
+      if (k === 4 && /Floor|Wet|Asphalt/.test(kind)) m.envMapIntensity = 0.12;
+      // (A floor's only seen from above, and it's see-through only for its fade: drawn once, not back then front, which makes
+      // three look up its program each time.)
+      if (kind === 'Floor') m.forceSinglePass = true;
       // (The hall's floor fog, under the fill from the hemisphere, read as a flat bright band.)
       if (m.name.endsWith('HallMist')) {
         m.color.multiplyScalar(0.3);
@@ -262,6 +271,8 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
   // glb's GPU instancing, one per node) gathered into one instanced mesh per geometry and material. (After its
   // materials are set: the ooze has been swapped for its own.)
   useEffect(() => {
+    // (The core's hall and chamber stand below its lab, at the stairwell's foot: lib/sections.ts.)
+    if (k === 4) for (const name of ['City5Hall', 'City5Core', 'City5RoadHall']) scene.getObjectByName(name)?.position.setY(-hallSink());
     scene.updateMatrixWorld(true);
     const toScene = new Matrix4().copy(scene.matrixWorld).invert();
     // (In cells of the city, so each merged piece covers only its part of it and the ones out of view aren't drawn.)
@@ -276,7 +287,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     // (The core's sections stand behind one another's walls: each is drawn only while it can be seen, below. The same
     // going for what's only dark, in the road's reflection: there it's the lights that show.)
     const sectionOf = (o: Object3D) => {
-      for (let p: Object3D | null = o; p; p = p.parent) if (/^City5(Gate|Lab|Tanks|Hall|Core)$/.test(p.name)) return p.name.slice(5);
+      for (let p: Object3D | null = o; p; p = p.parent) if (/^City5(Gate|Lab|Tanks|Hall|Core|RoadHall)$/.test(p.name)) return p.name.slice(5);
       return 'Road';
     };
     const sources: Mesh[] = [];
@@ -287,8 +298,10 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       if (o.name.includes('LabDoor') || o.parent?.name.includes('LabDoor')) return;
       sources.push(mesh);
     });
+    // (Kept on what's merged: under StrictMode this runs twice, the second time over its own results, which hang off the scene. All at once,
+    // before any's moved: a group's own dashes, instanced on its node, take it out from over its deck, below.)
+    if (k === 4) for (const mesh of sources) mesh.userData.section ??= sectionOf(mesh);
     for (const mesh of sources) {
-      if (k === 4) mesh.userData.section = sectionOf(mesh);
       const material = mesh.material as Material;
       if ((mesh as InstancedMesh).isInstancedMesh) {
         const im = mesh as InstancedMesh;
@@ -320,6 +333,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     };
     const place = (o: Mesh, from: Mesh) => {
       if (k === 4) {
+        o.userData.section = from.userData.section;
         addTo(from.userData.section as string, o);
         const kind = (o.material as Material).name;
         if (/Cable|Dark|Rust|Plate|Concrete|Steel|Specimen|Flesh|Sand/.test(kind)) o.layers.set(NO_MIRROR_LAYER);
@@ -363,12 +377,14 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       const m = (o as Mesh).material as (Material & Record<string, unknown>) | undefined;
       for (const v of Object.values(m ?? {})) if ((v as Texture)?.isTexture) textures.add(v as Texture);
     });
-    precompile(gl, g, camera, world)
+    const compiled = precompile(gl, g, camera, world);
+    // (Only needed visible for that call. Left visible while it compiles it'd be drawn, stalling on those same programs.)
+    g.visible = false;
+    compiled
       .catch(() => {})
       .then(() => {
         if (!live) return;
         for (const t of textures) gl.initTexture(t);
-        g.visible = false;
         course.legs[k].ready = true;
       });
     return () => {
@@ -405,7 +421,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
     for (const tex of code) tex.offset.y = (tex.offset.y - delta * 0.28) % 1;
     // (The desert's gate is a black card until there's a tunnel behind it.)
     if (gateCard) gateCard.visible = !course.legs[k + 1]?.placed;
-    // The lab's doors open as the ride comes up on them.
+    // The lab's doors open when their game's been won (lib/doors.ts).
     if (doors.length) {
       const toDoor = leg.at + LAB_DOOR - ride.drive.s;
       // Each section only while it can be seen: one's walls hide the next until its door's opening.
@@ -416,21 +432,30 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
         Gate: u < 170,
         Lab: u < LAB_DOOR + 40,
         Tanks: u < LAB_DOOR + 40,
-        Hall: toDoor < Math.max(190, ride.drive.speed * 2.5) && u < mouth + 54,
+        Hall: (roadSections.spliced ? hallShown(u) : toDoor < Math.max(190, ride.drive.speed * 2.5)) && u < mouth + 54,
         Core: u > mouth - 1100,
-        Road: true,
+        // (Up here it stops at the lab's doors, with the sections spliced in: the hall's is its own, sunk with it.)
+        Road: !roadSections.spliced || u < LAB_DOOR + 40,
+        RoadHall: !roadSections.spliced || hallShown(u),
       };
       for (const [name, list] of Object.entries(sections)) for (const o of list) o.visible = shown[name] ?? true;
-      // (The specimens only near enough to make out, past that just lit tanks in the fog. The lab's straight, along +x.)
+      // (The specimens only near enough to make out, past that just lit tanks in the fog. The lab's straight, along +x. Its bays
+      // only as far as the camera's reach in it, even while that's longer, in the gate: the far kilometres are behind its shut door.)
       if (shown.Tanks) {
-        for (const o of sections.Tanks ?? []) {
-          const sphere = (o as InstancedMesh).boundingSphere;
-          if (sphere && /Specimen/.test((o as Mesh<BufferGeometry, Material>).material.name))
-            o.visible = Math.abs(sphere.center.x - u) - sphere.radius < SPECIMENS_SEEN;
+        for (const list of [sections.Tanks, sections.Lab]) {
+          for (const o of list ?? []) {
+            const sphere = (o as InstancedMesh).boundingSphere;
+            if (!sphere) continue;
+            const off = Math.abs(sphere.center.x - u) - sphere.radius;
+            o.visible = off < (/Specimen/.test((o as Mesh<BufferGeometry, Material>).material.name) ? SPECIMENS_SEEN : LAB_SEEN);
+          }
         }
       }
-      const open = 1 - smoothstep(Math.max(40, ride.drive.speed * 0.8), Math.max(180, ride.drive.speed * 2.4), toDoor);
-      for (const d of doors) d.position.z = (d.name.endsWith('L') ? -1 : 1) * 7.5 * open;
+      const open = doorOpen(1);
+      for (const d of doors) {
+        d.position.z = (d.name.endsWith('L') ? -1 : 1) * 7.5 * open;
+        d.visible = !roadSections.spliced || u < LAB_DOOR + 40;
+      }
     }
     // (Relative to its own scale: it's modelled as a unit sphere, scaled up.)
     if (heart && k !== 4) {
@@ -459,6 +484,7 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       <primitive object={scene} />
       {MUCKY[k] && <Muck k={k} />}
       {k >= 2 && <RoadJoin k={k} />}
+      {k === 4 && <CoreSections />}
       {MIRROR[k] > 0 && <CityRoadMirror k={k} strength={MIRROR[k]} />}
       {k === 1 && <Traffic env={sunsetEnvMap(gl)} />}
     </group>
@@ -479,11 +505,13 @@ export function ZoneCityLoader({ k }: { k: number }) {
   const [src, setSrc] = useState<string | null>(null);
   const asked = useRef(false);
   useFrame(() => {
-    if (asked.current || ride.mount < 0.5) return;
+    if (asked.current || ride.mount < 0.5 || skipped(k)) return;
     if (k > 1 && !(ride.zone > k - 1 || (ride.zone === k - 1 && ride.transition.placed))) return;
     asked.current = true;
     const target = url(k);
-    fetch(target, { method: 'HEAD' })
+    // (The core's needs its stairwell and tunnel's road first: it's spliced into its own as it's read.)
+    (k === 4 ? loadSectionRoad() : Promise.resolve())
+      .then(() => fetch(target, { method: 'HEAD' }))
       .then((r) => r.ok && setSrc(target))
       .catch(() => {});
   });

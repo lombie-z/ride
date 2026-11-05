@@ -29,15 +29,17 @@ TEX_DIR = os.path.join(HERE, 'tex')
 PREFIX = 'City5'
 ROAD_W = 11.8
 
-# The road: where each section runs (s, metres along the road).
-SECTIONS = {
-    'gate': (0.0, 150.0),         # the vault tunnel on from the desert's gate (concept-core-gate)
-    'lab': (150.0, 1400.0),       # the white specimen corridor (concept-core-lab), a bulkhead door at its far end
-    'servers': (1400.0, 0.0),     # the server hall (concept-core-servers), long gentle sweeps; ends at the chamber's mouth, below
-    'core': (0.0, 0.0),           # the bridge into the core's chamber (concept-core-plaza)
-}
-ROAD_SEQ = [  # ('S', length) | ('A', radius, degrees, + = left)
-    ('S', 1400.0),           # gate and lab, dead straight
+# The road's lengths: each corridor is about two boosts and two recharges long (one of each measures 2059 m). Everything's laid out
+# from these, its modules repeating to fill them. On the site: LAB_DOOR in lib/ride.ts (LAB_END less DOOR_FRAME; it stays on the tanks' 18 m
+# grid at LAB_END = 4262 + 18 n). road_sections.py, which can't import this, reads the same env var and has the same default.
+LAB_END = float(os.environ.get('LAB_END', 4262.0))     # where the lab's door frame ends and the hall starts, road_sections.py's HALL_X
+HALL_LEN = float(os.environ.get('HALL_LEN', 4100.0))   # from there to the chamber's mouth
+DOOR_FRAME = 8.0                                       # how far the door frame runs past the lab's doors
+MOUTH_BACK = 130.43                                    # the chamber's mouth, this far short of the bike's spot
+GATE_END = 150.0
+# The hall's sweeps: ('S', length) | ('A', radius, degrees, + = left). The arcs stay, so the heading comes back to +X; the straights take
+# up HALL_LEN, in these proportions.
+HALL_PLAN = [
     ('S', 900.0),
     ('A', 1100.0, 9.0),
     ('S', 700.0),
@@ -47,11 +49,23 @@ ROAD_SEQ = [  # ('S', length) | ('A', radius, degrees, + = left)
     ('S', 600.0),
     ('A', 1100.0, -10.0),
     ('S', 800.0),
-    ('A', 1100.0, 7.0),      # back to heading +X
+    ('A', 1100.0, 7.0),
     ('S', 1030.0),           # the last straight, on through the chamber's mouth to the bike's spot
 ]
+_arcs = sum(abs(math.radians(g[2])) * g[1] for g in HALL_PLAN if g[0] == 'A')
+_straights = sum(g[1] for g in HALL_PLAN if g[0] == 'S')
+_k = (HALL_LEN + MOUTH_BACK - _arcs) / _straights
+assert _k * HALL_PLAN[-1][1] > MOUTH_BACK + 150.0, f'a {HALL_LEN} m hall is too short for its bends and the mouth'
+ROAD_SEQ = [('S', LAB_END)] + [('S', g[1] * _k) if g[0] == 'S' else g for g in HALL_PLAN]   # gate and lab dead straight, then the hall
+# The road: where each section runs (s, metres along the road).
+SECTIONS = {
+    'gate': (0.0, GATE_END),      # the vault tunnel on from the desert's gate (concept-core-gate)
+    'lab': (GATE_END, LAB_END),   # the white specimen corridor (concept-core-lab), a bulkhead door at its far end
+    'servers': (LAB_END, 0.0),    # the server hall (concept-core-servers), long gentle sweeps; ends at the chamber's mouth, below
+    'core': (0.0, 0.0),           # the bridge into the core's chamber (concept-core-plaza)
+}
 # The lab's plan (m off the centreline; the lab and tanks modules share it).
-LAB = {'gutter': 6.3, 'walk': 7.2, 'tank_y': 12.2, 'tank_r': 3.3, 'tank_every': 18.0, 'tank_from': 170.0, 'wall_y': 17.0, 'height': 10.5, 'door_s': 1392.0}
+LAB = {'gutter': 6.3, 'walk': 7.2, 'tank_y': 12.2, 'tank_r': 3.3, 'tank_every': 18.0, 'tank_from': 170.0, 'wall_y': 17.0, 'height': 10.5, 'door_s': LAB_END - DOOR_FRAME}
 
 
 def frange(a, b, s):
@@ -111,14 +125,25 @@ def poly_len(pts):
 
 _pts, _h = trace(ROAD_SEQ, 2.0)
 assert abs(_h) < 1e-9, _h
+
+
+def hall_stretch(i):
+    """Where the hall's i-th piece of HALL_PLAN runs (s0, s1): for shots on a given straight or bend."""
+    s = LAB_END
+    for g in ROAD_SEQ[1:i + 1]:
+        s += g[1] if g[0] == 'S' else abs(math.radians(g[2])) * g[1]
+    g = ROAD_SEQ[i + 1]
+    return s, s + (g[1] if g[0] == 'S' else abs(math.radians(g[2])) * g[1])
+
+
 _DL = _pts
 _DS = [0.0]
 for a, b in zip(_DL, _DL[1:]):
     _DS.append(_DS[-1] + (b - a).length)
 ROAD_LEN = _DS[-1]
-# The chamber's mouth, this far short of the bike's spot; its bridge beyond.
-MOUTH = ROAD_LEN - 130.43
-SECTIONS['servers'] = (1400.0, MOUTH)
+# The chamber's mouth; its bridge beyond.
+MOUTH = ROAD_LEN - MOUTH_BACK
+SECTIONS['servers'] = (LAB_END, MOUTH)
 SECTIONS['core'] = (MOUTH, ROAD_LEN - 6.0)
 
 

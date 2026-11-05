@@ -2,11 +2,29 @@
 
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useMemo } from 'react';
-import { BufferGeometry, type Camera, Color, Float32BufferAttribute, type PerspectiveCamera, PlaneGeometry, Quaternion, Vector3 } from 'three';
+import {
+  BufferGeometry,
+  type Camera,
+  Color,
+  Float32BufferAttribute,
+  Frustum,
+  type Group,
+  type Material,
+  Matrix4,
+  type Object3D,
+  type PerspectiveCamera,
+  PlaneGeometry,
+  Quaternion,
+  type Scene,
+  Vector3,
+  type WebGLRenderer,
+} from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import { course, inLength, outLength, pathAt } from '@/lib/course';
-import { devFlag, isLightDevice, journey, landingAt, NO_MIRROR_LAYER, smoothstep } from '@/lib/journey';
+import { hallShown } from '@/lib/doors';
+import { devFlag, isLightDevice, journey, landingAt, NO_MIRROR_LAYER, pixelSize, smoothstep } from '@/lib/journey';
 import { ride, road as street, TRANSITION_LEAD, zoneRoad } from '@/lib/ride';
+import { sections } from '@/lib/sections';
 import { AT } from './bike';
 
 // The freeway's wet surface (as FogDrog's lake): three's Reflector renders the mirrored view, and this shader breaks it
@@ -143,6 +161,43 @@ function amortise(mirror: Reflector) {
   };
 }
 
+/**
+ * three looks up a lit material's program again whenever the light state it last drew under changes, and a render nested
+ * inside another has a light state of its own. So a reflection left to Reflector's onBeforeRender, inside the frame's
+ * render, sends everything lit through that lookup twice a frame, most of the ride's garbage. It's rendered here instead,
+ * on its own just before the frame's: after everything's moved (0, the outline's 0.5), before the composer (1).
+ */
+const REFLECT_PRIORITY = 0.7;
+const reflections = new WeakMap<Reflector, Reflector['onBeforeRender']>();
+const inView = new Frustum();
+const viewProjection = new Matrix4();
+/** Takes a mirror's reflection out of the frame's render; it's what's rendered by reflect() from then on. */
+function reflectionOf(mirror: Reflector) {
+  let render = reflections.get(mirror);
+  if (!render) {
+    render = mirror.onBeforeRender;
+    reflections.set(mirror, render);
+    mirror.onBeforeRender = () => {};
+  }
+  return render;
+}
+function reflect(mirror: Reflector, gl: WebGLRenderer, scene: Scene, camera: Camera) {
+  const render = reflectionOf(mirror);
+  for (let o: Object3D | null = mirror; o; o = o.parent) if (!o.visible) return false;
+  camera.updateMatrixWorld();
+  mirror.updateWorldMatrix(true, false);
+  if (mirror.frustumCulled) {
+    inView.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    if (!inView.intersectsObject(mirror)) return false;
+  }
+  // (A shadow redraw that's due belongs to the frame's render, as it did when this ran inside it.)
+  const shadows = gl.shadowMap.needsUpdate;
+  gl.shadowMap.needsUpdate = false;
+  render.call(mirror, gl, scene, camera, mirror.geometry, mirror.material as Material, null as unknown as Group);
+  gl.shadowMap.needsUpdate = shadows;
+  return true;
+}
+
 export type DeckPlacement = { position: readonly [number, number, number]; heading: number; length: number; width: number };
 
 export function WetRoad({ deck }: { deck: DeckPlacement }) {
@@ -173,6 +228,9 @@ export function WetRoad({ deck }: { deck: DeckPlacement }) {
     // nothing the ripples would show).
     (road as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
   });
+  useFrame(({ gl, scene, camera }) => {
+    reflect(road, gl, scene, camera);
+  }, REFLECT_PRIORITY);
 
   return <primitive object={road} />;
 }
@@ -181,9 +239,13 @@ export function WetRoad({ deck }: { deck: DeckPlacement }) {
 // to well ahead, along the road's centre line (its puddles and ripples are in world space, so they stay put on the road
 // as the strip slides along under them).
 const STRIP = { behind: 40, ahead: 420 };
+/** In pixel mode the riding reflection needn't be sharper than this many of the frame's own pixels to each of its. */
+const RIDE_REFLECTION_SCALE = 2.5;
 const ahead = new Vector3();
 const across = new Vector3();
 const bikeLine = new Vector3();
+/** The street's mirror, once it's rendered its reflection this frame: the chrome city's road, on the same plane, borrows it. */
+let streetReflected: Reflector | null = null;
 export function RideMirror() {
   const mirror = useMemo(() => {
     const light = isLightDevice();
@@ -193,6 +255,8 @@ export function RideMirror() {
       textureHeight: light ? 180 : 324,
       clipBias: 0.003,
       shader: RoadShader,
+      // (No edge smoothing for it in pixel mode: its edges are smeared, then pixelated.)
+      multisample: pixelSize() ? 0 : 4,
     });
     m.name = 'RideMirror';
     m.visible = false;
@@ -232,6 +296,16 @@ export function RideMirror() {
     // The road turns to the chrome city's pure mirror as that city comes to fill the view.
     u.uMirror.value = smoothstep(0.3, 0.65, dusk);
   });
+  useFrame(({ gl, scene, camera, size, viewport }) => {
+    // (Sized to the frame in pixel mode: the frame's far smaller than its full size, there. Only changes on a resize.)
+    if (mirror.visible && pixelSize()) {
+      const width = Math.ceil(size.width * viewport.dpr * RIDE_REFLECTION_SCALE);
+      const height = Math.ceil(size.height * viewport.dpr * RIDE_REFLECTION_SCALE);
+      const target = mirror.getRenderTarget();
+      if (target.width !== width || target.height !== height) target.setSize(width, height);
+    }
+    streetReflected = mirror.visible && reflect(mirror, gl, scene, camera) ? mirror : null;
+  }, REFLECT_PRIORITY);
 
   return <primitive object={mirror} />;
 }
@@ -248,19 +322,36 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
     const half = 5.3;
     const positions: number[] = [];
     const index: number[] = [];
+    const breaks: number[] = [];
+    let hallIndex = 0;
     const lay = (p: { x: number; y: number; heading: number }) => {
       // (In the mirror's own plane, x and y; laid flat by turning it -90° about x, so its y is the road's local y.)
       const nx = -Math.sin(p.heading);
       const ny = Math.cos(p.heading);
       const n = positions.length / 6;
       positions.push(p.x + nx * half, p.y + ny * half, 0, p.x - nx * half, p.y - ny * half, 0);
-      if (n > 0) {
+      if (n > 0 && !breaks.includes(n)) {
         const a = 2 * (n - 1);
         index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       }
     };
     // (The core's starts past its gate tunnel, on the dusty road: the wet begins in the lab.)
-    for (let u = k === 4 ? 136 : 0; u < into.length; u += 3) lay(pathAt(into, u));
+    // (And it's flat, so none of it down the core's stairwell and tunnel: from the lab's doors on to the hall's start, below them.)
+    const skipFrom = k === 4 && sections.spliced ? sections.stair.from : Number.POSITIVE_INFINITY;
+    const skipTo = k === 4 && sections.spliced ? sections.hallFrom : Number.POSITIVE_INFINITY;
+    let skipped = false;
+    for (let u = k === 4 ? 136 : 0; u < into.length; u += 3) {
+      if (u > skipFrom && u < skipTo) {
+        // (The ribbon's cut there: no quad joins its two ends.)
+        if (!skipped) {
+          skipped = true;
+          breaks.push(positions.length / 6);
+          hallIndex = index.length;
+        }
+        continue;
+      }
+      lay(pathAt(into, u));
+    }
     lay(pathAt(into, into.length));
     if (leg.out) for (let u = 3; u <= leg.out.length; u += 3) lay(pathAt(leg.out, u));
     const geometry = new BufferGeometry();
@@ -273,6 +364,8 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
     m.position.y = 0.03;
     (m.material as unknown as { uniforms: { uMirror: { value: number } } }).uniforms.uMirror.value = strength;
     m.frustumCulled = false;
+    // (Where the core's road's ribbon goes on past the cut, with the hall.)
+    m.userData.hallIndex = hallIndex;
     return m;
   }, [k, strength]);
   useEffect(() => () => mirror.dispose(), [mirror]);
@@ -280,6 +373,19 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
     const leg = course.legs[k];
     const s = ride.drive.s;
     mirror.visible = leg.placed && s > leg.at - 300 && s < leg.at + inLength(leg) + outLength(leg) + 50 && !devFlag('nocitymirror');
+    // (The core's: off past the lab's doors till the bulkhead's opened on the hall, then down there with it.)
+    if (k === 4 && sections.spliced) {
+      const u = s - leg.at;
+      if (mirror.visible && u >= sections.stair.from && !hallShown(u)) mirror.visible = false;
+      // (Only the hall's part of the ribbon's down there: the lab's would lie under the tunnel's red room.)
+      const hall = hallShown(u);
+      mirror.position.y = 0.03 - (hall ? sections.sink : 0);
+      const cut = mirror.userData.hallIndex as number;
+      if (hall) mirror.geometry.setDrawRange(cut, Number.POSITIVE_INFINITY);
+      else mirror.geometry.setDrawRange(0, cut);
+      // (From where the road's its own again, not the room: the flood's in sight till it's dropped.)
+      if (hall && u < sections.hallFrom) mirror.visible = false;
+    }
     if (!mirror.visible) return;
     const u = (mirror.material as unknown as { uniforms: { uTime: { value: number }; uMirror: { value: number } } }).uniforms;
     u.uTime.value = state.clock.elapsedTime;
@@ -289,5 +395,22 @@ export function CityRoadMirror({ k, strength }: { k: number; strength: number })
     u.uMirror.value = strength * (course.legs[k + 1] ? 1 - smoothstep(end - TRANSITION_LEAD - 80, end - 130, s) : 1);
     (mirror as Reflector & { getReflectionCamera: (c: Camera) => Camera }).getReflectionCamera(state.camera).layers.disable(NO_MIRROR_LAYER);
   });
+  const toStreet = useMemo(() => new Matrix4(), []);
+  useFrame(({ gl, scene, camera }) => {
+    if (!mirror.visible) return;
+    const u = (mirror.material as unknown as { uniforms: { tDiffuse: { value: unknown }; textureMatrix: { value: Matrix4 } } }).uniforms;
+    // While the street's mirror is still under the bike, the chrome city's road lies on the same plane, seen from the same
+    // camera: the one reflection serves both. (Only its texture matrix is its own: the street's, from its own frame.)
+    if (k === 1 && streetReflected) {
+      reflectionOf(mirror);
+      mirror.updateWorldMatrix(true, false);
+      const theirs = (streetReflected.material as unknown as { uniforms: { textureMatrix: { value: Matrix4 } } }).uniforms.textureMatrix.value;
+      u.tDiffuse.value = streetReflected.getRenderTarget().texture;
+      u.textureMatrix.value.copy(theirs).multiply(toStreet.copy(streetReflected.matrixWorld).invert()).multiply(mirror.matrixWorld);
+    } else {
+      u.tDiffuse.value = mirror.getRenderTarget().texture;
+      reflect(mirror, gl, scene, camera);
+    }
+  }, REFLECT_PRIORITY + 0.1);
   return <primitive object={mirror} />;
 }

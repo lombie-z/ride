@@ -1,5 +1,5 @@
 """The core's chamber (kit.SECTIONS['core'], concept-core-plaza): the zone's arrival. A cylinder 130 m in radius and 180 m
-tall, reached from the servers' end (s 3956) by a flaring throat; a wide wet bridge over a misty pit; a broad stair up to a
+tall, reached from the servers' end by a flaring throat; a wide wet bridge over a misty pit; a broad stair up to a
 plinth; and, hanging over it all, the sphere: 42 m in radius, panelled and riveted, its eye turned down at the bridge head.
 
 Everything's laid out in a frame at the road's end: u on along the road, v to its left, z up (`_w` turns it into the city's).

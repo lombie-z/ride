@@ -17,6 +17,8 @@ import {
   Vector2,
   Vector3,
 } from 'three';
+import { ride, road } from '@/lib/ride';
+import { AT } from './bike';
 
 // The black ooze dripping off the gantry: at each strand's tip a drop swells, sags on a lengthening neck, lets go,
 // falls, and lands in the pool on the deck with a small crown and a few flung flecks. Slow and heavy, like oil. The
@@ -167,11 +169,21 @@ export function Ooze({ scene, opacity }: { scene: Object3D; opacity: { current: 
     };
   }, [scene]);
 
+  // How far down the road (as ride.drive.s) the last of the drips is: once well past it they're behind the camera for
+  // good, and aren't drawn or animated (they're instanced, so nothing culls them).
+  const lastTip = useRef<number | null>(null);
+
   useFrame(({ clock }) => {
     const d = drops.current;
     const c = crowns.current;
     const f = flecks.current;
     if (!d || !c || !f) return;
+    if (lastTip.current === null && road.known) {
+      lastTip.current = Math.max(...tips.map(({ at }) => (at.x - AT[0]) * road.ahead.x + (at.z - AT[2]) * road.ahead.z));
+    }
+    const gone = lastTip.current !== null && ride.drive.s > lastTip.current + 25;
+    d.visible = c.visible = f.visible = !gone;
+    if (gone) return;
     material.opacity = Math.min(1, opacity.current * 1.5);
     const show = opacity.current > 0.01;
     tips.forEach((tip, i) => {

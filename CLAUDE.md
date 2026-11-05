@@ -34,7 +34,10 @@ components/three/road-join.tsx        # Where one city's road meets the next: th
 components/ride-button.tsx            # The DOM hit areas over the pill, the boost button and the map; gestures per zone
 components/rhythm-overlay.tsx, lib/rhythm.ts  # The hive's boost: circles 111 to 666 on the heart's beat, then the boost
 components/rhythm-looks/                # Its looks: flesh.ts the hive's, brand.ts kept for the boss (self-contained), ooze, bone and the old classic.ts up for comparing; `?rhythm=a|b|c|d|0`, `y` cycles them in dev
-components/memory-overlay.tsx, lib/memory.ts  # The core's boost is earned: a memory lock, tiles in a cross that light in an order then twist
+components/memory-overlay.tsx, lib/memory.ts  # A memory lock: tiles in a cross that light in an order, then twist; `ENCRYPTION: SIGILS` or `CHROMA` says what to remember
+components/three/section-fx.tsx, section-fx-water.ts, lib/section-fx.ts  # The stairwell's and tunnel's effects: black water (a look-up in the frame so far), spray and splash, steam, sparks, drips; lib/section-audio.ts their sound (`sectionImpact` for what moves)
+lib/doors.ts, components/three/core-doors.tsx  # The core's doors, all in one table: a stop on its road, a memory lock to open it, a look; `?door=1..4` plays one, `?memory=a|b|c|d` compares rules
+lib/sections.ts, components/three/core-sections.tsx  # The core's stairwell and flooded tunnel (art/core/SECTIONS.md): spliced into its road, speeds in one table, each its own glb (public/models/sections, art/core/publish_sections.py) loaded ahead and dropped after, the bulkhead and moving pieces
 components/three/portal.tsx, lib/portal.ts  # The hive's holes: towers across its road (portal.glb), the fall through the dark with eyes, out of another
 lib/music.ts                          # The music: each zone's loop, crossfaded over the road, from the press that gets on the bike (public/audio)
 lib/journey.ts                        # Scroll progress, beats, shared per-frame state
@@ -64,12 +67,14 @@ The ride runs through zones (lib/course.ts ZONES): the green city, then the chro
 loaded and the ride's gone on a while), then the hive, the desert and the core, each placed at the end of the one before's
 RoadOut when the visitor picks it on the map. Each zone has its own bike (morphed into), cruising speed and boost
 feature, on the rocket button (the pill's play and pause): start / surge (hold on and keep the pointer on a moving point: lib/trace.ts, components/trace-overlay.tsx; four looks up for choosing in components/trace-looks, `?trace=a|b|c|d`, `t` cycles them in dev) / heartbeat (click the circles, 111 to
-666, on the beat) / slingshot (drag back, let go) / ghost (a few seconds as data at far greater speed, then a recharge: lib/ride.ts ride.ghost. Sealed through the gate; from there through the lab and the server room each press plays one round of the memory lock, lib/memory.ts (its only words: `ENCRYPTION: PATTERNS`, or from level 5 sometimes `COLOURS`), and only a win boosts. The levels ask for more and pay faster and longer, all in one table, GHOST_LEVELS; a loss recharges and drops a level; a new ride starts over. `?memory=a|b|c|d` opens it alone, with keys to compare its rules). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
+666, on the beat) / slingshot (drag back, let go) / ghost (press: lib/ride.ts ride.ghost, a few seconds as data at far greater speed, then a recharge; sealed through the gate). `?at=chrome|hive|desert|core` starts at that zone's plaza, `&s=1300` that far along its road, riding (components/three/start-at.tsx; live too). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
 rides on from one. Every change between zones is one change, centred on the join (where the next city's road takes over):
 sky and light over TRANSITION_LEAD before it to TRANSITION_TAIL after, the bike's morph crossing it as the bike does.
 
 A city's RoadPath can carry `heights` (the desert's, from art/build-city4.py: where a dune crosses the road): the ride
 goes up them and flies off their crests (components/three/ride.tsx, lib/ride.ts JUMP).
+
+The core's road stops at its shut doors (lib/doors.ts DOORS, the gate, the lab's, the tunnel's bulkhead, the chamber's mouth): the ride brakes to a halt, even as the ghost, and the door's game opens by itself. Each win in an unbroken run lights a segment; all lit, it opens and the ride goes on. Shut again on a new ride.
 
 Three times on the hive's road (lib/portal.ts PORTALS) a tower stands across it and the road ends in the black of its lancet opening: the
 bike rides in, falls for a few seconds through the dark past eyes (the camera on one layer: the world's not drawn at all), and comes out of a hole high in another tower down the road, landing on it. `?noportal` leaves them out.

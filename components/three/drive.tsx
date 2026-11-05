@@ -356,6 +356,8 @@ export function DriveStreet() {
     }
     for (const key of Object.keys(parts) as PartName[]) {
       parts[key].count = counts[key];
+      // (None of a part in range, no draw call for it.)
+      parts[key].visible = counts[key] > 0;
       // (Only the part in use goes up to the GPU: most of each buffer's spare, kept for the busiest stretches.)
       parts[key].instanceMatrix.addUpdateRange(0, counts[key] * 16);
       parts[key].instanceMatrix.needsUpdate = true;

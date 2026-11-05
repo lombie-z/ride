@@ -16,10 +16,11 @@ import {
   SpriteMaterial,
   Vector3,
 } from 'three';
-import { course, courseCurve, groundAt, inLength, legIndexAt, placeAfter, resetCourse, ZONES } from '@/lib/course';
+import { course, courseCurve, groundAt, inLength, legIndexAt, placeAfter, resetCourse, rollAt, surfaceAt, ZONES } from '@/lib/course';
+import { doorState, doorStop, resetDoors, updateDoors } from '@/lib/doors';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
 import { updateLook } from '@/lib/look';
-import { memory } from '@/lib/memory';
+import { closeMemory } from '@/lib/memory';
 import { updateMusic } from '@/lib/music';
 import { portal, updatePortal } from '@/lib/portal';
 import { heartPeriod, rhythm, updateRhythm } from '@/lib/rhythm';
@@ -33,6 +34,7 @@ import {
   cutGhost,
   featureHere,
   GHOST_SHED,
+  ghostLocked,
   HEART,
   JUMP,
   LAUNCH_SECONDS,
@@ -49,6 +51,7 @@ import {
   WASH,
   WASH_FROM,
 } from '@/lib/ride';
+import { boostCapAt, cruiseAt, heldAt, SURFACE, sectionAt, sectionLook, sections } from '@/lib/sections';
 import { trace, updateTrace } from '@/lib/trace';
 import { AT } from './bike';
 import { pillGlyphs } from './pill-glyph';
@@ -107,7 +110,17 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
 
   useFrame((state, delta) => {
     if (process.env.NODE_ENV === 'development')
-      (window as unknown as { __ride?: unknown; __trace?: unknown }).__ride = { ride, anchors, rhythm, scene: state.scene };
+      (window as unknown as { __ride?: unknown; __trace?: unknown }).__ride = {
+        ride,
+        anchors,
+        rhythm,
+        scene: state.scene,
+        gl: state.gl,
+        course,
+        sections,
+        doorState,
+        closeMemory,
+      };
     if (process.env.NODE_ENV === 'development') (window as unknown as { __trace?: unknown }).__trace = trace;
     const dt = Math.min(delta, 1 / 20);
     const settled = journey.frame >= SETTLED_FRAME;
@@ -200,12 +213,13 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     const here = course.legs[ride.zone];
     const closing = tr.placed && !!here.in && here.at + inLength(here) - drive.s < (rhythm.teaching || trace.teaching ? 250 : 80);
     updateRhythm(dt, ride.mounted && feature === 'heartbeat' && drive.cruise && !tr.arrived && !closing);
-    // (The hive's circles, the chrome city's trace and the core's memory lock can each slow the ride right down.)
-    const step = dt * Math.min(rhythm.slow, trace.slow, memory.slow);
+    // (The hive's circles and the chrome city's trace can each slow the ride right down, to show what's wanted.)
+    const step = dt * Math.min(rhythm.slow, trace.slow);
     updateGhost(dt);
+    if (ghostLocked()) cutGhost();
+    updateDoors(dt);
     updateTrace(dt, ride.mounted && ride.mount > 0.95 && feature === 'surge' && drive.cruise && !tr.arrived && !closing);
-    // (As hard as this one was earned: lib/ride.ts GHOST_LEVELS.)
-    const ghost = feature === 'ghost' ? ride.ghost.kick * ride.ghost.power : 0;
+    const ghost = feature === 'ghost' ? ride.ghost.kick : 0;
     // A boost belongs to the zone it's used in: into the next, it's cut off, the bike shedding the speed quickly.
     if (feature !== featureWas) {
       featureWas = feature;
@@ -236,19 +250,26 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       drive.pump = Math.max(0, drive.pump - step * (feature === 'heartbeat' ? HEART.ebb : 1));
       const kick = feature === 'surge' ? drive.surge : feature === 'heartbeat' ? drive.pump : feature === 'slingshot' ? drive.launch : ghost;
       // (Cruising speed changes with the zone, over the change between them.)
-      const cruise = ZONES[Math.max(0, ride.zone - 1)].cruise + (ZONES[ride.zone].cruise - ZONES[Math.max(0, ride.zone - 1)].cruise) * tr.t;
+      let cruise = ZONES[Math.max(0, ride.zone - 1)].cruise + (ZONES[ride.zone].cruise - ZONES[Math.max(0, ride.zone - 1)].cruise) * tr.t;
+      // (How far along the core's road, -1 elsewhere: its stairwell and tunnel have their own speeds, lib/sections.ts.)
+      const coreU = ride.zone === 4 && tr.placed ? drive.s - tr.at : -1;
+      const onSection = coreU >= 0 && sectionAt(coreU) !== null;
+      if (coreU >= 0) cruise = cruiseAt(coreU, cruise, BRAKE);
       let want = ride.mount > 0.95 && drive.cruise ? cruise * (1 + boostHere() * kick) + drive.boost : 0;
+      if (coreU >= 0) want = Math.min(want, Math.max(cruise, boostCapAt(coreU)));
       // (Drawn back, it holds back a little, like a bow.)
       want *= 1 - 0.35 * drive.draw;
       // In a city, the ride slows to pull up at the end of its road, the bike's spot there (until the visitor rides on).
       const leg = course.legs[ride.zone];
-      const stop = tr.placed ? leg.at + inLength(leg) : Number.POSITIVE_INFINITY;
+      const roadEnd = tr.placed ? leg.at + inLength(leg) : Number.POSITIVE_INFINITY;
+      // (Or short of it, at one of the core's doors while it's shut: lib/doors.ts. A shorter last stretch than the plaza's.)
+      const stop = Math.min(roadEnd, doorStop(), coreU >= 0 ? tr.at + heldAt(coreU) : Number.POSITIVE_INFINITY);
       if (tr.placed) {
         const left = stop - drive.s;
         // (Gently over the last stretch; hard on the brakes before it, so a surge or a launch runs on until near the end.)
         // (The ghost's far quicker, and brakes far harder: its curve's its own, or it would start braking kilometres out.)
         const brakes = feature === 'ghost' ? BRAKE * GHOST_SHED : BRAKE;
-        const stopping = Math.max(Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)), Math.sqrt(2 * brakes * Math.max(0, left - 150)));
+        const stopping = Math.max(Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)), Math.sqrt(2 * brakes * Math.max(0, left - (stop < roadEnd ? 40 : 150))));
         // (Going faster than that, however it got there, it sheds the difference hard rather than running on to the end.)
         if (drive.speed > stopping + 20) {
           if (feature === 'ghost' && want > stopping) cutGhost();
@@ -268,7 +289,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           if (drive.speed > MUCK_SPEED) drive.speed = Math.max(MUCK_SPEED, drive.speed - MUCK_DRAG * dt);
         }
         // (And takes the bends at a speed it can lean into, about 25° over: looking a little ahead for the next.)
-        if (drive.s > course.legs[1].at - 60) {
+        // (Not through the core's stairwell and tunnel, or looking ahead into them: their corners have a radius of 7 m, taken leaning on their walls.)
+        if (drive.s > course.legs[1].at - 60 && !(sections.spliced && coreU > sections.stair.from - 130 && coreU < sections.hallFrom)) {
           let curve = 0;
           for (let ahead = 0; ahead <= 60 + drive.speed; ahead += 10) curve = Math.max(curve, Math.abs(courseCurve(drive.s + ahead)));
           // (With the zone's feature going, it leans harder and takes them faster: the more its boost, the faster.)
@@ -277,7 +299,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         }
         // (Only once its road's known: a zone still loading holds the ride at the end of the last one's way out.)
         // (At the very end it's arrived whatever speed's left: it can't go any further, so there's nothing to wait for.)
-        if (left < 0.6 && (drive.speed < 0.4 || left < 0.05) && !tr.arrived && leg.in) {
+        if (roadEnd - drive.s < 0.6 && (drive.speed < 0.4 || roadEnd - drive.s < 0.05) && !tr.arrived && leg.in) {
           tr.arrived = true;
           drive.cruise = false;
           drive.speed = 0;
@@ -296,9 +318,11 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       // (Not falling through one of the hive's holes: no road under it there, lib/portal.ts.)
       if (step > 0 && portal.state !== 'fall') {
         // (Under its front wheel as well as its middle: it rides up onto a dune nose first, not buried to the tank.)
-        const ground = Math.max(groundAt(drive.s), groundAt(drive.s + 3));
+        // (Down the core's stairwell and tunnel it stays on the road, the flights falling away faster than it would: except where the road's in the
+        // air, a gap to jump, and until it's landed from it.)
+        const ground = onSection ? groundAt(drive.s) : Math.max(groundAt(drive.s), groundAt(drive.s + 3));
         const falling = drive.y + drive.vy * step - (JUMP.gravity * step * step) / 2;
-        if (falling <= ground) {
+        if ((onSection && !drive.air && surfaceAt(drive.s) !== SURFACE.air && surfaceAt(drive.s + 2) !== SURFACE.air) || falling <= ground) {
           if (drive.air) drive.land = Math.min(1, Math.max(drive.land, -drive.vy / 14));
           drive.air = false;
           drive.vy = Math.max(-JUMP.rise, Math.min(JUMP.rise, (ground - drive.y) / step));
@@ -311,14 +335,23 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       }
       drive.land = Math.max(0, drive.land - dt * 4);
       drive.pitch += (Math.atan2(drive.vy, Math.max(drive.speed, 10)) - drive.pitch) * Math.min(1, dt * 7);
+      // (The road's own roll under it, and the flights' rattle; it comes off a wall as the road does.)
+      const surface = onSection ? surfaceAt(drive.s) : SURFACE.floor;
+      drive.roll += ((onSection ? rollAt(drive.s) : 0) - drive.roll) * Math.min(1, dt * 24);
+      drive.rattle += ((surface === SURFACE.steps && !drive.air ? Math.min(1, drive.speed / 20) : 0) - drive.rattle) * Math.min(1, dt * 12);
+      drive.section = coreU >= 0 ? sectionLook(coreU) : 0;
     } else {
       drive.cruise = false;
       drive.speed = 0;
       drive.boosting = false;
       drive.surge = 0;
       resetGhost();
-      Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0, pump: 0, y: 0, vy: 0, air: false, land: 0, pitch: 0 });
+      resetDoors();
+      Object.assign(drive, { pull: 0, draw: 0, release: 0, launch: 0, fire: 0, pump: 0 });
       if (ride.wash < 0 && drive.s > WASH_FROM) ride.wash = 0;
+      // (Its height and lean stay till a wash has covered the screen: it may be well down a stairwell, on a wall.)
+      const level = { y: 0, vy: 0, air: false, land: 0, pitch: 0, roll: 0, rattle: 0, section: 0 };
+      if (ride.wash < 0) Object.assign(drive, level);
       if (ride.wash >= 0) {
         // Getting off after a ride: the liquid wash, everything put back once it covers the screen.
         const before = ride.wash;
@@ -327,6 +360,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           drive.s = 0;
           drive.rewindFrom = -1;
           ride.mount = 0;
+          Object.assign(drive, level);
           // (Back at the landing, the bike's its black self again.)
           Object.assign(ride.morph, { from: 0, to: 0, at: 0 });
           drive.time = 0;

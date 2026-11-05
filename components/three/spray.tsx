@@ -1,10 +1,11 @@
 'use client';
 
 import { useFrame } from '@react-three/fiber';
-import { useMemo } from 'react';
-import { BufferAttribute, BufferGeometry, Color, type Mesh, type Object3D, ShaderMaterial, Vector3 } from 'three';
+import { useMemo, useRef } from 'react';
+import { BufferAttribute, BufferGeometry, Color, type Group, type Mesh, type Object3D, ShaderMaterial, Vector3 } from 'three';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
-import { JOIN_Y, OIL_FLOOR, streamEnds } from './fall-streaks';
+import { ride } from '@/lib/ride';
+import { FALLS_BEHIND, JOIN_Y, OIL_FLOOR, streamEnds } from './fall-streaks';
 import { waterFromSky } from './water';
 
 // Spray and mist as GPU particles. Each particle loops through its own short life: it starts at aStart, moves with
@@ -138,6 +139,7 @@ function fallSurface(scene: Object3D) {
 const GRAVITY = 9.8;
 
 export function Spray({ scene }: { scene: Object3D }) {
+  const group = useRef<Group>(null);
   const systems = useMemo(() => {
     const share = isLightDevice() ? 0.45 : 1;
     const surface = fallSurface(scene);
@@ -208,6 +210,7 @@ export function Spray({ scene }: { scene: Object3D }) {
   }, [scene]);
 
   useFrame((state) => {
+    if (group.current) group.current.visible = ride.drive.s <= FALLS_BEHIND;
     for (const { material } of systems) {
       material.uniforms.uTime.value = state.clock.elapsedTime;
       if (material.userData.opacity) material.uniforms.uOpacity.value = material.userData.opacity();
@@ -216,10 +219,10 @@ export function Spray({ scene }: { scene: Object3D }) {
   });
 
   return (
-    <>
+    <group ref={group}>
       {systems.map(({ geometry, material }) => (
         <points key={material.uuid} name="Spray" geometry={geometry} material={material} frustumCulled={false} renderOrder={4} />
       ))}
-    </>
+    </group>
   );
 }

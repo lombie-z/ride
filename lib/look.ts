@@ -1,7 +1,8 @@
 import { Color, Vector3 } from 'three';
-import { course } from './course';
+import { course, fogAt } from './course';
 import { portal } from './portal';
 import { ride } from './ride';
+import { SECTION_TABLE, sections } from './sections';
 
 // Each city's light: its sky, sun, haze, the grade's tones and the fill from its sky and ground (lib/course.ts ZONES).
 // Riding from the green city's night into the chrome city, the night gives way to its sunset; from each city on to the
@@ -161,6 +162,14 @@ const DARK_LIGHT = new Color('#a01410');
 const DARK_GROUND = new Color('#1a0404');
 const sunA = new Vector3();
 const sunB = new Vector3();
+// The air down the core's stairwell and tunnel (lib/sections.ts).
+const stairHaze = new Color(SECTION_TABLE.stair.haze);
+const floodHaze = new Color(SECTION_TABLE.flood.haze);
+const sectionHaze = new Color();
+const easeTo = (x: number) => {
+  const t = Math.min(1, Math.max(0, x));
+  return t * t * (3 - 2 * t);
+};
 /** A city's sun in the world: from where the city stands found (its sun's own position) or its look's. */
 function sunOf(k: number, out: Vector3) {
   const leg = course.legs[k];
@@ -186,6 +195,19 @@ export function updateLook() {
   if (k > 1) sunOf(k - 1, sunA);
   else sunA.copy(sunB);
   look.sun.lerpVectors(sunA, sunB, t).normalize();
+  // Down the core's stairwell, thickening at its foot, and its tunnel's own, closer than the rest of the core.
+  const w = ride.drive.section;
+  if (k === 4 && tr.placed && w > 0) {
+    const { stair, flood } = SECTION_TABLE;
+    // (Clearing over the first of the water, where the two glbs change places.)
+    const tunnel = easeTo((ride.drive.s - tr.at - sections.flood.from) / 60);
+    const thick = ride.drive.s - tr.at >= sections.flood.from ? 1 : fogAt(ride.drive.s);
+    const near = stair.fogNear + (stair.thickNear - stair.fogNear) * thick;
+    const far = stair.fogFar + (stair.thickFar - stair.fogFar) * thick;
+    look.fogNear += (near + (flood.fogNear - near) * tunnel - look.fogNear) * w;
+    look.fogFar += (far + (flood.fogFar - far) * tunnel - look.fogFar) * w;
+    look.haze.lerp(sectionHaze.lerpColors(stairHaze, floodHaze, tunnel), w);
+  }
   // In the dark, through one of the hive's holes (lib/portal.ts): no sun, only a dim red to show the bike by.
   if (portal.state === 'fall') {
     look.light.copy(DARK_LIGHT);

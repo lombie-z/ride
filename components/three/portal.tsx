@@ -177,12 +177,14 @@ function Portals() {
     if (!g) return;
     g.visible = true;
     eyes.visible = true;
-    precompile(gl, g, camera, world)
+    const compiled = precompile(gl, g, camera, world);
+    // (Only needed visible for that call. Left visible while it compiles it'd be drawn, stalling on those same programs.)
+    g.visible = false;
+    eyes.visible = false;
+    compiled
       .catch(() => {})
       .then(() => {
         if (!live) return;
-        g.visible = false;
-        eyes.visible = false;
         portal.ready = true;
       });
     return () => {

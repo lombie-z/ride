@@ -44,3 +44,56 @@ No CC0 source with clean dune ripples was found on Poly Haven, so the ripple lin
 
 - aerial_beach_01, Rob Tuytel, CC0, https://polyhaven.com/a/aerial_beach_01: high-passed, its broken ripples push the lines about.
 - dense_sand, Dimitrios Savva, CC0, https://polyhaven.com/a/dense_sand: high-passed, grain.
+
+# The stair and tunnel sections
+
+Made by `build-section-tex.py` from 1k colour maps, downsampled to 512 x 512 sRGB JPEG, all wrapped so they tile. No normal or roughness maps: `kit.material` only takes a colour texture. Licences checked 2026-11-05. Poly Haven: all CC0 (https://polyhaven.com/license). ambientCG: all CC0 (https://ambientcg.com/view?id=MetalPlates011, stated on the page's FAQ; https://docs.ambientcg.com/license/). The generated parts are ours and also CC0.
+
+## wet_concrete.jpg (`wet_concrete`)
+
+Rust runs are used only as shapes, in the dark; the broad wet patches are generated clouds.
+
+- concrete_wall_006, Dario Barresi and Charlotte Baglioni, CC0, https://polyhaven.com/a/concrete_wall_006: the base, stains and tie holes.
+- concrete_wall_007, Dario Barresi, Rico Cilliers and Charlotte Baglioni, CC0, https://polyhaven.com/a/concrete_wall_007: high-passed, shutter marks.
+- concrete_floor_worn_001, Dimitrios Savva and Rico Cilliers, CC0, https://polyhaven.com/a/concrete_floor_worn_001: high-passed, grain.
+- dirty_concrete, Rob Tuytel, CC0, https://polyhaven.com/a/dirty_concrete: dark blooms.
+- MetalPlates010, 012, 013, ambientCG, CC0, https://ambientcg.com/view?id=MetalPlates010 (and 012, 013): masks, stains running down.
+
+## slimy_concrete.jpg (`stained_concrete`)
+
+- concrete_wall_007, as above: the base.
+- concrete_wall_006, as above: high-passed, marks.
+- concrete_floor_02, Rob Tuytel, CC0, https://polyhaven.com/a/concrete_floor_02: high-passed, grain.
+- concrete_moss, Rob Tuytel, CC0, https://polyhaven.com/a/concrete_moss: the slime's colour.
+- mossy_rock, Rob Tuytel, CC0, https://polyhaven.com/a/mossy_rock: high-passed, breaks up the slime.
+- MetalPlates010, 012, 013, ambientCG, CC0, as above: masks, where the slime and the black runs sit.
+
+## heavy_rust.jpg (`rust`)
+
+- MetalPlates012, ambientCG, CC0, https://ambientcg.com/view?id=MetalPlates012: base, rust over bared steel, darkened.
+- MetalPlates011, ambientCG, CC0, https://ambientcg.com/view?id=MetalPlates011: solid rust, masked in by generated clouds.
+- rusty_metal_05, Amal Kumar, CC0, https://polyhaven.com/a/rusty_metal_05: scaling.
+- rusty_metal_04, Amal Kumar, CC0, https://polyhaven.com/a/rusty_metal_04: dark flaking, as pits.
+- rust_coarse_01, Dimitrios Savva and Rico Cilliers, CC0, https://polyhaven.com/a/rust_coarse_01: high-passed, grain.
+- MetalPlates010, ambientCG, CC0, as above: dark runs.
+
+## riveted_steel.jpg (`riveted_steel`)
+
+Near-black gun-metal. Still no CC0 source with rivets, so the plates, seams and rivets are generated, over real steel.
+
+- MetalPlates013, ambientCG, CC0, https://ambientcg.com/view?id=MetalPlates013: the surface, desaturated, darkened.
+- metal_plate_02, Rob Tuytel, CC0, https://polyhaven.com/a/metal_plate_02: high-passed, scuffs.
+- rusty_metal_04, Amal Kumar, CC0, as above: high-passed, fine marks.
+- rust_coarse_01, as above: the colour of the rust hints. MetalPlates012, as above: where they run.
+
+## dark_steel.jpg (`pipe_metal`)
+
+Riveted steel's surface without the plates, for pipes and fittings. Same sources.
+
+## paint_grey.jpg (`paint_grey`)
+
+Old grey paint on metal.
+
+- rusty_metal_sheet, Amal Kumar, CC0, https://polyhaven.com/a/rusty_metal_sheet: the coat and its chips, colour taken down to grey.
+- green_metal_rust, Rob Tuytel, CC0, https://polyhaven.com/a/green_metal_rust: high-passed, wear.
+- MetalPlates013, ambientCG, CC0, as above: mask, grime runs.

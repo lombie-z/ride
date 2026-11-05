@@ -9,12 +9,15 @@ import { ride } from '@/lib/ride';
 import { Bike } from './bike';
 import { Biome } from './biome';
 import { City } from './city';
+import { CoreDoors } from './core-doors';
 import { DriveStreet } from './drive';
 import { Effects } from './effects';
 import { HoloMap } from './holomap';
 import { JourneyCamera } from './journey-camera';
 import { PortalLoader } from './portal';
+import { SectionFx } from './section-fx';
 import { Sky } from './sky';
+import { StartAt } from './start-at';
 import { Weather } from './weather';
 import { ZoneCityLoader } from './zone-city';
 
@@ -146,8 +149,11 @@ export default function JourneyCanvas({ onReady, onProgress }: { onReady: () => 
         <ZoneCityLoader k={2} />
         <ZoneCityLoader k={3} />
         <ZoneCityLoader k={4} />
+        <CoreDoors />
         <PortalLoader />
+        <SectionFx />
         <HoloMap />
+        <StartAt />
       </Suspense>
       {flag('nofx') ? <Render /> : <Effects sun={null} pixel={pixel} />}
     </Canvas>
