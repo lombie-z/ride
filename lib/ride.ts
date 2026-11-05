@@ -1,5 +1,6 @@
 import { type Object3D, Vector3 } from 'three';
 import { course, type Feature, inLength, makePath, type Path, pathAt, ZONES } from './course';
+import { closeMemory, memory, type Round, type Rule, startMemory } from './memory';
 
 /**
  * The ride button on the bike and getting on: shared per-frame state, written by components/three/ride.tsx (and the
@@ -96,6 +97,11 @@ export const ride = {
   /** The map's next place on screen (CSS px), for the button over it: ride on there; shown while the map's open. */
   mapOn: { x: 0, y: 0, w: 0, h: 0, shown: false, hover: 0 },
   /**
+   * The map's panel on screen (as shares of it, from the bottom left), kept in finer pixels than the world behind it, while the
+   * rider's hands are `up` (components/three/journey-canvas.tsx doubles the resolution; pixel-sweep.ts holds the world at its cell).
+   */
+  mapKeep: { x0: 1, y0: 1, x1: 0, y1: 0, up: false },
+  /**
    * Riding into the zone the ride's heading for (ride.zone): once it's placed, `at` is how far down the road (m, as
    * drive.s) its own road takes over (lib/course.ts course.legs); `t` the change of sky and light from the zone before
    * to it (0 to 1), `arrived` once the bike's pulled up at its spot, and `arrive` the camera's glide from the rider's
@@ -108,32 +114,106 @@ export const ride = {
   /**
    * The core's boost: the bike comes apart into blocks of light (`amount`, 0 whole to 1 all blocks), something runs ahead in its
    * place and the ride goes far faster than anywhere (`kick`) for a few seconds; it reforms, and the boost recharges
-   * (`charge`, 0 to 1). `t`: seconds into the state; `denied`: a press while it's sealed off, dying away (1 to 0).
+   * (`charge`, 0 to 1). `t`: seconds into the state; `denied`: a press while it's sealed off, dying away (1 to 0). In the
+   * core's interior each one's earned with the memory lock: `level` is how far up GHOST_LEVELS the next stands, `power` and
+   * `run` what the one going now was earned at.
    */
-  ghost: { state: 'ready' as 'ready' | 'out' | 'run' | 'back' | 'cool', t: 0, amount: 0, kick: 0, charge: 1, denied: 0 },
+  ghost: { state: 'ready' as 'ready' | 'out' | 'run' | 'back' | 'cool', t: 0, amount: 0, kick: 0, charge: 1, denied: 0, level: 0, power: 1, run: 3.2 },
 };
 
-/** The ghost boost's timing (s): coming apart, running, reforming, recharging. */
-export const GHOST = { out: 0.5, run: 3.2, back: 0.8, cool: 6 } as const;
+/** The ghost boost's timing (s): coming apart, reforming, recharging. How long it runs is by level. */
+export const GHOST = { out: 0.5, back: 0.8, cool: 6 } as const;
+/**
+ * The core's boost as it's earned, one level to a press: what it asks (lib/memory.ts Round: how many to remember, how fast they're
+ * shown, the twist) and what it pays: top speed (m/s) and how long it runs (s). Each win goes up one; a loss comes down one, so
+ * nobody's shut out by a length they can't hold. Back to the first on a new ride.
+ */
+const CALM = { pairs: 1, ring: false, scatter: false, aftershock: false, hues: false };
+const WILD = { pairs: 2, ring: true, scatter: true, aftershock: false, hues: false };
+export const GHOST_LEVELS: (Round & { top: number; run: number })[] = [
+  // Nothing to it: three, no twist.
+  { ...CALM, remember: 3, lit: 0.62, gap: 0.2, steps: 0, stepTime: 0.95, telegraph: 0.5, press: 9, top: 300, run: 2.4 },
+  // Three still, and one swap: so that's what it does.
+  { ...CALM, remember: 3, lit: 0.62, gap: 0.2, steps: 1, stepTime: 0.95, telegraph: 0.5, press: 9, top: 340, run: 2.7 },
+  // From here, one more each time, the tiles moving more.
+  { ...CALM, remember: 4, lit: 0.52, gap: 0.16, steps: 2, stepTime: 0.8, telegraph: 0.32, press: 8, top: 380, run: 3 },
+  // Two pairs at once, round the ring, out across the view.
+  { ...WILD, remember: 5, lit: 0.44, gap: 0.13, steps: 3, stepTime: 0.66, telegraph: 0.18, press: 7, top: 420, run: 3.4 },
+  // Now the colours swap as well, and it can ask for those instead.
+  { ...WILD, hues: true, remember: 6, lit: 0.38, gap: 0.11, steps: 4, stepTime: 0.56, telegraph: 0.08, press: 6, top: 460, run: 3.7 },
+  // No warning, and it hits back after each press.
+  { ...WILD, hues: true, aftershock: true, remember: 7, lit: 0.34, gap: 0.1, steps: 5, stepTime: 0.46, telegraph: 0, press: 5.5, top: 500, run: 4 },
+];
+/** What a boost asks them to hold on to (lib/memory.ts RULES): the pattern; once colours swap, the colour half the time. */
+const ghostRule = (hues: boolean): Rule => (hues && Math.random() < 0.5 ? 'a' : 'c');
 /** How much harder it brakes coming out of it: from about 420 m/s back to cruising in a couple of seconds. */
 export const GHOST_SHED = 14;
 
 /** How far along the core's road its lab's doors stand (art/core/kit.py LAB.door_s). */
 export const LAB_DOOR = 1392;
-/** Sealed off: there's no phasing out through the core's gate and lab. They're there to be seen; it comes alive past the doors. */
-export const ghostLocked = () => ride.zone === 4 && ride.transition.placed && ride.drive.s < ride.transition.at + LAB_DOOR;
+/** How far along the core's road its gate ends and the interior (the lab, then the server room) begins. */
+const INTERIOR_FROM = 150;
+/** How far short of the road's end a game's shut with no boost (the chamber's mouth, art/core/kit.py MOUTH), and no new one starts. */
+const MOUTH_LEFT = 130.43;
+const LAST_GAME_LEFT = 420;
 
-/** A press of the boost button in the core: goes if it's charged. */
+const inCore = () => ride.zone === 4 && ride.transition.placed;
+/** How far it is to where the core's road pulls up. */
+const coreLeft = () => {
+  const leg = course.legs[4];
+  return leg.in ? leg.at + inLength(leg) - ride.drive.s : Number.POSITIVE_INFINITY;
+};
+
+/** Sealed off: no phasing out through the core's gate, which is there to be seen, nor this near where the road pulls up. */
+export const ghostLocked = () => inCore() && (ride.drive.s < ride.transition.at + INTERIOR_FROM || coreLeft() < LAST_GAME_LEFT);
+
+/** Goes, at the level it stands at. */
+function fireGhost() {
+  const g = ride.ghost;
+  const level = GHOST_LEVELS[g.level];
+  const core = ZONES[4];
+  // (As a share of the kick: cruise * (1 + boost * kick) comes out at the level's top.)
+  g.power = (level.top / core.cruise - 1) / core.boost;
+  g.run = level.run;
+  g.state = 'out';
+  g.t = 0;
+}
+
+let earning = false;
+
+/** A press in the core's interior: the memory lock, one round of it. Win, and it goes; lose, and it's a recharge away from another try. */
+function earnGhost() {
+  const g = ride.ghost;
+  earning = true;
+  startMemory({
+    table: GHOST_LEVELS,
+    rule: ghostRule(GHOST_LEVELS[g.level].hues),
+    from: g.level,
+    rounds: 1,
+    strikes: 1,
+    closeAfter: 0.9,
+    onWin: () => {
+      fireGhost();
+      g.level = Math.min(g.level + 1, GHOST_LEVELS.length - 1);
+    },
+    onLose: () => {
+      Object.assign(g, { state: 'cool', t: 0, charge: 0, level: Math.max(0, g.level - 1) });
+    },
+  });
+}
+
+/** A press of the boost button in the core: goes if it's charged, or in the interior sets the lock going. */
 export function pressGhost() {
   const g = ride.ghost;
+  if (memory.open) return;
   if (ghostLocked()) {
     g.denied = 1;
     return;
   }
   if (g.state !== 'ready' || !ride.mounted || ride.mount < 0.95 || ride.transition.arrived) return;
   ride.drive.cruise = true;
-  g.state = 'out';
-  g.t = 0;
+  if (inCore()) earnGhost();
+  else fireGhost();
 }
 
 /** Cut short (a new zone, pulled up): straight to reforming. */
@@ -149,6 +229,15 @@ export function cutGhost() {
 
 export function updateGhost(dt: number) {
   const g = ride.ghost;
+  // A game can't outlast where it's for: out of the interior, or pulled up, it's shut with no boost.
+  if (earning) {
+    const on = inCore() && ride.mounted && ride.drive.cruise && !ride.transition.arrived && coreLeft() > MOUTH_LEFT;
+    if (!memory.open) earning = false;
+    else if (!on) {
+      closeMemory();
+      earning = false;
+    }
+  }
   g.denied = Math.max(0, g.denied - dt * 2.5);
   g.t += dt;
   if (g.state === 'out') {
@@ -159,7 +248,7 @@ export function updateGhost(dt: number) {
   } else if (g.state === 'run') {
     g.amount = 1;
     g.kick = 1;
-    if (g.t >= GHOST.run) {
+    if (g.t >= g.run) {
       Object.assign(g, { state: 'back', t: 0, kick: 0 });
       ride.drive.shedding = true;
     }
@@ -174,7 +263,11 @@ export function updateGhost(dt: number) {
 }
 
 export function resetGhost() {
-  Object.assign(ride.ghost, { state: 'ready', t: 0, amount: 0, kick: 0, charge: 1 });
+  if (earning) {
+    closeMemory();
+    earning = false;
+  }
+  Object.assign(ride.ghost, { state: 'ready', t: 0, amount: 0, kick: 0, charge: 1, level: 0 });
 }
 
 /**

@@ -1,5 +1,6 @@
 import { Color, Vector3 } from 'three';
 import { course } from './course';
+import { portal } from './portal';
 import { ride } from './ride';
 
 // Each city's light: its sky, sun, haze, the grade's tones and the fill from its sky and ground (lib/course.ts ZONES).
@@ -156,6 +157,8 @@ export const look = {
 };
 
 const UP = new Vector3(0, 1, 0);
+const DARK_LIGHT = new Color('#a01410');
+const DARK_GROUND = new Color('#1a0404');
 const sunA = new Vector3();
 const sunB = new Vector3();
 /** A city's sun in the world: from where the city stands found (its sun's own position) or its look's. */
@@ -183,4 +186,12 @@ export function updateLook() {
   if (k > 1) sunOf(k - 1, sunA);
   else sunA.copy(sunB);
   look.sun.lerpVectors(sunA, sunB, t).normalize();
+  // In the dark, through one of the hive's holes (lib/portal.ts): no sun, only a dim red to show the bike by.
+  if (portal.state === 'fall') {
+    look.light.copy(DARK_LIGHT);
+    look.lightIntensity = 1.1;
+    look.hemiSky.copy(DARK_LIGHT);
+    look.hemiGround.copy(DARK_GROUND);
+    look.hemi = 0.5;
+  }
 }

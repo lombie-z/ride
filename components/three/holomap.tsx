@@ -32,6 +32,12 @@ const PANEL = { w: 0.38, h: 0.27 };
 const LAND = { w: 0.28, d: 0.19, tilt: 0.92 };
 const view = new Vector3();
 const corner = new Vector3();
+const CORNERS = [
+  [-1, -1],
+  [1, -1],
+  [-1, 1],
+  [1, 1],
+] as const;
 
 /**
  * The places on the map, in its drawing's units (360 by 260), along a road winding up from the bottom left: the green
@@ -207,8 +213,11 @@ export function HoloMap() {
     const r = rig.current;
     if (!r) return;
     r.visible = m > 0.3;
+    const keep = ride.mapKeep;
+    keep.up = r.visible;
     if (!r.visible) {
       ride.mapBack.shown = ride.mapOn.shown = false;
+      Object.assign(keep, { x0: 1, y0: 1, x1: 0, y1: 0 });
       return;
     }
     // The hands come up from below (rotating up about a point at the chest), then the map opens out.
@@ -259,6 +268,19 @@ export function HoloMap() {
     } else p.position.set(0, -0.05, -0.62);
     p.rotation.set(-0.08, 0, 0);
     p.scale.set(Math.max(0.02, smoothstep(0, 0.3, open)), Math.max(0.012, smoothstep(0.22, 0.75, open)), 1);
+    // Where it is on the screen, a little over, for the land standing proud of it: kept in finer pixels than the world.
+    Object.assign(keep, { x0: 1, y0: 1, x1: 0, y1: 0 });
+    if (p.visible) {
+      p.updateWorldMatrix(true, false);
+      for (const [sx, sy] of CORNERS) {
+        corner.set((sx * PANEL.w) / 2, (sy * PANEL.h) / 2, 0.05);
+        p.localToWorld(corner).project(state.camera);
+        keep.x0 = Math.min(keep.x0, corner.x * 0.5 + 0.5);
+        keep.x1 = Math.max(keep.x1, corner.x * 0.5 + 0.5);
+        keep.y0 = Math.min(keep.y0, corner.y * 0.5 + 0.5);
+        keep.y1 = Math.max(keep.y1, corner.y * 0.5 + 0.5);
+      }
+    }
 
     // The land on it, a little toward the eye, turning slowly and following the pointer; it twitches with the tears.
     const land01 = smoothstep(0.55, 1, open);

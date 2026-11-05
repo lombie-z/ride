@@ -1,5 +1,7 @@
 import { course } from './course';
 import { smoothstep } from './journey';
+import { memory } from './memory';
+import { portal } from './portal';
 import { rhythm } from './rhythm';
 import { LAB_DOOR, ride } from './ride';
 import { trace } from './trace';
@@ -162,10 +164,12 @@ export function updateMusic(dt: number) {
   }
 
   // Time slowed to teach a boost, the music slows and sinks with it, like a tape dragging. As data, in the core's boost, it's far away.
-  const slow = Math.min(rhythm.slow, trace.slow);
+  // (Less so under the memory lock: that's a long time to have it dragging.)
+  const slow = Math.min(rhythm.slow, trace.slow, 0.5 + 0.5 * memory.slow);
   const rate = 0.4 + 0.6 * slow;
   for (const voice of voices) voice.source?.playbackRate.setTargetAtTime(rate, now, 0.25);
-  const ghost = ride.ghost.amount;
+  // (And falling through one of the hive's holes, lib/portal.ts.)
+  const ghost = Math.max(ride.ghost.amount, portal.muffle);
   const cutoff = Math.min(800 * 25 ** slow, 1100 * 18 ** (1 - ghost));
   tone.frequency.setTargetAtTime(cutoff, now, 0.08);
   const up = ride.mounted && !music.muted ? MASTER * (1 - 0.3 * ghost) : 0;

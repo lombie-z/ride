@@ -20,8 +20,10 @@ components/three/city.tsx             # city.glb: window facades, wet deck refle
 components/three/bike.tsx             # bike.glb parked on the deck, night reflections
 components/three/sky.tsx              # Night sky dome, green smog fog, the city's rim light; each zone's sky after
 components/three/effects.tsx, grade.ts  # Post: bloom, grade (cold green), grain, pixel sweep
-components/three/speed-blur.ts        # Motion blur + the zone features' looks: iridescence, heartbeat veins, flames
+components/three/speed-blur.ts        # Motion blur + the zone features' looks: the surge's edge (its look's own), heartbeat veins, flames
 components/three/ride.tsx             # The ride: button entrance, getting on, driving, zones, features, morphs, map timing
+components/three/drive.tsx, lib/street.ts  # The green city's endless street, its phases by tile: open, side streets, halls through towers, canyon
+components/three/street-riders.tsx    # Other riders on it: streaks of light that pass, peel off down the side streets, cross the overpasses
 components/three/zone-city.tsx        # Loads/places each city after the green one (city2.glb, city3.glb, city4.glb)
 components/three/holomap.tsx, holomap-materials.ts  # The map terminal in the rider's hands (hands.glb): 3D land, way back, ride on
 components/three/precompile.ts        # Compiles a model's shaders ahead of time, for the post's linear buffer
@@ -31,6 +33,9 @@ components/three/digital-ghost.tsx    # The core's boost: the bike into blocks o
 components/three/road-join.tsx        # Where one city's road meets the next: the next's surface reaching back in blotches
 components/ride-button.tsx            # The DOM hit areas over the pill, the boost button and the map; gestures per zone
 components/rhythm-overlay.tsx, lib/rhythm.ts  # The hive's boost: circles 111 to 666 on the heart's beat, then the boost
+components/rhythm-looks/                # Its looks: flesh.ts the hive's, brand.ts kept for the boss (self-contained), ooze, bone and the old classic.ts up for comparing; `?rhythm=a|b|c|d|0`, `y` cycles them in dev
+components/memory-overlay.tsx, lib/memory.ts  # The core's boost is earned: a memory lock, tiles in a cross that light in an order then twist
+components/three/portal.tsx, lib/portal.ts  # The hive's holes: towers across its road (portal.glb), the fall through the dark with eyes, out of another
 lib/music.ts                          # The music: each zone's loop, crossfaded over the road, from the press that gets on the bike (public/audio)
 lib/journey.ts                        # Scroll progress, beats, shared per-frame state
 lib/ride.ts                           # Ride state, the chrome city's road helpers, muck, constants
@@ -44,6 +49,7 @@ art/build-city{2,3,4}.py, build-bike{2,3,4}.py  # Each later zone's city and bik
                                       # BikeMark, ArrivalCam; bikes in bike.glb's frame), fitted via art/align*/
 art/build-city5.py, art/core/          # The core: assembled from its groups' modules (gate, lab, tanks, servers, chamber) on art/core/kit.py
 art/build-bike5.py, art/build-creature.py  # The core's bike and the thing that runs in its place
+art/build-portal.py                   # One of the hive's towers with its lancet opening cut through and black -> public/models/portal.glb
 art/audio/                            # The sound: PLAN.md, drums/ (Syntakt), hydrasynth/ (score.py, mix.py, chrome_dream.py), previews/
 art/reference/                        # Concept art (concept-green-city is the landing's target)
 ```
@@ -57,10 +63,13 @@ Blender z up, metres; three's (x, y, z) is Blender's (x, z, -y). The planter flo
 The ride runs through zones (lib/course.ts ZONES): the green city, then the chrome city (placed down the street once it's
 loaded and the ride's gone on a while), then the hive, the desert and the core, each placed at the end of the one before's
 RoadOut when the visitor picks it on the map. Each zone has its own bike (morphed into), cruising speed and boost
-feature, on the rocket button (the pill's play and pause): start / surge (hold on and trace a star: lib/trace.ts, components/trace-overlay.tsx) / heartbeat (click the circles, 111 to
-666, on the beat) / slingshot (drag back, let go) / ghost (press: lib/ride.ts ride.ghost, a few seconds as data at far greater speed, then a recharge). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
+feature, on the rocket button (the pill's play and pause): start / surge (hold on and keep the pointer on a moving point: lib/trace.ts, components/trace-overlay.tsx; four looks up for choosing in components/trace-looks, `?trace=a|b|c|d`, `t` cycles them in dev) / heartbeat (click the circles, 111 to
+666, on the beat) / slingshot (drag back, let go) / ghost (a few seconds as data at far greater speed, then a recharge: lib/ride.ts ride.ghost. Sealed through the gate; from there through the lab and the server room each press plays one round of the memory lock, lib/memory.ts (its only words: `ENCRYPTION: PATTERNS`, or from level 5 sometimes `COLOURS`), and only a win boosts. The levels ask for more and pay faster and longer, all in one table, GHOST_LEVELS; a loss recharges and drops a level; a new ride starts over. `?memory=a|b|c|d` opens it alone, with keys to compare its rules). Dev: `?feature=` puts a feature on everywhere; `j` jumps near the plaza ahead, `n`
 rides on from one. Every change between zones is one change, centred on the join (where the next city's road takes over):
 sky and light over TRANSITION_LEAD before it to TRANSITION_TAIL after, the bike's morph crossing it as the bike does.
 
 A city's RoadPath can carry `heights` (the desert's, from art/build-city4.py: where a dune crosses the road): the ride
 goes up them and flies off their crests (components/three/ride.tsx, lib/ride.ts JUMP).
+
+Three times on the hive's road (lib/portal.ts PORTALS) a tower stands across it and the road ends in the black of its lancet opening: the
+bike rides in, falls for a few seconds through the dark past eyes (the camera on one layer: the world's not drawn at all), and comes out of a hole high in another tower down the road, landing on it. `?noportal` leaves them out.

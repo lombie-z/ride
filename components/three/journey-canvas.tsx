@@ -13,6 +13,7 @@ import { DriveStreet } from './drive';
 import { Effects } from './effects';
 import { HoloMap } from './holomap';
 import { JourneyCamera } from './journey-camera';
+import { PortalLoader } from './portal';
 import { Sky } from './sky';
 import { Weather } from './weather';
 import { ZoneCityLoader } from './zone-city';
@@ -95,9 +96,11 @@ function Expose() {
  */
 function PixelSwitch({ pixel, dpr, full, setDpr }: { pixel: number; dpr: number; full: number; setDpr: (dpr: number) => void }) {
   useFrame(() => {
-    const low = 1 / pixel;
+    // (The map's panel is drawn in half the world's cell: twice the resolution while the hands are up, the world held at its
+    // own by the sweep's effect, so it doesn't change.)
+    const low = (ride.mapKeep.up ? 2 : 1) / pixel;
     if (dpr !== low && journey.sweep >= 0.999) setDpr(low);
-    else if (dpr === low && journey.sweep < 0.98) setDpr(full);
+    else if (dpr !== full && journey.sweep < 0.98) setDpr(full);
   });
   return null;
 }
@@ -143,6 +146,7 @@ export default function JourneyCanvas({ onReady, onProgress }: { onReady: () => 
         <ZoneCityLoader k={2} />
         <ZoneCityLoader k={3} />
         <ZoneCityLoader k={4} />
+        <PortalLoader />
         <HoloMap />
       </Suspense>
       {flag('nofx') ? <Render /> : <Effects sun={null} pixel={pixel} />}

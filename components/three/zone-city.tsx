@@ -414,8 +414,8 @@ function ZoneCity({ k, src }: { k: number; src: string }) {
       const mouth = (leg.in?.length ?? 0) - 130;
       const shown: Record<string, boolean> = {
         Gate: u < 170,
-        Lab: u < 700,
-        Tanks: u < 700,
+        Lab: u < LAB_DOOR + 40,
+        Tanks: u < LAB_DOOR + 40,
         Hall: toDoor < Math.max(190, ride.drive.speed * 2.5) && u < mouth + 54,
         Core: u > mouth - 1100,
         Road: true,

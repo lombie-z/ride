@@ -1,6 +1,6 @@
 import { wrapEffect } from '@react-three/postprocessing';
 import { BlendFunction, Effect, EffectAttribute } from 'postprocessing';
-import { Uniform } from 'three';
+import { Uniform, Vector4 } from 'three';
 
 // The hand-over from the crisp hero to pixel mode: a wipe of pixelation running diagonally up the screen as you
 // scroll through the pre-roll (lib/journey.ts PRE_ROLL). Ahead of the wipe the full-resolution render shows through;
@@ -9,6 +9,7 @@ import { Uniform } from 'three';
 const fragmentShader = /* glsl */ `
 uniform float progress;
 uniform float cell;
+uniform vec4 keep;
 
 float cellHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
@@ -20,6 +21,11 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   vec2 px = uv * resolution;
   vec2 id = floor(px / cell);
   vec2 centre = (id + 0.5) * cell / resolution;
+  // (The map's panel keeps the finer pixels underneath, whole cells of it: components/three/holomap.tsx.)
+  if (centre.x > keep.x && centre.x < keep.z && centre.y > keep.y && centre.y < keep.w) {
+    outputColor = inputColor;
+    return;
+  }
   // Along the diagonal, bottom-left (0) to top-right (1), measured at the cell, jittered so the edge is ragged.
   float along = (centre.x + centre.y) * 0.5;
   float jitter = (cellHash(id) - 0.5) * 0.12;
@@ -50,6 +56,7 @@ export class PixelSweepEffect extends Effect {
       uniforms: new Map<string, Uniform>([
         ['progress', new Uniform(0)],
         ['cell', new Uniform(4)],
+        ['keep', new Uniform(new Vector4(1, 1, 0, 0))],
       ]),
     });
   }
@@ -58,6 +65,11 @@ export class PixelSweepEffect extends Effect {
   set(progress: number, cell: number) {
     (this.uniforms.get('progress') as Uniform<number>).value = progress;
     (this.uniforms.get('cell') as Uniform<number>).value = cell;
+  }
+
+  /** The part of the screen left as it's drawn (shares of it, from the bottom left). */
+  keep(x0: number, y0: number, x1: number, y1: number) {
+    (this.uniforms.get('keep') as Uniform<Vector4>).value.set(x0, y0, x1, y1);
   }
 }
 

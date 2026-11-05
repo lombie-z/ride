@@ -13,7 +13,7 @@ const H = 136;
 const STUB = 70; // the stub's width, on the right
 const BAND = 22; // the white brand band along the foot
 const PAD = 80; // room round the ticket for the stub to tumble into
-const CELL = 4; // the scene's pixel size (lib/journey.ts pixelSize)
+const CELL = 7; // the scene's pixel size (lib/journey.ts pixelSize)
 
 const STOCK = '#0c0f0d';
 const INK = 'rgba(128, 255, 112, 0.88)';

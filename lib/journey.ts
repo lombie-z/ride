@@ -47,9 +47,9 @@ export const PRE_ROLL = 0.06;
  * sweep has run: the look, and far cheaper to draw. ?pixel=N picks the cell size; ?pixel=1 turns it off.
  */
 export const pixelSize = () => {
-  if (typeof window === 'undefined') return 4;
+  if (typeof window === 'undefined') return 7;
   const param = new URLSearchParams(window.location.search).get('pixel');
-  const n = param === null ? 4 : Number(param);
+  const n = param === null ? 7 : Number(param);
   return n > 1 ? n : 0;
 };
 

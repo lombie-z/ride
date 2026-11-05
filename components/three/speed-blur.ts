@@ -1,15 +1,17 @@
 import { wrapEffect } from '@react-three/postprocessing';
 import { BlendFunction, Effect, EffectAttribute } from 'postprocessing';
 import { Uniform } from 'three';
+import { surgeEdgeShader } from '@/components/trace-looks';
 
 // Motion blur riding at speed: the world streaks out from where the road's heading (a zoom blur from a point a little
 // above the middle of the screen), stronger toward the edges, while the bike itself, which moves with the camera, stays
-// sharp: the bottom-middle of the screen, where it sits, is left out. Surging, an iridescent sheen comes in round the
-// edges of the view too; launched from the slingshot, flames: tongues of fire streaming back past the view from its
-// edges, the air shimmering with the heat.
+// sharp: the bottom-middle of the screen, where it sits, is left out. Surging, the edges of the view change too, as the look
+// in use has them (components/trace-looks); launched from the slingshot, flames: tongues of fire streaming back past the
+// view from its edges, the air shimmering with the heat.
 const fragmentShader = /* glsl */ `
 uniform float amount;
 uniform float surge;
+uniform float surgeLook;
 uniform float fire;
 uniform float veins;
 uniform float beat;
@@ -66,20 +68,8 @@ vec3 flames(vec2 toward, vec3 c) {
   return c * (1.0 - 0.55 * heat) + col * heat * 1.15;
 }
 
-// Surging: a thin-film sheen creeping in from the edges of the view, its colours sliding round and shimmering.
-vec3 iridescence(vec2 uv, vec2 toward, vec3 c) {
-  if (surge <= 0.001) return c;
-  float aspect = resolution.x / resolution.y;
-  vec2 q = toward * vec2(aspect, 1.0);
-  float r = length(q);
-  float rim = smoothstep(0.42, 0.95, r) * surge;
-  float a = atan(q.y, q.x);
-  float band = a * 0.55 + r * 6.0 - time * 1.8 + sin(a * 5.0 + time * 2.3) * 0.35;
-  vec3 film = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + band));
-  // Streaks of light racing out along the rim.
-  float streak = pow(max(0.0, sin(a * 38.0 + time * 9.0)), 24.0) * smoothstep(0.55, 1.0, r);
-  return c + (film * 0.55 + streak * 0.8) * rim;
-}
+// Surging: what happens to the edges of the view is the look's own.
+${surgeEdgeShader}
 
 // The hive's heartbeat: dark red veins branching in from the edges of the view, swelling and flushing on each beat, more
 // of them the harder it's pumped; and the whole rim of the view flushing red with the beat.
@@ -151,7 +141,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   }
   vec3 sum = fire > 0.001 || ghost > 0.001 ? texture2D(inputBuffer, at).rgb : inputColor.rgb;
   if (k < 0.002) {
-    outputColor = vec4(phased(uv, toward, heartbeat(toward, flames(toward, iridescence(uv, toward, sum)))), inputColor.a);
+    outputColor = vec4(phased(uv, toward, heartbeat(toward, flames(toward, surgeEdge(uv, toward, sum)))), inputColor.a);
     return;
   }
   float jitter = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
@@ -159,7 +149,7 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
     float t = (float(i) + jitter) / 10.0;
     sum += texture2D(inputBuffer, at - toward * k * 0.09 * t).rgb;
   }
-  outputColor = vec4(phased(uv, toward, heartbeat(toward, flames(toward, iridescence(uv, toward, sum / 10.0)))), inputColor.a);
+  outputColor = vec4(phased(uv, toward, heartbeat(toward, flames(toward, surgeEdge(uv, toward, sum / 10.0)))), inputColor.a);
 }`;
 
 export class SpeedBlurEffect extends Effect {
@@ -170,6 +160,7 @@ export class SpeedBlurEffect extends Effect {
       uniforms: new Map<string, Uniform>([
         ['amount', new Uniform(0)],
         ['surge', new Uniform(0)],
+        ['surgeLook', new Uniform(0)],
         ['fire', new Uniform(0)],
         ['veins', new Uniform(0)],
         ['beat', new Uniform(0)],
@@ -189,6 +180,11 @@ export class SpeedBlurEffect extends Effect {
     (this.uniforms.get('beat') as Uniform<number>).value = beat;
     (this.uniforms.get('rush') as Uniform<number>).value = rush;
     (this.uniforms.get('ghost') as Uniform<number>).value = ghost;
+  }
+
+  /** Which of components/trace-looks is treating the edges of the view. */
+  set surgeLook(look: number) {
+    (this.uniforms.get('surgeLook') as Uniform<number>).value = look;
   }
 }
 

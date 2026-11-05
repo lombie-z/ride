@@ -14,8 +14,10 @@ import {
 } from 'postprocessing';
 import { useRef } from 'react';
 import { type Mesh, ShaderChunk, type Sphere, Vector3 } from 'three';
+import { TRACE_LOOKS } from '@/components/trace-looks';
 import { devFlag, journey, landingAt, smoothstep } from '@/lib/journey';
 import { look } from '@/lib/look';
+import { memory } from '@/lib/memory';
 import { RHYTHM, rhythm } from '@/lib/rhythm';
 import { CRUISE, featureHere, ride, washCover } from '@/lib/ride';
 import { trace } from '@/lib/trace';
@@ -53,6 +55,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
   const liquid = useRef<LiquidSweepEffect>(null);
   const speedBlur = useRef<SpeedBlurEffect>(null);
   const smaa = useRef<SMAAEffect>(null);
+  const shownSurge = useRef(0);
   // Effects only needed some of the time are switched out of the composite while they're idle (the shader recompiles,
   // once, as each changes) and their own off-screen work is skipped: the lens blurs belong to the still landing shot,
   // the edge smoothing to full-resolution rendering, the pixel wipe to the pre-roll.
@@ -70,7 +73,7 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     effect.blendMode.blendFunction = on ? BlendFunction.NORMAL : BlendFunction.SKIP;
   };
 
-  useFrame((state) => {
+  useFrame((state, delta) => {
     const underway = smoothstep(10, 120, journey.frame);
     const bloom = bloomAt(journey.frame);
     if (vignette.current) vignette.current.darkness = 0.18 * underway + 0.12 * bloom;
@@ -112,21 +115,32 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     gate(focus.current, still > 0.01);
     gate(nearBlur.current, still > 0.01);
     gate(smaa.current, state.gl.getPixelRatio() >= 1);
-    gate(sweep.current, !pixel || journey.sweep < 1);
-    if (sweep.current) sweep.current.set(pixel ? journey.sweep : 0, pixel * state.gl.getPixelRatio());
+    // (While the map's up the canvas is at twice the resolution and this holds the world at its usual cell, all but the map.)
+    gate(sweep.current, !pixel || journey.sweep < 1 || pixel * state.gl.getPixelRatio() > 1.5);
+    if (sweep.current) {
+      sweep.current.set(pixel ? journey.sweep : 0, pixel * state.gl.getPixelRatio());
+      const k = ride.mapKeep;
+      sweep.current.keep(k.x0, k.y0, k.x1, k.y1);
+    }
     // Motion blur from the bike's speed, only from the rider's seat (and off in a gate when still, costing nothing).
-    // (Surging, the blur deepens and the iridescent sheen comes in round the edges.)
+    // (Surging, the blur deepens and the look in use treats the edges of the view: components/trace-looks.)
     // (Launched from the slingshot, it streaks harder still and flames lick in round the view.)
-    const surge = ride.mount * ride.drive.surge;
+    // (Eased here as well: a boost can be cut off at a stroke, at a new zone or pulling up, and the view's edge still has to leave.)
+    const surgeNow = ride.mount * ride.drive.surge;
+    shownSurge.current += (surgeNow - shownSurge.current) * Math.min(1, delta * (surgeNow > shownSurge.current ? 8 : 2.6));
+    if (shownSurge.current < 0.002 && surgeNow === 0) shownSurge.current = 0;
+    const surge = shownSurge.current;
     const fire = ride.mount * ride.drive.fire;
     // (In the hive the veins show the heart's beat faintly even unpumped, so the rhythm's there to tap to.)
     const hive = ride.mount * (featureHere() === 'heartbeat' ? 1 : 0);
     const veins = hive * (0.18 + 0.82 * Math.max(ride.drive.pump, rhythm.active ? (0.5 * rhythm.landed) / RHYTHM.count : 0));
-    const ghost = ride.mount * ride.ghost.amount;
+    // (The core's boost as data; and part of the way there behind the memory lock, which pays for it.)
+    const ghost = Math.max(ride.mount * ride.ghost.amount, memory.haze);
     const blur = devFlag('noblur')
       ? 0
       : ride.mount * Math.min(1, ride.drive.speed / CRUISE) ** 1.5 * (1 + 0.8 * surge + 0.8 * fire + 2.4 * ride.drive.pump - 0.45 * ghost);
     if (speedBlur.current) speedBlur.current.set(Math.min(blur, 3.4), surge, fire, veins, ride.drive.beat, hive * Math.min(1, ride.drive.pump * 1.5), ghost);
+    if (speedBlur.current) speedBlur.current.surgeLook = trace.look;
     gate(speedBlur.current, blur > 0.002 || surge > 0.002 || fire > 0.002 || veins > 0.002 || ghost > 0.002);
     if (liquid.current) {
       const { cover, leaving } = washCover();
@@ -136,10 +150,11 @@ export function Effects({ sun, pixel }: { sun: Mesh | null; pixel: number }) {
     if (smaa.current) smaa.current.blendMode.opacity.value = state.gl.getPixelRatio() < 1 ? 0 : 1;
     // A livelier bloom at the landing: more of the bright scene glows (glints, lit rims, the fall, the mist).
     if (bloomFx.current) {
-      // (And magical, as the chrome city's trace builds: everything bright blooming, more the further it's gone.)
-      const magic = ride.mount * ride.drive.surge;
-      bloomFx.current.luminanceMaterial.threshold = 1.1 - 0.2 * arrived - 0.32 * magic;
-      bloomFx.current.intensity = 0.55 + 0.25 * arrived + 0.85 * magic;
+      // (As the chrome city's trace builds, as much more as the look in use wants: not much.)
+      const surging = ride.mount * ride.drive.surge;
+      const extra = TRACE_LOOKS[trace.look].bloom;
+      bloomFx.current.luminanceMaterial.threshold = 1.1 - 0.2 * arrived - extra.threshold * surging;
+      bloomFx.current.intensity = 0.55 + 0.25 * arrived + extra.intensity * surging;
     }
     if (rays.current) rays.current.godRaysMaterial.weight = 0.6 * (1 - 0.85 * landingAt(journey.frame));
     // The shallow focus is the landing's still shot.

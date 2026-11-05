@@ -19,8 +19,10 @@ import {
   TorusGeometry,
   Vector3,
 } from 'three';
+import { TRACE_LOOKS } from '@/components/trace-looks';
 import { rhythm } from '@/lib/rhythm';
 import { anchors, featureHere, ghostLocked, ride } from '@/lib/ride';
+import { trace } from '@/lib/trace';
 
 // The boost button: a pod bolted on beside the tank, a rocket on its face, from the chrome city on (the green city needs
 // none: riding on is enough). What it does is each zone's (components/ride-button.tsx); its look follows: the chrome city's
@@ -42,6 +44,7 @@ const COLOURS: Record<string, Color> = {
 };
 const HOT = new Color(1.0, 0.45, 0.12);
 const DENIED = new Color(1.0, 0.1, 0.08);
+const BOOSTED = new Color(1.0, 0.04, 0.05);
 const colour = new Color();
 const point = new Vector3();
 const edge = new Vector3();
@@ -213,11 +216,16 @@ export function BoostPod({ env }: { env: Texture }) {
     // How lit it is, by what it's doing.
     let light = 1.5 + 0.5 * Math.sin(t * 3);
     if (feature === 'surge') {
-      // Held, it runs through the iridescence.
-      if (d.surge > 0.02) colour.lerp(new Color().setHSL((t * 0.9) % 1, 1, 0.65), d.surge);
+      // Held, it goes to the look's own colour.
+      if (d.surge > 0.02) colour.lerp(new Color(TRACE_LOOKS[trace.look].accent), d.surge);
       light += 3.5 * d.surge;
-    } else if (feature === 'heartbeat') light = 1 + 1.3 * d.beat + 0.6 * d.pump;
-    else if (feature === 'slingshot') {
+    } else if (feature === 'heartbeat') {
+      // Boosted, its eye's gone red with the ones round the view, going back to gold as it runs out.
+      // (Held down in brightness as it does, or its iris and pupil would be lost in the red.)
+      const red = Math.min(1, d.pump / 0.3);
+      colour.lerp(BOOSTED, red);
+      light = (1 + 1.3 * d.beat + 0.6 * d.pump) * (1 - 0.6 * red);
+    } else if (feature === 'slingshot') {
       const heat = Math.max(d.draw, d.fire);
       colour.lerp(HOT, heat);
       light += 3 * d.draw + 3.5 * d.fire;
@@ -226,7 +234,7 @@ export function BoostPod({ env }: { env: Texture }) {
       const { charge: c, state } = ride.ghost;
       light = state === 'ready' ? 2.2 + 1.3 * Math.sin(t * 5) : 0.2 + 0.7 * c;
       parts.arcMaterial.uniforms.uCharge.value = c;
-      // Sealed through the lab: dark, flashing red if it's pressed.
+      // Sealed through the gate and near the road's end: dark, flashing red if it's pressed.
       if (ghostLocked()) {
         light = 0.16;
         parts.arcMaterial.uniforms.uCharge.value = 0;

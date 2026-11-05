@@ -12,8 +12,8 @@ import { releaseTrace, startTrace, trace } from '@/lib/trace';
 // camera glides to the rider's eye and the page stops scrolling. On the bike it's play and pause: clicking it (or
 // scrolling, swiping up, the up arrow) rides on, down the endless street; clicking again or scrolling back brakes.
 // The second's the boost button, the rocket on its pod (components/three/boost-pod.tsx), from the chrome city on, doing
-// each zone's own thing (lib/course.ts ZONES), as does Space: in the chrome city pressing it sends out a trail of light with
-// a star on its end, to keep the pointer on as it wanders, holding on: the surge builds the longer it's kept up (lib/trace.ts); in the hive, a press starts a run of circles, 111 to 666, to click on the heart's beat, for the boost (lib/rhythm.ts); in the desert, dragging
+// each zone's own thing (lib/course.ts ZONES), as does Space: in the chrome city pressing it sends out a point, with its
+// trail, to keep the pointer on as it wanders, holding on: the surge builds the longer it's kept up (lib/trace.ts); in the hive, a press starts a run of circles, 111 to 666, to click on the heart's beat, for the boost (lib/rhythm.ts); in the desert, dragging
 // it back, down the screen toward the rider (or holding Space), draws it back along its rail like a slingshot, and
 // letting go launches the bike; in the core, a press phases it out for a few seconds of far greater speed. There's no getting off by scrolling (easy to do by accident while finding the controls):
 // the way back is on the map, once in the chrome city (ride.request.back, from the map's green city,

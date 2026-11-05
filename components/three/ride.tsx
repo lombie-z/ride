@@ -19,7 +19,9 @@ import {
 import { course, courseCurve, groundAt, inLength, legIndexAt, placeAfter, resetCourse, ZONES } from '@/lib/course';
 import { isLightDevice, journey, smoothstep } from '@/lib/journey';
 import { updateLook } from '@/lib/look';
+import { memory } from '@/lib/memory';
 import { updateMusic } from '@/lib/music';
+import { portal, updatePortal } from '@/lib/portal';
 import { heartPeriod, rhythm, updateRhythm } from '@/lib/rhythm';
 import {
   ACCEL,
@@ -193,12 +195,17 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
     // cruising speed and its own feature on the throttle (lib/course.ts ZONES), pushing it on far faster.
     const tr = ride.transition;
     const feature = featureHere();
-    updateRhythm(dt, ride.mounted && feature === 'heartbeat' && drive.cruise && !tr.arrived);
-    // (The hive's circles and the chrome city's trace can each slow the ride right down, to show what's wanted.)
-    const step = dt * Math.min(rhythm.slow, trace.slow);
+    // (Over the last of a road no boost game runs, or one could hold up the arrival; one showing what's wanted, which stops the
+    // ride, stands down well before that.)
+    const here = course.legs[ride.zone];
+    const closing = tr.placed && !!here.in && here.at + inLength(here) - drive.s < (rhythm.teaching || trace.teaching ? 250 : 80);
+    updateRhythm(dt, ride.mounted && feature === 'heartbeat' && drive.cruise && !tr.arrived && !closing);
+    // (The hive's circles, the chrome city's trace and the core's memory lock can each slow the ride right down.)
+    const step = dt * Math.min(rhythm.slow, trace.slow, memory.slow);
     updateGhost(dt);
-    updateTrace(dt, ride.mounted && ride.mount > 0.95 && feature === 'surge' && drive.cruise && !tr.arrived);
-    const ghost = feature === 'ghost' ? ride.ghost.kick : 0;
+    updateTrace(dt, ride.mounted && ride.mount > 0.95 && feature === 'surge' && drive.cruise && !tr.arrived && !closing);
+    // (As hard as this one was earned: lib/ride.ts GHOST_LEVELS.)
+    const ghost = feature === 'ghost' ? ride.ghost.kick * ride.ghost.power : 0;
     // A boost belongs to the zone it's used in: into the next, it's cut off, the bike shedding the speed quickly.
     if (feature !== featureWas) {
       featureWas = feature;
@@ -242,8 +249,9 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         // (The ghost's far quicker, and brakes far harder: its curve's its own, or it would start braking kilometres out.)
         const brakes = feature === 'ghost' ? BRAKE * GHOST_SHED : BRAKE;
         const stopping = Math.max(Math.sqrt(2 * 3.2 * Math.max(0, left - 0.3)), Math.sqrt(2 * brakes * Math.max(0, left - 150)));
-        if (feature === 'ghost' && want > stopping && drive.speed > stopping + 20) {
-          cutGhost();
+        // (Going faster than that, however it got there, it sheds the difference hard rather than running on to the end.)
+        if (drive.speed > stopping + 20) {
+          if (feature === 'ghost' && want > stopping) cutGhost();
           drive.shedding = true;
         }
         want = Math.min(want, stopping);
@@ -268,9 +276,11 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
           if (curve > 1e-4 && ghost <= 0) want = Math.min(want, Math.sqrt((9.8 * Math.tan(0.44 + 0.4 * kick)) / curve) * (1 + 0.43 * boostHere() * kick));
         }
         // (Only once its road's known: a zone still loading holds the ride at the end of the last one's way out.)
-        if (left < 0.6 && drive.speed < 0.4 && !tr.arrived && leg.in) {
+        // (At the very end it's arrived whatever speed's left: it can't go any further, so there's nothing to wait for.)
+        if (left < 0.6 && (drive.speed < 0.4 || left < 0.05) && !tr.arrived && leg.in) {
           tr.arrived = true;
           drive.cruise = false;
+          drive.speed = 0;
           cutBoost();
         }
       }
@@ -283,7 +293,8 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
       if (drive.speed > 0.5) drive.time += step;
       // Over the dunes: it follows the ground while the ground's rising or falling away slower than it would drop, and
       // past a crest it flies; it lands with a thump.
-      if (step > 0) {
+      // (Not falling through one of the hive's holes: no road under it there, lib/portal.ts.)
+      if (step > 0 && portal.state !== 'fall') {
         // (Under its front wheel as well as its middle: it rides up onto a dune nose first, not buried to the tank.)
         const ground = Math.max(groundAt(drive.s), groundAt(drive.s + 3));
         const falling = drive.y + drive.vy * step - (JUMP.gravity * step * step) / 2;
@@ -334,6 +345,7 @@ export function RideControl({ buttonMaterials }: { buttonMaterials: { current: M
         drive.time = 0;
       }
     }
+    updatePortal(step, dt);
     drive.boost = Math.max(0, drive.boost - dt * 5);
     // The change to the chrome city: once it's loaded and the ride's been going a while, it's placed a stretch down
     // the street ahead, the sky turns from green night to its sunset as the bike nears it, and the bike's morph runs.

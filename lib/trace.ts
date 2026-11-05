@@ -1,14 +1,15 @@
 import { ride } from './ride';
 
-// The chrome city's boost: a press of the rocket sends a thin trail of light out from it, a star at its end, wandering over
-// the view; keep the pointer on the star and hold on, and the surge builds toward its full speed the longer it's kept up.
-// Fall off it or let go, and it's over (components/trace-overlay.tsx draws it; components/ride-button.tsx feeds the pointer).
-// The first ever, time slows nearly to a stop and the star only moves while it's being traced, waiting if it isn't.
+// The chrome city's boost: a press of the rocket sends a point out from it, trailing behind it, wandering over the view; keep
+// the pointer on the point and hold on, and the surge builds toward its full speed the longer it's kept up. Fall off it or
+// let go, and it's over (components/trace-overlay.tsx draws it, in one of components/trace-looks; components/ride-button.tsx
+// feeds the pointer). The first ever, time slows nearly to a stop and the point only moves while it's being traced, waiting
+// if it isn't.
 
 export const TRACE = {
   /** How long it takes to build to full speed (s). */
   build: 11,
-  /** How far off the star the pointer can be, as a share of the view's shorter side (and tighter once it's built). */
+  /** How far off the point the pointer can be, as a share of the view's shorter side (and tighter once it's built). */
   reach: 0.1,
   tight: 0.075,
   /** How long off it before it's lost (s); and how long at the start to catch it. */
@@ -18,27 +19,30 @@ export const TRACE = {
   trail: 2,
 };
 
-type Point = { x: number; y: number; age: number };
+/** A point of the trail: where it is, how long ago, and `s`, how far along the whole way it was laid (CSS px). */
+export type TracePoint = { x: number; y: number; age: number; s: number };
 
 export const trace = {
   active: false,
+  /** Which of components/trace-looks it's drawn in (the overlay sets it); the shader's and the bloom's edge follow it. */
+  look: 0,
   /** They've held on a while: no more showing what's wanted. */
   taught: false,
-  /** Showing what's wanted: time slowed, the star waiting on the pointer. */
+  /** Showing what's wanted: time slowed, the point waiting on the pointer. */
   teaching: false,
   /** How fast the ride's running (1 full speed): components/three/ride.tsx. */
   slow: 1,
   /** The press is held. */
   down: false,
-  /** How fast the star's going along its way now: eased, so it gathers pace. */
+  /** How fast the point's going along its way now: eased, so it gathers pace. */
   pace: 0,
   t: 0,
-  /** Seconds on the star this go, and how long off it just now. */
+  /** Seconds on the point this go, and how long off it just now. */
   held: 0,
   off: 0,
   /** How far it's built (0 to 1): the surge's strength. */
   level: 0,
-  /** The star and the pointer on the screen (CSS px). */
+  /** The point and the pointer on the screen (CSS px). */
   x: 0,
   y: 0,
   px: 0,
@@ -49,11 +53,18 @@ export const trace = {
   fromY: 0,
   along: 0,
   shape: [0, 0, 0, 0],
-  trail: [] as Point[],
-  /** The trail dying away once it's over (1 down to 0); red if it was lost rather than let go. */
+  trail: [] as TracePoint[],
+  /** How far the point's gone in all this go (CSS px). */
+  way: 0,
+  /** The trail dying away once it's over (1 down to 0), and whether it was lost rather than let go. */
   dying: 0,
   lost: false,
 };
+
+/** How far off the point the pointer can be right now (CSS px), `built` 0 to 1. */
+export function traceReach(built: number, teaching: boolean) {
+  return Math.min(window.innerWidth, window.innerHeight) * (teaching ? 0.14 : TRACE.reach + (TRACE.tight - TRACE.reach) * built);
+}
 
 export function startTrace(x: number, y: number, px = x, py = y) {
   const r = trace;
@@ -80,6 +91,7 @@ export function startTrace(x: number, y: number, px = x, py = y) {
   });
   r.shape = [0, 1, 2, 3].map(() => Math.random() * Math.PI * 2);
   r.trail.length = 0;
+  r.way = 0;
   ride.drive.cruise = true;
 }
 
@@ -100,7 +112,7 @@ export function endTrace(lost = false) {
   ride.drive.shedding = true;
 }
 
-/** Runs it on: the star along its way, checked against the pointer. `allowed`: riding, in the chrome city, not pulled up. */
+/** Runs it on: the point along its way, checked against the pointer. `allowed`: riding, in the chrome city, not pulled up. */
 export function updateTrace(dt: number, allowed: boolean) {
   const r = trace;
   r.dying = Math.max(0, r.dying - dt / 0.55);
@@ -117,8 +129,7 @@ export function updateTrace(dt: number, allowed: boolean) {
   const built = Math.min(1, r.held / TRACE.build);
   const w = window.innerWidth;
   const h = window.innerHeight;
-  const reach = Math.min(w, h) * (r.teaching ? 0.14 : TRACE.reach + (TRACE.tight - TRACE.reach) * built);
-  r.on = Math.hypot(r.px - r.x, r.py - r.y) <= reach;
+  r.on = Math.hypot(r.px - r.x, r.py - r.y) <= traceReach(built, r.teaching);
   // Being taught it only moves while it's being traced, and slowly.
   const traced = r.on && r.down;
   r.t += r.teaching ? (traced ? dt * 0.3 : 0) : dt;
@@ -133,9 +144,12 @@ export function updateTrace(dt: number, allowed: boolean) {
   // (It sets out from the button, easing onto its way.)
   const e = Math.min(1, r.t / 1.1);
   const out = e * e * (3 - 2 * e);
+  const lastX = r.x;
+  const lastY = r.y;
   r.x = r.fromX + (gx - r.fromX) * out;
   r.y = r.fromY + (gy - r.fromY) * out;
-  r.trail.push({ x: r.x, y: r.y, age: 0 });
+  r.way += Math.hypot(r.x - lastX, r.y - lastY);
+  r.trail.push({ x: r.x, y: r.y, age: 0, s: r.way });
   if (r.teaching) {
     // (Held on for a few seconds, it's got it: time comes back.)
     if (traced) r.held += dt;
